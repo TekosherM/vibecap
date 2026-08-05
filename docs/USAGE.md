@@ -49,6 +49,9 @@ Vibecap is designed so **several processes can run at once**:
 - Each MCP process writes live frames under `…/live/session-<pid>/`.
 - Budget + feedback stay **shared** via the config directory so the human sees all agent requests.
 - Window close **hides to tray** (Quit from the tray menu fully exits).
+- **S** / **R** in the focused app take a screenshot or toggle recording; **Ctrl+Shift+3** / **Ctrl+Shift+2** work globally (including from the tray).
+- While recording, the tray shows a live **● mm:ss** timer and the menu item becomes **Stop Recording**.
+- Screen recording is **video-only by default** (audio off until you enable it).
 
 Headless capture example:
 

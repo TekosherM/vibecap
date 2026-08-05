@@ -121,7 +121,18 @@ vibecap --hidden     # start in tray only
 vibecap --no-tray    # classic window; close quits
 ```
 
-Closing the window **hides to the tray** (does not quit). Use **Quit Vibecap** from the tray menu to exit. Tray actions: Show, Hide, Screenshot, Feedback inbox, Quit.
+Closing the window **hides to the tray** (does not quit). Use **Quit Vibecap** from the tray menu to exit.
+
+| Shortcut | Action |
+| :--- | :--- |
+| **S** (window focused) | Screenshot |
+| **R** (window focused) | Start / stop recording |
+| **Ctrl+Shift+3** (global) | Screenshot |
+| **Ctrl+Shift+2** (global) | Start / stop recording |
+
+**Tray menu:** Show · Hide · Screenshot · Start/Stop Recording (live `● mm:ss` in the menu bar while recording) · Feedback · Quit.
+
+Recording is **video-only by default**; enable “Include audio” on the Capture tab when needed.
 
 ### Headless screenshot
 
