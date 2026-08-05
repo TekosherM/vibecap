@@ -1,3 +1,5 @@
+mod platform;
+
 use eframe::egui;
 use std::process::{Command, Child};
 use std::path::PathBuf;
@@ -11,6 +13,13 @@ use rfd::FileDialog;
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+
+use platform::{
+    capture_live_frame, capture_screenshot_interactive, capture_to_media_dir, config_dir as platform_config_dir,
+    cont_process, export_gif_clip, focus_app, live_dir as platform_live_dir, media_dir, media_dir_display,
+    open_path, record_screen_clip, reveal_in_file_manager, spawn_screen_recorder, spawn_voice_memo,
+    stop_process, LiveFormat,
+};
 
 static LIVE_INSPECTION_RUNNING: AtomicBool = AtomicBool::new(false);
 static LATEST_LIVE_GIF: OnceLock<Mutex<String>> = OnceLock::new();
@@ -66,41 +75,21 @@ struct MediaItem {
     size_str: String,
 }
 
-// ---------- Paths (macOS defaults today; cross-platform abstraction is planned) ----------
+// ---------- Paths / capture (see `platform` module) ----------
 
-/// Default media folder for screenshots, videos, and GIFs.
 fn default_media_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let dir = PathBuf::from(format!("{}/Movies/Vibecap", home));
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    media_dir()
 }
 
-/// Live-inspection frames directory under the media folder.
 fn default_live_dir() -> PathBuf {
-    let dir = default_media_dir().join("live");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    platform_live_dir()
 }
 
-/// Headless full-screen screenshot via macOS `screencapture`. Returns the output path on success.
 fn capture_screenshot_to_media_dir() -> Result<PathBuf, String> {
-    let out = default_media_dir().join(format!(
-        "screenshot_{}.jpg",
-        Local::now().format("%Y-%m-%d_%H-%M-%S")
-    ));
-    let status = Command::new("screencapture")
-        .args(["-x", "-t", "jpg", out.to_str().unwrap_or_default()])
-        .status()
-        .map_err(|e| format!("could not start screencapture: {}", e))?;
-    if status.success() {
-        Ok(out)
-    } else {
-        Err("screencapture failed (grant Screen Recording permission in System Settings)".into())
-    }
+    capture_to_media_dir()
 }
 
-// ---------- Agent Budget & Feedback (shared between app & MCP server via ~/.config/vibecap) ----------
+// ---------- Agent Budget & Feedback (shared between app & MCP server via platform config dir) ----------
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct BudgetConfig {
@@ -141,10 +130,7 @@ struct FeedbackResponse {
 }
 
 fn vibecap_config_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let dir = PathBuf::from(format!("{}/.config/vibecap", home));
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    platform_config_dir()
 }
 
 fn budget_file_path() -> PathBuf { vibecap_config_dir().join("budget.json") }
@@ -462,8 +448,8 @@ impl VibecapApp {
         app
     }
 
-    fn show_toast(&mut self, message: &str) {
-        self.toast_message = Some((message.to_string(), Instant::now()));
+    fn show_toast(&mut self, message: impl Into<String>) {
+        self.toast_message = Some((message.into(), Instant::now()));
     }
 
     fn toggle_voice_memo(&mut self) {
@@ -481,17 +467,15 @@ impl VibecapApp {
             let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
             let audio_file = self.save_dir.join(format!("voice_note_{}.m4a", timestamp));
             self.active_voice_memo_path = Some(audio_file.clone());
-            
-            let mut cmd = Command::new("ffmpeg");
-            cmd.arg("-y").arg("-f").arg("avfoundation").arg("-i").arg(":0");
-            cmd.arg("-c:a").arg("aac").arg(audio_file.to_str().unwrap());
-            cmd.stdin(std::process::Stdio::piped());
-            
-            if let Ok(c) = cmd.spawn() {
-                self.voice_memo_child = Some(c);
-                self.is_recording_voice_memo = true;
-                self.voice_memo_start = Some(Instant::now());
-                self.show_toast("🎙 Recording Voice Note... Speak now!");
+
+            match spawn_voice_memo(&audio_file) {
+                Ok(c) => {
+                    self.voice_memo_child = Some(c);
+                    self.is_recording_voice_memo = true;
+                    self.voice_memo_start = Some(Instant::now());
+                    self.show_toast("🎙 Recording Voice Note... Speak now!");
+                }
+                Err(e) => self.show_toast(format!("🎙 Voice note failed: {}", e)),
             }
         }
     }
@@ -801,18 +785,14 @@ impl VibecapApp {
         if let Some(child) = &self.child_process {
             let pid = child.id();
             if self.is_paused {
-                #[cfg(target_family = "unix")]
-                let _ = Command::new("kill").args(&["-CONT", &pid.to_string()]).status();
-                
+                cont_process(pid);
                 self.segment_start = Some(Instant::now());
                 self.is_paused = false;
             } else {
                 if let Some(start) = self.segment_start.take() {
                     self.accumulated_duration += start.elapsed();
                 }
-                #[cfg(target_family = "unix")]
-                let _ = Command::new("kill").args(&["-STOP", &pid.to_string()]).status();
-                
+                stop_process(pid);
                 self.is_paused = true;
             }
         }
@@ -821,9 +801,7 @@ impl VibecapApp {
     fn cancel_recording(&mut self, ctx: &egui::Context) {
         if let Some(mut child) = self.child_process.take() {
             if self.is_paused {
-                let pid = child.id();
-                #[cfg(target_family = "unix")]
-                let _ = Command::new("kill").args(&["-CONT", &pid.to_string()]).status();
+                cont_process(child.id());
             }
             let _ = child.kill();
             let _ = child.wait();
@@ -846,9 +824,7 @@ impl VibecapApp {
     fn stop_recording(&mut self, ctx: &egui::Context) {
         if let Some(mut child) = self.child_process.take() {
             if self.is_paused {
-                let pid = child.id();
-                #[cfg(target_family = "unix")]
-                let _ = Command::new("kill").args(&["-CONT", &pid.to_string()]).status();
+                cont_process(child.id());
             }
             if let Some(mut stdin) = child.stdin.take() {
                 let _ = stdin.write_all(b"q\n");
@@ -909,19 +885,11 @@ impl VibecapApp {
             if is_screenshot {
                 let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
                 let shot_file = save_dir.join(format!("screenshot_{}.jpg", timestamp));
-                let mut cmd = Command::new("screencapture");
-                cmd.arg("-x");
-                cmd.arg("-t").arg("jpg");
-                match capture_target {
-                    CaptureTarget::Fullscreen => {}
-                    CaptureTarget::Region | CaptureTarget::Window => { cmd.arg("-i"); }
-                }
-                cmd.arg(shot_file.to_str().unwrap());
-                
-                if let Ok(mut c) = cmd.spawn() {
-                    let _ = c.wait();
-                }
-                
+                let interactive = matches!(
+                    capture_target,
+                    CaptureTarget::Region | CaptureTarget::Window
+                );
+                let _ = capture_screenshot_interactive(&shot_file, interactive);
                 let _ = screenshot_tx.send(shot_file);
                 ctx_clone.request_repaint();
             } else {
@@ -934,39 +902,33 @@ impl VibecapApp {
     fn execute_capture(&mut self, ctx: &egui::Context) {
         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
         let mp4_file = self.save_dir.join(format!("video_{}.mp4", timestamp));
-        
-        let mut cmd = Command::new("ffmpeg");
-        cmd.arg("-y");
-        cmd.arg("-f").arg("avfoundation");
-        cmd.arg("-r").arg(self.fps_target.to_string());
-        
-        let device_str = if self.capture_audio { "1:0" } else { "1:none" };
-        cmd.arg("-i").arg(device_str);
-        
-        if self.capture_target == CaptureTarget::Region {
-            if let Some(rect) = self.selected_region {
-                let w = rect.width();
-                let h = rect.height();
-                let x = rect.min.x;
-                let y = rect.min.y;
-                cmd.arg("-vf").arg(format!("crop={}:{}:{}:{}", w as i32, h as i32, x as i32, y as i32));
+
+        let crop = if self.capture_target == CaptureTarget::Region {
+            self.selected_region.map(|rect| {
+                (
+                    rect.width() as i32,
+                    rect.height() as i32,
+                    rect.min.x as i32,
+                    rect.min.y as i32,
+                )
+            })
+        } else {
+            None
+        };
+
+        match spawn_screen_recorder(&mp4_file, self.fps_target, self.capture_audio, crop) {
+            Ok(c) => {
+                self.child_process = Some(c);
+                self.current_mp4_file = Some(mp4_file);
+                self.is_recording = true;
+                self.is_paused = false;
+                self.accumulated_duration = Duration::ZERO;
+                self.segment_start = Some(Instant::now());
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             }
-        }
-        
-        cmd.arg("-c:v").arg("libx264");
-        cmd.arg("-pix_fmt").arg("yuv420p");
-        cmd.arg(mp4_file.to_str().unwrap());
-        cmd.stdin(std::process::Stdio::piped());
-        
-        if let Ok(c) = cmd.spawn() {
-            self.child_process = Some(c);
-            self.current_mp4_file = Some(mp4_file);
-            self.is_recording = true;
-            self.is_paused = false;
-            self.accumulated_duration = Duration::ZERO;
-            self.segment_start = Some(Instant::now());
-            
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            Err(e) => {
+                self.show_toast(format!("❌ Record failed: {}", e));
+            }
         }
     }
 
@@ -1543,8 +1505,7 @@ impl eframe::App for VibecapApp {
                         egui::CollapsingHeader::new(RichText::new("🤖 Agent Session (live inspection & budget)").color(Color32::from_rgb(0xa2, 0x95, 0x7f)))
                             .default_open(false)
                             .show(ui, |ui| {
-                                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                                let live_dir = format!("{}/Movies/Vibecap/live", home);
+                                let live_dir = default_live_dir().display().to_string();
                                 let (bytes, count) = get_dir_size_bytes(&live_dir);
                                 let mb = (bytes as f64) / (1024.0 * 1024.0);
                                 let cfg = load_budget();
@@ -1611,7 +1572,7 @@ impl eframe::App for VibecapApp {
                                                 self.show_toast("File deleted");
                                             }
                                             if ui.button("📂 Finder").clicked() {
-                                                let _ = Command::new("open").arg("-R").arg(&item_path).spawn();
+                                                let _ = reveal_in_file_manager(&item_path);
                                             }
                                             if item.is_video {
                                                 if ui.button("✂ Edit").clicked() {
@@ -1750,7 +1711,7 @@ impl eframe::App for VibecapApp {
 
                         ui.add_space(15.0);
                         if ui.button("📂 Open Folder in Finder").clicked() {
-                            let _ = Command::new("open").arg("-R").arg(file).spawn();
+                            let _ = reveal_in_file_manager(file);
                         }
                     } else {
                         ui.add_space(20.0);
@@ -1878,7 +1839,7 @@ impl eframe::App for VibecapApp {
                                         ui.label(RichText::new(format!("{} {} — {}", icon, words, req.question)).strong().color(Color32::from_rgb(0xec, 0xe5, 0xd6)));
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                             if ui.button("📂 Open Media").clicked() {
-                                                let _ = Command::new("open").arg(&req.media_path).spawn();
+                                                let _ = open_path(std::path::Path::new(&req.media_path));
                                             }
                                             if req.status != "answered" {
                                                 let lower = req.media_path.to_lowercase();
@@ -2046,8 +2007,7 @@ impl eframe::App for VibecapApp {
                             }
                         });
                         ui.add_space(6.0);
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                        let live_dir = format!("{}/Movies/Vibecap/live", home);
+                        let live_dir = default_live_dir().display().to_string();
                         let (frames, mb, _) = live_usage_snapshot(&live_dir);
                         let cfg_now = load_budget();
                         let frames_cap = if cfg_now.max_frames == 0 { "∞".to_string() } else { cfg_now.max_frames.to_string() };
@@ -2147,7 +2107,7 @@ fn run_mcp_server() {
                         "tools": [
                             {
                                 "name": "vibecap_capture",
-                                "description": "Captures a full-screen screenshot (macOS screencapture) to ~/Movies/Vibecap/. Optionally focuses an app first. For pen/arrow/step-badge annotation, open the desktop app Annotation Studio.",
+                                "description": "Captures a full-screen screenshot to the Vibecap media folder (Videos/Vibecap or ~/Movies/Vibecap). Optionally focuses an app first. For pen/arrow/step-badge annotation, open the desktop app Annotation Studio.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
@@ -2217,7 +2177,7 @@ fn run_mcp_server() {
                                         },
                                         "output_dir": {
                                             "type": "string",
-                                            "description": "Target output directory (default: repo temp folder '.vibecap_temp/live' or '~/Movies/Vibecap/live')"
+                                            "description": "Target output directory (default: platform media folder /live, e.g. Videos/Vibecap/live)"
                                         }
                                     }
                                 }
@@ -2324,8 +2284,7 @@ fn run_mcp_server() {
                             .and_then(|s| s.as_str());
 
                         if let Some(app) = app_name {
-                            let _ = Command::new("open").arg("-a").arg(app).spawn();
-                            std::thread::sleep(Duration::from_millis(400));
+                            let _ = focus_app(app);
                         }
 
                         match capture_screenshot_to_media_dir() {
@@ -2344,29 +2303,30 @@ fn run_mcp_server() {
                         if let Some(reason) = budget_exceeded_reason(&home_live) {
                             (format!("⚠️ BUDGET EXHAUSTED — recording refused: {}. Raise caps with vibecap_set_budget or ask the human to adjust them in the Vibecap app.", reason), true)
                         } else {
-
                         if let Some(app) = app_name {
-                            let _ = Command::new("open").arg("-a").arg(app).spawn();
-                            std::thread::sleep(Duration::from_millis(400));
+                            let _ = focus_app(app);
                         }
 
                         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                        let out_mp4 = format!("{}/Movies/Vibecap/video_{}.mp4", home, timestamp);
-                        let out_gif = format!("{}/Movies/Vibecap/video_{}_clip.gif", home, timestamp);
+                        let media = default_media_dir();
+                        let out_mp4 = media.join(format!("video_{}.mp4", timestamp));
+                        let out_gif = media.join(format!("video_{}_clip.gif", timestamp));
 
-                        let status = Command::new("screencapture")
-                            .args(&["-v", "-V", &duration_secs.to_string(), &out_mp4])
-                            .status();
-
-                        if status.map(|s| s.success()).unwrap_or(false) {
-                            let _ = Command::new("ffmpeg")
-                                .args(&["-i", &out_mp4, "-vf", "fps=15,scale=800:-1:flags=lanczos", "-y", &out_gif])
-                                .status();
-
-                            (format!("Successfully recorded {}s video to {} and exported GIF to {}{}", duration_secs, out_mp4, out_gif, clamp_note), false)
-                        } else {
-                            ("Failed to record video".to_string(), true)
+                        match record_screen_clip(&out_mp4, duration_secs) {
+                            Ok(()) => {
+                                let gif_s = out_gif.display().to_string();
+                                let mp4_s = out_mp4.display().to_string();
+                                // Companion motion GIF for the whole clip (ignore range export failures).
+                                let _ = Command::new("ffmpeg")
+                                    .args([
+                                        "-i", &mp4_s,
+                                        "-vf", "fps=15,scale=800:-1:flags=lanczos",
+                                        "-y", &gif_s,
+                                    ])
+                                    .status();
+                                (format!("Successfully recorded {}s video to {} and exported GIF to {}{}", duration_secs, mp4_s, gif_s, clamp_note), false)
+                            }
+                            Err(e) => (format!("Failed to record video: {}", e), true),
                         }
                         }
                     }
@@ -2377,14 +2337,9 @@ fn run_mcp_server() {
                         let end_time = args.and_then(|a| a.get("end_time")).and_then(|s| s.as_str()).unwrap_or("00:00:05");
 
                         let gif_out = format!("{}_clip.gif", video_path.trim_end_matches(".mp4"));
-                        let status = Command::new("ffmpeg")
-                            .args(&["-ss", start_time, "-to", end_time, "-i", video_path, "-vf", "fps=15,scale=800:-1:flags=lanczos", "-y", &gif_out])
-                            .status();
-
-                        if status.map(|s| s.success()).unwrap_or(false) {
-                            (format!("Exported timeline GIF to {}", gif_out), false)
-                        } else {
-                            ("Failed to export GIF snippet".to_string(), true)
+                        match export_gif_clip(video_path, start_time, end_time, &gif_out) {
+                            Ok(()) => (format!("Exported timeline GIF to {}", gif_out), false),
+                            Err(e) => (format!("Failed to export GIF snippet: {}", e), true),
                         }
                     }
                     "vibecap_start_live_inspection" => {
@@ -2412,13 +2367,13 @@ fn run_mcp_server() {
                             let _ = std::fs::create_dir_all(&live_dir);
 
                             if let Some(app) = &app_name {
-                                let _ = Command::new("open").arg("-a").arg(app).spawn();
-                                std::thread::sleep(Duration::from_millis(400));
+                                let _ = focus_app(app);
                             }
 
                             let dir_clone = live_dir.clone();
                             let fmt_clone = format_choice.clone();
                             std::thread::spawn(move || {
+                                let live_fmt = LiveFormat::from_str_loose(&fmt_clone);
                                 while LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst) {
                                     // Budget enforcement: auto-stop the stream when any cap is reached.
                                     if let Some(reason) = budget_exceeded_reason(&dir_clone) {
@@ -2429,55 +2384,12 @@ fn run_mcp_server() {
                                         }
                                         break;
                                     }
-                                    let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-                                    
-                                    let (latest_frame, timestamped_frame) = match fmt_clone.as_str() {
-                                        "jpg" => {
-                                            let latest = format!("{}/latest.jpg", dir_clone);
-                                            let ts = format!("{}/frame_{}.jpg", dir_clone, timestamp);
-                                            let status = Command::new("screencapture")
-                                                .args(&["-x", "-t", "jpg", &ts])
-                                                .status();
-                                            if status.map(|s| s.success()).unwrap_or(false) {
-                                                let _ = std::fs::copy(&ts, &latest);
-                                                (latest, ts)
-                                            } else {
-                                                (String::new(), String::new())
-                                            }
-                                        }
-                                        "mp4" => {
-                                            let latest = format!("{}/latest.mp4", dir_clone);
-                                            let ts = format!("{}/video_{}.mp4", dir_clone, timestamp);
-                                            let status = Command::new("screencapture")
-                                                .args(&["-v", "-V", &interval_secs.to_string(), &ts])
-                                                .status();
-                                            if status.map(|s| s.success()).unwrap_or(false) {
-                                                let _ = std::fs::copy(&ts, &latest);
-                                                (latest, ts)
-                                            } else {
-                                                (String::new(), String::new())
-                                            }
-                                        }
-                                        _ => { // default: "gif"
-                                            let temp_mp4 = format!("{}/chunk_temp_{}.mp4", dir_clone, timestamp);
-                                            let latest = format!("{}/latest.gif", dir_clone);
-                                            let ts = format!("{}/live_{}.gif", dir_clone, timestamp);
-                                            let status = Command::new("screencapture")
-                                                .args(&["-v", "-V", &interval_secs.to_string(), &temp_mp4])
-                                                .status();
 
-                                            if status.map(|s| s.success()).unwrap_or(false) {
-                                                let _ = Command::new("ffmpeg")
-                                                    .args(&["-i", &temp_mp4, "-vf", "fps=15,scale=800:-1:flags=lanczos", "-y", &latest])
-                                                    .status();
-                                                let _ = std::fs::copy(&latest, &ts);
-                                                let _ = std::fs::remove_file(&temp_mp4);
-                                                (latest, ts)
-                                            } else {
-                                                (String::new(), String::new())
-                                            }
-                                        }
-                                    };
+                                    let (latest_frame, timestamped_frame) =
+                                        match capture_live_frame(&dir_clone, live_fmt, interval_secs) {
+                                            Ok(pair) => pair,
+                                            Err(_) => (String::new(), String::new()),
+                                        };
 
                                     if !timestamped_frame.is_empty() {
                                         if let Ok(mut lock) = get_latest_live_gif_mutex().lock() {
@@ -2485,7 +2397,7 @@ fn run_mcp_server() {
                                         }
                                     }
 
-                                    if fmt_clone == "jpg" {
+                                    if live_fmt == LiveFormat::Jpg {
                                         std::thread::sleep(Duration::from_secs(interval_secs));
                                     }
                                 }
@@ -2714,10 +2626,11 @@ fn main() -> eframe::Result<()> {
         println!("\nFlags:");
         println!("  (none)         Launch the desktop UI");
         println!("  --mcp          Run as Model Context Protocol (MCP) stdio server");
-        println!("  --screenshot   Headless full-screen capture → ~/Movies/Vibecap/");
+        println!("  --screenshot   Headless full-screen capture → {}", media_dir_display());
         println!("  --version, -v  Print version");
         println!("  --help, -h     Print this help");
-        println!("\nDocs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md");
+        println!("\nCapture backend: {}", platform::capture_backend_label());
+        println!("Docs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md");
         println!("MCP tools: vibecap_capture | record_video | export_gif |");
         println!("           start/get/stop_live_inspection | set_budget | get_spending |");
         println!("           request_feedback | get_feedback");

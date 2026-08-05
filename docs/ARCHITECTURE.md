@@ -66,10 +66,19 @@ Mode is chosen in `main()` before any UI init.
 
 External binaries: **ffmpeg**, **screencapture** (macOS).
 
-## Platform note
+## Platform module
 
-Capture paths are **macOS-first** today (`screencapture`, `open -a`, avfoundation). Windows/Linux backends are planned (see README roadmap) behind the same CLI/MCP surface.
+```text
+src/platform/
+  mod.rs      # re-exports + capture_backend_label()
+  paths.rs    # dirs::video_dir / config_dir
+  capture.rs  # screenshot, record, live, voice, gif
+  shell.rs    # focus_app, open_path, reveal_in_file_manager
+  process.rs  # SIGSTOP/CONT (Unix)
+```
+
+macOS uses `screencapture` + avfoundation; Windows `gdigrab`; Linux `x11grab`/grim. See [PLATFORMS.md](PLATFORMS.md).
 
 ## Binary size
 
-Release build is on the order of **~14 MB** (single Mach-O). Size is dominated by egui/eframe, not a web runtime.
+Release build is on the order of **~14 MB**. Size is dominated by egui/eframe, not a web runtime.

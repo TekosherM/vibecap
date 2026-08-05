@@ -4,9 +4,9 @@
 
 | Requirement | Why |
 | :--- | :--- |
-| **macOS** (today) | Capture uses `screencapture` / `open -a` |
-| **ffmpeg** on `PATH` | GIF export, filmstrip, wardrobe video tools |
-| **Screen Recording** permission | System Settings → Privacy & Security → Screen Recording |
+| **OS** | macOS primary; Windows/Linux via ffmpeg (see [PLATFORMS.md](PLATFORMS.md)) |
+| **ffmpeg** on `PATH` | GIF export, filmstrip, wardrobe; required for Win/Linux capture |
+| **Screen Recording** permission (macOS) | System Settings → Privacy & Security → Screen Recording |
 
 Install ffmpeg (Homebrew): `brew install ffmpeg`
 
@@ -40,7 +40,7 @@ OUT=$(vibecap --screenshot)
 echo "Saved: $OUT"
 ```
 
-Default save root: `~/Movies/Vibecap/`
+Default save root: platform Videos folder `/Vibecap` (often `~/Movies/Vibecap` on macOS).
 
 ## Desktop app
 
@@ -118,10 +118,10 @@ See [MCP.md](MCP.md) for full tool schemas.
 
 | Path | Role |
 | :--- | :--- |
-| `~/Movies/Vibecap/` | Screenshots, videos, GIFs |
-| `~/Movies/Vibecap/live/` | Live-inspection stream frames |
-| `~/.config/vibecap/budget.json` | Agent budget caps |
-| `~/.config/vibecap/feedback/` | Request / response inbox |
+| `{Videos}/Vibecap/` | Screenshots, videos, GIFs |
+| `{media}/live/` | Live-inspection stream frames |
+| `{config}/vibecap/budget.json` | Agent budget caps |
+| `{config}/vibecap/feedback/` | Request / response inbox |
 | `.vibecap_temp/` | Optional local temp (gitignored) |
 
 ## Troubleshooting

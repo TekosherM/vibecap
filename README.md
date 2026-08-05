@@ -2,7 +2,8 @@
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20(Windows%2FLinux%20planned)-lightgrey.svg)](#-platform-support)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](docs/PLATFORMS.md)
+[![CI](https://github.com/TekosherM/vibecap/actions/workflows/ci.yml/badge.svg)](https://github.com/TekosherM/vibecap/actions/workflows/ci.yml)
 
 **High-performance native screen recorder, annotation studio, and AI agent visual inspection sidecar.**
 
@@ -129,6 +130,7 @@ SMOKE_CAPTURE=1 ./scripts/smoke_mcp.sh   # also tries screenshot + GIF export
 | [docs/USAGE.md](docs/USAGE.md) | CLI, desktop tabs, agent workflows, troubleshooting |
 | [docs/MCP.md](docs/MCP.md) | All 10 MCP tools, config, disk state |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Single-binary design, deps, size |
+| [docs/PLATFORMS.md](docs/PLATFORMS.md) | macOS / Windows / Linux backends |
 | [docs/TESTING.md](docs/TESTING.md) | Smoke script + manual GUI checklist |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | PR hygiene, keep it lightweight |
 | [skills/vibecap/SKILL.md](skills/vibecap/SKILL.md) | Agent skill definition |
@@ -183,13 +185,13 @@ open -a "iTerm" && sleep 0.4 && screencapture -t jpg ~/Movies/Vibecap/capture.jp
 
 ## 🌍 Platform support
 
-| Platform | Status |
-| :--- | :--- |
-| **macOS** | ✅ Supported (`screencapture`, `open -a`) |
-| **Windows** | 🚧 Planned (ffmpeg gdigrab / Graphics Capture API) |
-| **Linux** | 🚧 Planned (ffmpeg x11grab/pipewire, grim/slurp) |
+| Platform | Capture backend | Status |
+| :--- | :--- | :--- |
+| **macOS** | `screencapture` + ffmpeg | ✅ Primary |
+| **Windows** | ffmpeg `gdigrab` | ✅ Builds; install ffmpeg |
+| **Linux** | ffmpeg `x11grab` / grim | ✅ Builds; X11 or grim |
 
-Cross-platform capture abstraction is the next major engineering track (Phase 3).
+Details: [docs/PLATFORMS.md](docs/PLATFORMS.md). Paths use `dirs` (`video_dir` / `config_dir`).
 
 ---
 
@@ -197,10 +199,10 @@ Cross-platform capture abstraction is the next major engineering track (Phase 3)
 
 | Path | Use |
 | :--- | :--- |
-| `~/Movies/Vibecap/` | Screenshots, videos, GIFs (macOS default) |
-| `~/Movies/Vibecap/live/` | Live inspection stream frames |
+| `{Videos}/Vibecap/` (or `~/Movies/Vibecap`) | Screenshots, videos, GIFs |
+| `{media}/live/` | Live inspection stream frames |
 | `.vibecap_temp/` | Local temp (gitignored) |
-| `~/.config/vibecap/` | Agent budget + feedback inbox state |
+| `{config}/vibecap/` | Agent budget + feedback inbox state |
 
 ---
 
@@ -234,5 +236,6 @@ at your option.
 
 1. ~~Housekeeping & path sanitization~~ · ~~Open-source metadata & dual license~~
 2. ~~Docs + headless smoke tests (CLI/MCP)~~
-3. Cross-platform capture / OS abstraction (`open`, `dirs`, Windows & Linux backends)
-4. Public GitHub releases + CI for macOS (Intel/Apple Silicon), Windows, and Linux binaries
+3. ~~Cross-platform capture abstraction (`src/platform`, dirs/open, Win/Linux ffmpeg)~~
+4. ~~CI matrix (macOS smoke + Win/Linux build)~~
+5. Release binaries / installers; richer Windows audio & Wayland capture
