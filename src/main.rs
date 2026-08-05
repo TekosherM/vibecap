@@ -1,4 +1,5 @@
 mod platform;
+mod tray_ui;
 
 use eframe::egui;
 use std::process::{Command, Child};
@@ -16,10 +17,11 @@ use std::sync::{Mutex, OnceLock};
 
 use platform::{
     capture_live_frame, capture_screenshot_interactive, capture_to_media_dir, config_dir as platform_config_dir,
-    cont_process, export_gif_clip, focus_app, live_dir as platform_live_dir, media_dir, media_dir_display,
-    open_path, record_screen_clip, reveal_in_file_manager, spawn_screen_recorder, spawn_voice_memo,
-    stop_process, LiveFormat,
+    cont_process, export_gif_clip, focus_app, live_dir as platform_live_dir, live_session_dir,
+    media_dir, media_dir_display, open_path, record_screen_clip, reveal_in_file_manager,
+    spawn_screen_recorder, spawn_voice_memo, stop_process, LiveFormat,
 };
+use tray_ui::{TrayAction, TrayController};
 
 static LIVE_INSPECTION_RUNNING: AtomicBool = AtomicBool::new(false);
 static LATEST_LIVE_GIF: OnceLock<Mutex<String>> = OnceLock::new();
@@ -83,6 +85,11 @@ fn default_media_dir() -> PathBuf {
 
 fn default_live_dir() -> PathBuf {
     platform_live_dir()
+}
+
+/// MCP / agent live stream dir — unique per process so multiple agents can run at once.
+fn mcp_live_dir() -> PathBuf {
+    live_session_dir()
 }
 
 fn capture_screenshot_to_media_dir() -> Result<PathBuf, String> {
@@ -300,6 +307,16 @@ struct VibecapApp {
     step_counter: usize,
     
     hotkey_receiver: Option<Receiver<GlobalHotKeyEvent>>,
+    /// Kept alive so the global hotkey stays registered (drop unregisters).
+    #[allow(dead_code)]
+    hotkey_manager: Option<GlobalHotKeyManager>,
+
+    // System tray (menu bar / notification area)
+    tray: Option<TrayController>,
+    /// When false, window close hides to tray instead of exiting.
+    allow_exit: bool,
+    /// Start window hidden (still in tray).
+    start_hidden: bool,
     
     // Region Selection Overlay
     is_selecting_region: bool,
@@ -401,11 +418,19 @@ impl VibecapApp {
         
         cc.egui_ctx.set_visuals(visuals);
 
-        let manager = GlobalHotKeyManager::new().unwrap();
-        let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Digit2);
-        let _ = manager.register(hotkey);
-
-        let receiver = GlobalHotKeyEvent::receiver().clone();
+        // Hotkey registration is best-effort: a second GUI instance may fail to
+        // claim Ctrl+Shift+2 — that is OK (multi-instance is supported).
+        let (hotkey_manager, hotkey_receiver) = match GlobalHotKeyManager::new() {
+            Ok(manager) => {
+                let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Digit2);
+                if manager.register(hotkey).is_ok() {
+                    (Some(manager), Some(GlobalHotKeyEvent::receiver().clone()))
+                } else {
+                    (Some(manager), None)
+                }
+            }
+            Err(_) => (None, None),
+        };
         
         let default_dir = default_media_dir();
 
@@ -419,7 +444,8 @@ impl VibecapApp {
             capture_audio: true,
             fps_target: 30,
             save_dir: default_dir,
-            hotkey_receiver: Some(receiver),
+            hotkey_receiver,
+            hotkey_manager,
             trim_start: "00:00:00".to_string(),
             trim_end: "00:00:05".to_string(),
             export_speed: "1.0".to_string(),
@@ -441,11 +467,52 @@ impl VibecapApp {
             budget_minutes_input: "0".to_string(),
             budget_tier: "standard".to_string(),
             img_resize_pct: 100,
+            allow_exit: false,
+            start_hidden: false,
             ..Default::default()
         };
 
         app.refresh_library();
         app
+    }
+
+    fn show_window(&self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        ctx.request_repaint();
+    }
+
+    fn hide_to_tray(&self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        ctx.request_repaint();
+    }
+
+    fn handle_tray_actions(&mut self, ctx: &egui::Context) {
+        let actions: Vec<TrayAction> = self
+            .tray
+            .as_ref()
+            .map(|t| t.poll_actions())
+            .unwrap_or_default();
+        for action in actions {
+            match action {
+                TrayAction::Show => self.show_window(ctx),
+                TrayAction::Hide => self.hide_to_tray(ctx),
+                TrayAction::Screenshot => {
+                    self.show_window(ctx);
+                    self.trigger_capture(ctx, true);
+                }
+                TrayAction::Feedback => {
+                    self.current_tab = AppTab::Feedback;
+                    self.scan_feedback_requests();
+                    self.show_window(ctx);
+                }
+                TrayAction::Quit => {
+                    self.allow_exit = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
     }
 
     fn show_toast(&mut self, message: impl Into<String>) {
@@ -1158,6 +1225,28 @@ impl VibecapApp {
 
 impl eframe::App for VibecapApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // First frame: honor --hidden (window already created; hide after paint setup).
+        if self.start_hidden {
+            self.start_hidden = false;
+            self.hide_to_tray(ctx);
+        }
+
+        // Close button → hide to tray (multi-agent + human: keep app alive in menu bar).
+        // Tray "Quit" sets allow_exit so the process can terminate.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.tray.is_some() && !self.allow_exit {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.hide_to_tray(ctx);
+                self.show_toast("Hidden to tray — click the menu bar icon to show again.");
+            }
+        }
+
+        self.handle_tray_actions(ctx);
+        // Keep pumping tray events even when the window is hidden.
+        if self.tray.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
+
         
         // --- Region Selection Overlay Window ---
         if self.is_selecting_region {
@@ -2299,7 +2388,7 @@ fn run_mcp_server() {
                         let duration_secs = raw_duration.min(600);
                         let clamp_note = if raw_duration > 600 { " (clamped from your request — 600s max per clip)" } else { "" };
 
-                        let home_live = default_live_dir().display().to_string();
+                        let home_live = mcp_live_dir().display().to_string();
                         if let Some(reason) = budget_exceeded_reason(&home_live) {
                             (format!("⚠️ BUDGET EXHAUSTED — recording refused: {}. Raise caps with vibecap_set_budget or ask the human to adjust them in the Vibecap app.", reason), true)
                         } else {
@@ -2309,8 +2398,10 @@ fn run_mcp_server() {
 
                         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
                         let media = default_media_dir();
-                        let out_mp4 = media.join(format!("video_{}.mp4", timestamp));
-                        let out_gif = media.join(format!("video_{}_clip.gif", timestamp));
+                        // Unique filenames so concurrent agent instances never clash.
+                        let pid = std::process::id();
+                        let out_mp4 = media.join(format!("video_{}_{}.mp4", timestamp, pid));
+                        let out_gif = media.join(format!("video_{}_{}_clip.gif", timestamp, pid));
 
                         match record_screen_clip(&out_mp4, duration_secs) {
                             Ok(()) => {
@@ -2353,11 +2444,12 @@ fn run_mcp_server() {
                         let interval_secs = args.and_then(|a| a.get("interval_secs")).and_then(|v| v.as_u64())
                             .unwrap_or_else(|| match budget_now.analysis_tier.as_str() { "eco" => 5, "intensive" => 1, _ => 3 });
                         
-                        let default_dir = default_live_dir().display().to_string();
+                        // Per-process session dir so several MCP servers can stream at once.
+                        let default_dir = mcp_live_dir().display().to_string();
                         let live_dir = args.and_then(|a| a.get("output_dir")).and_then(|s| s.as_str()).unwrap_or(&default_dir).to_string();
 
                         if LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst) {
-                            ("Live inspection is already running! Call vibecap_get_live_frame to inspect latest frame, or vibecap_stop_live_inspection to stop.".to_string(), false)
+                            ("Live inspection is already running in this MCP process! Call vibecap_get_live_frame, or vibecap_stop_live_inspection. Other agent instances may run their own streams in parallel.".to_string(), false)
                         } else if let Some(reason) = budget_exceeded_reason(&live_dir) {
                             (format!("⚠️ BUDGET EXHAUSTED — live inspection refused: {}. Raise the caps with vibecap_set_budget, ask the human to adjust them in the Vibecap app (Settings → Agent Session & Budget), or clean up {}.", reason, live_dir), true)
                         } else {
@@ -2417,7 +2509,7 @@ fn run_mcp_server() {
                             ("unknown", "", "")
                         };
 
-                        let default_dir = default_live_dir().display().to_string();
+                        let default_dir = mcp_live_dir().display().to_string();
                         let target_dir = if !ts_frame.is_empty() {
                             std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
                         } else {
@@ -2428,7 +2520,7 @@ fn run_mcp_server() {
                         let mb = (bytes as f64) / (1024.0 * 1024.0);
 
                         if !is_running && ts_frame.is_empty() {
-                            ("Live inspection is not running. Call vibecap_start_live_inspection first.".to_string(), true)
+                            ("Live inspection is not running in this MCP process. Call vibecap_start_live_inspection first.".to_string(), true)
                         } else {
                             (format!("Status: live_running={}, format={}, latest_frame={}, timestamped_frame={}\n📊 STORAGE AWARENESS: Total session storage used: {:.2} MB across {} frame files in {}\n{}", is_running, fmt, latest_frame, ts_frame, mb, count, target_dir, budget_status_line(target_dir)), false)
                         }
@@ -2440,7 +2532,7 @@ fn run_mcp_server() {
                         let parts: Vec<&str> = state.split('|').collect();
                         let ts_frame = if parts.len() == 3 { parts[2] } else { "" };
                         
-                        let default_dir = default_live_dir().display().to_string();
+                        let default_dir = mcp_live_dir().display().to_string();
                         let target_dir = if !ts_frame.is_empty() {
                             std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
                         } else {
@@ -2504,7 +2596,7 @@ fn run_mcp_server() {
                         let state = get_latest_live_gif_mutex().lock().map(|l| l.clone()).unwrap_or_default();
                         let parts: Vec<&str> = state.split('|').collect();
                         let ts_frame = if parts.len() == 3 { parts[2] } else { "" };
-                        let default_dir = default_live_dir().display().to_string();
+                        let default_dir = mcp_live_dir().display().to_string();
                         let target_dir = if !ts_frame.is_empty() {
                             std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
                         } else {
@@ -2624,11 +2716,18 @@ fn main() -> eframe::Result<()> {
         println!("Native screen capture, annotation studio, and MCP sidecar for AI agents.");
         println!("\nUsage: vibecap [FLAGS]");
         println!("\nFlags:");
-        println!("  (none)         Launch the desktop UI");
+        println!("  (none)         Launch the desktop UI (system tray enabled)");
         println!("  --mcp          Run as Model Context Protocol (MCP) stdio server");
+        println!("                 Multiple --mcp processes are supported (one per agent/client).");
         println!("  --screenshot   Headless full-screen capture → {}", media_dir_display());
+        println!("  --no-tray      Disable system tray (window close quits the app)");
+        println!("  --hidden       Start hidden in the tray (implies tray)");
         println!("  --version, -v  Print version");
         println!("  --help, -h     Print this help");
+        println!("\nMulti-instance:");
+        println!("  · GUI + one or more `vibecap --mcp` processes can run together.");
+        println!("  · Each MCP process has its own live-inspection session dir.");
+        println!("  · Budget + feedback inbox are shared via config files.");
         println!("\nCapture backend: {}", platform::capture_backend_label());
         println!("Docs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md");
         println!("MCP tools: vibecap_capture | record_video | export_gif |");
@@ -2651,22 +2750,52 @@ fn main() -> eframe::Result<()> {
     }
 
     if args.iter().any(|a| a == "--mcp" || a == "mcp") {
+        // Intentionally no process-wide lock: many agents may each spawn --mcp.
+        eprintln!(
+            "vibecap mcp ready (pid {}, live session {})",
+            std::process::id(),
+            mcp_live_dir().display()
+        );
         run_mcp_server();
         return Ok(());
     }
+
+    let no_tray = args.iter().any(|a| a == "--no-tray");
+    let start_hidden = args.iter().any(|a| a == "--hidden");
+    let enable_tray = !no_tray || start_hidden;
 
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_decorations(true)
             .with_transparent(false)
             .with_inner_size([760.0, 640.0])
-            .with_min_inner_size([640.0, 560.0]),
+            .with_min_inner_size([640.0, 560.0])
+            // Multiple GUI instances are allowed (human + optional second window).
+            .with_title(format!("Vibecap Studio · {}", std::process::id())),
         ..Default::default()
     };
     
     eframe::run_native(
         "Vibecap Studio",
         options,
-        Box::new(|cc| Ok(Box::new(VibecapApp::new(cc)))),
+        Box::new(move |cc| {
+            let mut app = VibecapApp::new(cc);
+            app.start_hidden = start_hidden;
+            if enable_tray {
+                match TrayController::try_new("Vibecap Studio — click to show") {
+                    Ok(tray) => {
+                        app.tray = Some(tray);
+                        app.allow_exit = false;
+                    }
+                    Err(e) => {
+                        eprintln!("warning: system tray unavailable ({e}); close will quit");
+                        app.allow_exit = true;
+                    }
+                }
+            } else {
+                app.allow_exit = true;
+            }
+            Ok(Box::new(app))
+        }),
     )
 }

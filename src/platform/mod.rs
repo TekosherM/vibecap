@@ -12,7 +12,7 @@ pub use capture::{
     capture_live_frame, capture_screenshot_interactive, capture_to_media_dir, export_gif_clip,
     record_screen_clip, spawn_screen_recorder, spawn_voice_memo, LiveFormat,
 };
-pub use paths::{config_dir, live_dir, media_dir, media_dir_display};
+pub use paths::{config_dir, live_dir, live_session_dir, media_dir, media_dir_display};
 pub use process::{cont_process, stop_process};
 pub use shell::{focus_app, open_path, reveal_in_file_manager};
 

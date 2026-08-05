@@ -113,25 +113,31 @@ cargo install --path .
 cargo run --release
 ```
 
-### Desktop app
+### Desktop app (system tray)
 
 ```bash
-vibecap
+vibecap              # window + menu bar / tray icon
+vibecap --hidden     # start in tray only
+vibecap --no-tray    # classic window; close quits
 ```
+
+Closing the window **hides to the tray** (does not quit). Use **Quit Vibecap** from the tray menu to exit. Tray actions: Show, Hide, Screenshot, Feedback inbox, Quit.
 
 ### Headless screenshot
 
 ```bash
-vibecap --screenshot   # prints path under ~/Movies/Vibecap/
+vibecap --screenshot   # prints path under media dir
 ```
 
 Annotation (pen, arrows, step badges) is in the **desktop UI**, not this CLI flag.
 
-### MCP server mode
+### MCP server mode (multi-instance OK)
 
 ```bash
 vibecap --mcp
 ```
+
+Run **one MCP process per agent/client** alongside the human GUI — no single-instance lock. Live inspection uses per-process session folders; budget/feedback are shared.
 
 ### Verify install
 

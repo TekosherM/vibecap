@@ -27,11 +27,28 @@ cargo run --release -- [FLAGS]
 
 | Command | What it does |
 | :--- | :--- |
-| `vibecap` | Launch the desktop UI |
-| `vibecap --mcp` | Stdio MCP server for AI agents |
+| `vibecap` | Launch the desktop UI (system tray / menu bar icon) |
+| `vibecap --mcp` | Stdio MCP server for AI agents (multiple processes OK) |
 | `vibecap --screenshot` | Headless full-screen capture; prints output path |
+| `vibecap --hidden` | Start GUI hidden in the tray |
+| `vibecap --no-tray` | No tray; window close quits the app |
 | `vibecap --version` | Print version |
 | `vibecap --help` | Help |
+
+### Multi-instance (human + agents)
+
+Vibecap is designed so **several processes can run at once**:
+
+| Process | Role |
+| :--- | :--- |
+| `vibecap` (GUI) | Human annotation, feedback inbox, budget supervision, tray |
+| `vibecap --mcp` (agent A) | Cursor / Claude / etc. MCP client #1 |
+| `vibecap --mcp` (agent B) | Another client or second workspace |
+
+- There is **no single-instance lock**.
+- Each MCP process writes live frames under `…/live/session-<pid>/`.
+- Budget + feedback stay **shared** via the config directory so the human sees all agent requests.
+- Window close **hides to tray** (Quit from the tray menu fully exits).
 
 Headless capture example:
 

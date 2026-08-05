@@ -35,9 +35,17 @@ pub fn media_dir() -> PathBuf {
     dir
 }
 
-/// Live-inspection frames directory under the media folder.
+/// Shared live-inspection root under the media folder (GUI status display).
 pub fn live_dir() -> PathBuf {
     let dir = media_dir().join("live");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Per-process live session directory so multiple MCP servers / agents
+/// can stream concurrently without overwriting each other's frames.
+pub fn live_session_dir() -> PathBuf {
+    let dir = live_dir().join(format!("session-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     dir
 }

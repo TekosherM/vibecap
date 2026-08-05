@@ -25,15 +25,18 @@ Use **Vibecap Studio** when pair-programming or vibe coding to capture screensho
 # Install once
 cargo install --path .
 
-# Desktop UI (annotation studio, editor, feedback inbox)
+# Desktop UI (annotation studio, editor, feedback inbox) + menu bar tray
 vibecap
+# vibecap --hidden   # start in tray only
+# vibecap --no-tray  # close quits (no tray)
 
-# Headless screenshot → prints path under ~/Movies/Vibecap/
+# Headless screenshot → prints path under media dir
 vibecap --screenshot
 
-# MCP stdio server (preferred for agents)
+# MCP stdio server (preferred for agents). Multiple --mcp processes OK.
 vibecap --mcp
 ```
+
 
 MCP client config (portable — no machine-local paths):
 
