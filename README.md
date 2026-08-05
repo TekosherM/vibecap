@@ -81,6 +81,25 @@ Vibecap Studio is a lightweight pure-Rust desktop app (`eframe` / `egui`) with a
 - [ffmpeg](https://ffmpeg.org/) on `PATH` (GIF export, filmstrip, wardrobe video tools)
 - **macOS** Screen Recording permission for the terminal / app (System Settings → Privacy & Security)
 
+### Prebuilt binaries
+
+Download the latest release for your platform from  
+**https://github.com/TekosherM/vibecap/releases**
+
+```bash
+# Example: macOS Apple Silicon
+tar -xzf vibecap-aarch64-apple-darwin.tar.gz
+sudo mv vibecap-aarch64-apple-darwin/vibecap /usr/local/bin/
+vibecap --help
+```
+
+| Asset | Platform |
+| :--- | :--- |
+| `vibecap-aarch64-apple-darwin.tar.gz` | macOS Apple Silicon |
+| `vibecap-x86_64-apple-darwin.tar.gz` | macOS Intel |
+| `vibecap-x86_64-unknown-linux-gnu.tar.gz` | Linux x86_64 |
+| `vibecap-x86_64-pc-windows-msvc.zip` | Windows x86_64 |
+
 ### Build from source
 
 ```bash
@@ -238,4 +257,5 @@ at your option.
 2. ~~Docs + headless smoke tests (CLI/MCP)~~
 3. ~~Cross-platform capture abstraction (`src/platform`, dirs/open, Win/Linux ffmpeg)~~
 4. ~~CI matrix (macOS smoke + Win/Linux build)~~
-5. Release binaries / installers; richer Windows audio & Wayland capture
+5. ~~GitHub Release binaries (tag `v*`)~~
+6. Richer Windows audio & Wayland capture; optional installers

@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: vibecap-aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: vibecap-x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: vibecap-x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: vibecap-x86_64-pc-windows-msvc
+            exe: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libssl-dev libgtk-3-dev \
+            libasound2-dev libudev-dev pkg-config
+
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          BIN="target/${{ matrix.target }}/release/vibecap"
+          STAGE="${{ matrix.asset }}"
+          mkdir -p "dist/$STAGE"
+          cp "$BIN" "dist/$STAGE/vibecap"
+          cp README.md LICENSE-MIT LICENSE-APACHE "dist/$STAGE/" 2>/dev/null || true
+          tar -C dist -czf "dist/${{ matrix.asset }}.tar.gz" "$STAGE"
+          echo "ASSET=dist/${{ matrix.asset }}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          BIN="target/${{ matrix.target }}/release/vibecap.exe"
+          STAGE="${{ matrix.asset }}"
+          mkdir -p "dist/$STAGE"
+          cp "$BIN" "dist/$STAGE/vibecap.exe"
+          cp README.md LICENSE-MIT LICENSE-APACHE "dist/$STAGE/" 2>/dev/null || true
+          (cd dist && tar -a -cf "${{ matrix.asset }}.zip" "$STAGE")
+          echo "ASSET=dist/${{ matrix.asset }}.zip" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    name: publish-github-release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten assets
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*
+          body: |
+            ## Vibecap ${{ github.ref_name }}
+
+            Native screen recorder, annotation studio, and MCP sidecar for AI coding agents.
+
+            ### Assets
+            | File | Platform |
+            | :--- | :--- |
+            | `vibecap-aarch64-apple-darwin.tar.gz` | macOS Apple Silicon |
+            | `vibecap-x86_64-apple-darwin.tar.gz` | macOS Intel |
+            | `vibecap-x86_64-unknown-linux-gnu.tar.gz` | Linux x86_64 |
+            | `vibecap-x86_64-pc-windows-msvc.zip` | Windows x86_64 |
+
+            ### Install (example, macOS Apple Silicon)
+            ```bash
+            tar -xzf vibecap-aarch64-apple-darwin.tar.gz
+            sudo mv vibecap-aarch64-apple-darwin/vibecap /usr/local/bin/
+            vibecap --help
+            ```
+
+            Requires **ffmpeg** on `PATH` for GIF export / editor tools.
+            macOS: grant **Screen Recording** permission.
+
+            Docs: [USAGE](https://github.com/TekosherM/vibecap/blob/master/docs/USAGE.md) · [MCP](https://github.com/TekosherM/vibecap/blob/master/docs/MCP.md) · [PLATFORMS](https://github.com/TekosherM/vibecap/blob/master/docs/PLATFORMS.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
