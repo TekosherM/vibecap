@@ -1594,7 +1594,7 @@ impl eframe::App for VibecapApp {
             match self.current_tab {
                 AppTab::Capture => {
                     ui.vertical_centered(|ui| {
-                        ui.add_space(8.0);
+                        ui.add_space(12.0);
                         ui.heading(
                             RichText::new("Capture")
                                 .size(26.0)
@@ -1605,64 +1605,9 @@ impl eframe::App for VibecapApp {
                             RichText::new("Screenshot · screen record · agent-ready media")
                                 .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
                         );
-                        ui.add_space(16.0);
+                        ui.add_space(22.0);
 
-                        // ── Target ───────────────────────────────
-                        Frame::none()
-                            .fill(Color32::from_rgb(0x1e, 0x17, 0x0f))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(0x3d, 0x2e, 0x1a)))
-                            .rounding(Rounding::same(12.0))
-                            .inner_margin(14.0)
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new("TARGET")
-                                        .small()
-                                        .color(Color32::from_rgb(0xf5, 0x9e, 0x4b))
-                                        .strong(),
-                                );
-                                ui.add_space(6.0);
-                                ui.horizontal(|ui| {
-                                    ui.radio_value(&mut self.capture_target, CaptureTarget::Fullscreen, "Full Screen");
-                                    ui.radio_value(&mut self.capture_target, CaptureTarget::Region, "Region");
-                                    ui.radio_value(&mut self.capture_target, CaptureTarget::Window, "Window");
-                                });
-                            });
-
-                        ui.add_space(10.0);
-
-                        // ── Options ──────────────────────────────
-                        Frame::none()
-                            .fill(Color32::from_rgb(0x1e, 0x17, 0x0f))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(0x3d, 0x2e, 0x1a)))
-                            .rounding(Rounding::same(12.0))
-                            .inner_margin(14.0)
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new("OPTIONS")
-                                        .small()
-                                        .color(Color32::from_rgb(0xf5, 0x9e, 0x4b))
-                                        .strong(),
-                                );
-                                ui.add_space(6.0);
-                                ui.horizontal(|ui| {
-                                    ui.checkbox(&mut self.capture_audio, "Include audio");
-                                    ui.add_space(16.0);
-                                    ui.label(RichText::new("FPS").strong().color(Color32::from_rgb(0xf5, 0x9e, 0x4b)));
-                                    ui.selectable_value(&mut self.fps_target, 30, "30");
-                                    ui.selectable_value(&mut self.fps_target, 60, "60");
-                                });
-                                if !self.capture_audio {
-                                    ui.label(
-                                        RichText::new("Video only (default). Enable “Include audio” for mic/system sound.")
-                                            .small()
-                                            .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                                    );
-                                }
-                            });
-
-                        ui.add_space(18.0);
-
-                        // ── Actions ──────────────────────────────
+                        // ── Primary actions (top) ────────────────
                         ui.horizontal(|ui| {
                             ui.add_space(ui.available_width() / 2.0 - 180.0);
 
@@ -1675,7 +1620,8 @@ impl eframe::App for VibecapApp {
                             .stroke(Stroke::new(1.5_f32, Color32::from_rgb(0xf5, 0x9e, 0x4b)))
                             .rounding(Rounding::same(10.0));
 
-                            if ui.add_sized([170.0, 52.0], screenshot_btn)
+                            if ui
+                                .add_sized([170.0, 52.0], screenshot_btn)
                                 .on_hover_text("Shortcut: S (in app) · Ctrl+Shift+3 (global)")
                                 .clicked()
                             {
@@ -1721,36 +1667,38 @@ impl eframe::App for VibecapApp {
                             }
                         });
 
-                        ui.add_space(14.0);
-                        Frame::none()
-                            .fill(Color32::from_rgb(0x18, 0x13, 0x0c))
-                            .rounding(Rounding::same(8.0))
-                            .inner_margin(10.0)
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new("SHORTCUTS")
-                                        .small()
-                                        .color(Color32::from_rgb(0xf5, 0x9e, 0x4b))
-                                        .strong(),
-                                );
-                                ui.label(
-                                    RichText::new("In app:  S = screenshot   ·   R = start/stop record")
-                                        .small()
-                                        .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                                );
-                                ui.label(
-                                    RichText::new("Global:  Ctrl+Shift+3 = screenshot   ·   Ctrl+Shift+2 = record")
-                                        .small()
-                                        .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                                );
-                                ui.label(
-                                    RichText::new("Tray:  Screenshot · Start/Stop Recording (with live timer)")
-                                        .small()
-                                        .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                                );
-                            });
+                        ui.add_space(18.0);
 
-                        ui.add_space(12.0);
+                        // ── Subtle options (below buttons) ───────
+                        ui.horizontal(|ui| {
+                            ui.add_space(ui.available_width() / 2.0 - 200.0);
+                            ui.label(
+                                RichText::new("Target")
+                                    .small()
+                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                            );
+                            ui.add_space(6.0);
+                            ui.radio_value(&mut self.capture_target, CaptureTarget::Fullscreen, "Full");
+                            ui.radio_value(&mut self.capture_target, CaptureTarget::Region, "Region");
+                            ui.radio_value(&mut self.capture_target, CaptureTarget::Window, "Window");
+                        });
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(ui.available_width() / 2.0 - 80.0);
+                            ui.checkbox(
+                                &mut self.capture_audio,
+                                RichText::new("Include audio")
+                                    .small()
+                                    .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
+                            );
+                        });
+                        ui.label(
+                            RichText::new("S / R in app  ·  Ctrl+Shift+3 / 2 global  ·  FPS in Settings")
+                                .small()
+                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                        );
+
+                        ui.add_space(16.0);
                         egui::CollapsingHeader::new(
                             RichText::new("🤖 Agent session (live inspection & budget)")
                                 .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
@@ -2203,12 +2151,20 @@ impl eframe::App for VibecapApp {
                     
                     ui.add_space(15.0);
                     ui.group(|ui| {
-                        ui.label(RichText::new("DEFAULT FRAMERATE").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
+                        ui.label(RichText::new("RECORDING").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
                         ui.add_space(4.0);
+                        ui.label(RichText::new("Framerate").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
                         ui.horizontal(|ui| {
                             ui.radio_value(&mut self.fps_target, 30, "30 FPS (Balanced)");
                             ui.radio_value(&mut self.fps_target, 60, "60 FPS (Pro High-FPS)");
                         });
+                        ui.add_space(6.0);
+                        ui.checkbox(&mut self.capture_audio, "Include audio when recording");
+                        ui.label(
+                            RichText::new("Video-only by default. Enable audio for mic/system sound (platform-dependent).")
+                                .small()
+                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                        );
                     });
                     
                     ui.add_space(15.0);
