@@ -67,27 +67,77 @@ pub fn open_path(path: &Path) -> Result<(), String> {
 
 /// Reveal a file in the system file manager (Finder / Explorer / file manager).
 pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!("path does not exist: {}", path.display()));
+    }
+
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
-            .args(["-R", path.to_str().unwrap_or("")])
-            .spawn()
-            .map_err(|e| format!("open -R failed: {}", e))?;
-        return Ok(());
+        // Prefer AppleScript → real Finder. `open -R` can fail silently when
+        // NSFileViewer points at a missing third-party app (e.g. Path Finder).
+        let posix = path.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+        let script_reveal = format!(
+            "tell application \"Finder\" to reveal POSIX file \"{}\"",
+            posix
+        );
+        let status = Command::new("osascript")
+            .args(["-e", &script_reveal, "-e", "tell application \"Finder\" to activate"])
+            .status();
+        if status.map(|s| s.success()).unwrap_or(false) {
+            return Ok(());
+        }
+
+        // Fallback: open -R with OsStr path (no UTF-8 loss)
+        let status = Command::new("open").arg("-R").arg(path).status();
+        if status.map(|s| s.success()).unwrap_or(false) {
+            return Ok(());
+        }
+
+        // Last resort: open containing folder in Finder
+        if let Some(parent) = path.parent() {
+            let _ = Command::new("open").arg("-a").arg("Finder").arg(parent).status();
+            return Ok(());
+        }
+        return Err("could not reveal file in Finder".into());
     }
 
     #[cfg(target_os = "windows")]
     {
-        let arg = format!("/select,{}", path.display());
-        Command::new("explorer")
-            .arg(arg)
-            .spawn()
-            .map_err(|e| format!("explorer failed: {}", e))?;
-        return Ok(());
+        // explorer /select needs a path without extra quoting quirks
+        let status = Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .status();
+        if status.map(|s| s.success()).unwrap_or(false) {
+            return Ok(());
+        }
+        if let Some(parent) = path.parent() {
+            let _ = Command::new("explorer").arg(parent).status();
+            return Ok(());
+        }
+        return Err("could not reveal file in Explorer".into());
     }
 
     #[cfg(target_os = "linux")]
     {
+        // Try dbus file manager interface, then open parent
+        if let Some(uri) = path.to_str().map(|p| format!("file://{p}")) {
+            let ok = Command::new("dbus-send")
+                .args([
+                    "--session",
+                    "--dest=org.freedesktop.FileManager1",
+                    "--type=method_call",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowItems",
+                    &format!("array:string:{}", uri),
+                    "string:",
+                ])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if ok {
+                return Ok(());
+            }
+        }
         if let Some(parent) = path.parent() {
             return open_path(parent);
         }

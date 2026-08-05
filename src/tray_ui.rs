@@ -45,7 +45,7 @@ impl TrayController {
         let record_item = MenuItem::new("Start Recording\t⌃⇧2", true, None);
 
         // ── Agents ──────────────────────────────────────────────
-        let feedback_item = MenuItem::new("Feedback Inbox", true, None);
+        let feedback_item = MenuItem::new("Agent Inbox", true, None);
 
         // ── App ─────────────────────────────────────────────────
         let quit_item = MenuItem::new("Quit Vibecap", true, None);

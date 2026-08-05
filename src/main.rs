@@ -69,13 +69,60 @@ struct AnnotationAction {
     badge_number: usize,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MediaCategory {
+    Screenshot,
+    Video,
+    Gif,
+    Audio,
+    Note,
+}
+
+impl MediaCategory {
+    fn label(self) -> &'static str {
+        match self {
+            MediaCategory::Screenshot => "Screenshots",
+            MediaCategory::Video => "Videos",
+            MediaCategory::Gif => "GIFs",
+            MediaCategory::Audio => "Audio",
+            MediaCategory::Note => "Notes",
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            MediaCategory::Screenshot => "📸",
+            MediaCategory::Video => "🎥",
+            MediaCategory::Gif => "🎞",
+            MediaCategory::Audio => "🎙",
+            MediaCategory::Note => "📝",
+        }
+    }
+
+    fn from_ext(ext: &str) -> Option<Self> {
+        match ext {
+            "png" | "jpg" | "jpeg" | "webp" => Some(MediaCategory::Screenshot),
+            "mp4" | "mov" | "webm" | "mkv" => Some(MediaCategory::Video),
+            "gif" => Some(MediaCategory::Gif),
+            "m4a" | "mp3" | "wav" | "aac" => Some(MediaCategory::Audio),
+            "txt" | "md" => Some(MediaCategory::Note),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct MediaItem {
     path: PathBuf,
     name: String,
-    is_video: bool,
     size_str: String,
+    category: MediaCategory,
+    /// Unix secs for sort (newest first).
+    modified_secs: u64,
 }
+
+/// Max rows shown at once in the library (newest first). User can load more.
+const LIBRARY_PAGE_SIZE: usize = 40;
 
 // ---------- Paths / capture (see `platform` module) ----------
 
@@ -284,7 +331,14 @@ struct VibecapApp {
     current_mp4_file: Option<PathBuf>,
     latest_screenshot: Option<PathBuf>,
     library_items: Vec<MediaItem>,
+    /// "All" | category labels from MediaCategory::label()
     library_filter: String,
+    /// How many filtered items to show (starts at LIBRARY_PAGE_SIZE).
+    library_show_limit: usize,
+    /// Paths selected for bulk open/delete.
+    library_selected: std::collections::HashSet<PathBuf>,
+    /// Pending confirm for clear-all in current category.
+    library_confirm_clear: bool,
     
     // Edit tab & Video Processing
     trim_start: String,
@@ -471,6 +525,9 @@ impl VibecapApp {
             ffmpeg_tx: Some(ffmpeg_tx),
             ffmpeg_rx: Some(ffmpeg_rx),
             library_filter: "All".to_string(),
+            library_show_limit: LIBRARY_PAGE_SIZE,
+            library_selected: std::collections::HashSet::new(),
+            library_confirm_clear: false,
             budget_frames_input: "0".to_string(),
             budget_mb_input: "0.0".to_string(),
             budget_minutes_input: "0".to_string(),
@@ -576,32 +633,94 @@ impl VibecapApp {
 
     fn refresh_library(&mut self) {
         self.library_items.clear();
+        // Drop selection for paths that no longer exist
+        self.library_selected.retain(|p| p.exists());
         if let Ok(entries) = std::fs::read_dir(&self.save_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_file() {
-                    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-                    if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "mp4" || ext == "gif" || ext == "mov" || ext == "m4a" || ext == "txt" {
-                        let name = path.file_name().unwrap().to_str().unwrap().to_string();
-                        let meta = entry.metadata().ok();
-                        let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                        let size_str = if size_bytes > 1_048_576 {
-                            format!("{:.1} MB", size_bytes as f64 / 1_048_576.0)
-                        } else {
-                            format!("{} KB", size_bytes / 1024)
-                        };
-
-                        self.library_items.push(MediaItem {
-                            path,
-                            name,
-                            is_video: ext == "mp4" || ext == "mov" || ext == "gif",
-                            size_str,
-                        });
-                    }
+                if !path.is_file() {
+                    continue;
                 }
+                let ext = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let Some(category) = MediaCategory::from_ext(&ext) else {
+                    continue;
+                };
+                let name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("?")
+                    .to_string();
+                let meta = entry.metadata().ok();
+                let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                let size_str = if size_bytes > 1_048_576 {
+                    format!("{:.1} MB", size_bytes as f64 / 1_048_576.0)
+                } else {
+                    format!("{} KB", size_bytes / 1024)
+                };
+                let modified_secs = meta
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+
+                self.library_items.push(MediaItem {
+                    path,
+                    name,
+                    size_str,
+                    category,
+                    modified_secs,
+                });
             }
         }
-        self.library_items.sort_by(|a, b| b.name.cmp(&a.name));
+        // Newest first
+        self.library_items
+            .sort_by(|a, b| b.modified_secs.cmp(&a.modified_secs).then_with(|| b.name.cmp(&a.name)));
+    }
+
+    fn library_filtered(&self) -> Vec<&MediaItem> {
+        self.library_items
+            .iter()
+            .filter(|item| {
+                self.library_filter == "All" || item.category.label() == self.library_filter
+            })
+            .collect()
+    }
+
+    fn delete_library_paths(&mut self, paths: &[PathBuf]) {
+        let mut n = 0usize;
+        for p in paths {
+            if std::fs::remove_file(p).is_ok() {
+                n += 1;
+                self.library_selected.remove(p);
+            }
+        }
+        self.refresh_library();
+        self.show_toast(format!("Deleted {} file(s)", n));
+    }
+
+    fn reveal_paths(&mut self, paths: &[PathBuf]) {
+        if paths.is_empty() {
+            self.show_toast("Nothing selected");
+            return;
+        }
+        let mut ok = 0usize;
+        let mut last_err = String::new();
+        for p in paths {
+            match reveal_in_file_manager(p) {
+                Ok(()) => ok += 1,
+                Err(e) => last_err = e,
+            }
+        }
+        if ok > 0 {
+            self.show_toast(format!("Opened {} in Finder", ok));
+        } else {
+            self.show_toast(format!("Finder reveal failed: {}", last_err));
+        }
     }
 
     fn scan_feedback_requests(&mut self) {
@@ -1028,7 +1147,7 @@ impl VibecapApp {
 
     fn show_annotation(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.heading(RichText::new("Annotation & Feedback Studio").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong());
+            ui.heading(RichText::new("Annotation Studio").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong());
             ui.separator();
             ui.radio_value(&mut self.current_tool, AnnotationTool::Pen, "✏ Pen");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Arrow, "➡ Arrow");
@@ -1130,7 +1249,7 @@ impl VibecapApp {
 
         ui.separator();
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Developer Note / Agent Feedback Context:").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
+            ui.label(RichText::new("Optional note to attach with this capture:").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
             ui.text_edit_singleline(&mut self.feedback_description);
         });
         ui.separator();
@@ -1438,7 +1557,7 @@ impl eframe::App for VibecapApp {
             self.scan_feedback_requests();
             let pending = self.feedback_requests.iter().filter(|r| r.status != "answered").count();
             if pending > self.feedback_pending_count {
-                self.show_toast("🤖 Your agent asked for feedback — open 💬 Feedback to answer.");
+                self.show_toast("🤖 An agent asked a question — open 🤖 Inbox to answer.");
             }
             self.feedback_pending_count = pending;
             self.feedback_last_poll = Some(Instant::now());
@@ -1558,9 +1677,9 @@ impl eframe::App for VibecapApp {
                             self.current_tab = AppTab::Edit;
                         }
                         let fb_label = if self.feedback_pending_count > 0 {
-                            format!("💬 Feedback ({})", self.feedback_pending_count)
+                            format!("🤖 Inbox ({})", self.feedback_pending_count)
                         } else {
-                            "💬 Feedback".to_string()
+                            "🤖 Inbox".to_string()
                         };
                         if tab_btn(ui, self.current_tab == AppTab::Feedback, &fb_label) {
                             self.current_tab = AppTab::Feedback;
@@ -1743,65 +1862,224 @@ impl eframe::App for VibecapApp {
                             if ui.button("🔄 Refresh").clicked() {
                                 self.refresh_library();
                             }
-                            ui.selectable_value(&mut self.library_filter, "Videos".to_string(), "Videos");
-                            ui.selectable_value(&mut self.library_filter, "Screenshots".to_string(), "Screenshots");
-                            ui.selectable_value(&mut self.library_filter, "All".to_string(), "All");
+                        });
+                    });
+                    ui.add_space(4.0);
+
+                    // Category chips
+                    ui.horizontal_wrapped(|ui| {
+                        let cats = [
+                            "All",
+                            MediaCategory::Screenshot.label(),
+                            MediaCategory::Video.label(),
+                            MediaCategory::Gif.label(),
+                            MediaCategory::Audio.label(),
+                            MediaCategory::Note.label(),
+                        ];
+                        for cat in cats {
+                            let selected = self.library_filter == cat;
+                            let label = if cat == "All" {
+                                format!("All ({})", self.library_items.len())
+                            } else {
+                                let n = self.library_items.iter().filter(|i| i.category.label() == cat).count();
+                                format!("{} ({})", cat, n)
+                            };
+                            if ui
+                                .selectable_label(selected, RichText::new(label).small())
+                                .clicked()
+                            {
+                                self.library_filter = cat.to_string();
+                                self.library_show_limit = LIBRARY_PAGE_SIZE;
+                                self.library_confirm_clear = false;
+                            }
+                        }
+                    });
+                    ui.add_space(6.0);
+
+                    let filtered: Vec<MediaItem> = self
+                        .library_filtered()
+                        .into_iter()
+                        .cloned()
+                        .collect();
+                    let total_filtered = filtered.len();
+                    let show_n = self.library_show_limit.min(total_filtered);
+                    let visible: Vec<MediaItem> = filtered.into_iter().take(show_n).collect();
+                    let selected_count = self.library_selected.len();
+
+                    // Bulk toolbar
+                    ui.horizontal(|ui| {
+                        if ui.button("Select all shown").clicked() {
+                            for item in &visible {
+                                self.library_selected.insert(item.path.clone());
+                            }
+                        }
+                        if ui.button("Clear selection").clicked() {
+                            self.library_selected.clear();
+                        }
+                        ui.label(
+                            RichText::new(format!("{selected_count} selected · showing {show_n} of {total_filtered}"))
+                                .small()
+                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if selected_count > 0 {
+                                if ui
+                                    .button(RichText::new(format!("🗑 Delete ({selected_count})")).color(Color32::from_rgb(0xe8, 0x3b, 0x3b)))
+                                    .clicked()
+                                {
+                                    let paths: Vec<_> = self.library_selected.iter().cloned().collect();
+                                    self.delete_library_paths(&paths);
+                                }
+                                if ui.button(format!("📂 Open in Finder ({selected_count})")).clicked() {
+                                    let paths: Vec<_> = self.library_selected.iter().cloned().collect();
+                                    self.reveal_paths(&paths);
+                                }
+                            }
+                            if !self.library_confirm_clear {
+                                if ui
+                                    .button("Clear list…")
+                                    .on_hover_text("Delete all files in the current category from disk")
+                                    .clicked()
+                                {
+                                    self.library_confirm_clear = true;
+                                }
+                            } else {
+                                if ui
+                                    .button(RichText::new("Confirm clear").color(Color32::from_rgb(0xe8, 0x3b, 0x3b)).strong())
+                                    .clicked()
+                                {
+                                    let paths: Vec<_> = self
+                                        .library_filtered()
+                                        .into_iter()
+                                        .map(|i| i.path.clone())
+                                        .collect();
+                                    self.delete_library_paths(&paths);
+                                    self.library_confirm_clear = false;
+                                    self.library_show_limit = LIBRARY_PAGE_SIZE;
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    self.library_confirm_clear = false;
+                                }
+                            }
                         });
                     });
                     ui.separator();
-                    
-                    let filtered_items: Vec<MediaItem> = self.library_items.iter().cloned().filter(|item| {
-                        if self.library_filter == "Screenshots" {
-                            !item.is_video
-                        } else if self.library_filter == "Videos" {
-                            item.is_video
-                        } else {
-                            true
-                        }
-                    }).collect();
 
-                    if filtered_items.is_empty() {
+                    if total_filtered == 0 {
                         ui.add_space(40.0);
                         ui.vertical_centered(|ui| {
-                            ui.label(RichText::new("No media captures found.").color(Color32::from_rgb(0x6d, 0x63, 0x50)));
+                            ui.label(
+                                RichText::new("No media in this category.")
+                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                            );
                         });
                     } else {
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            for item in filtered_items {
+                            let mut open_edit: Option<PathBuf> = None;
+                            let mut do_copy: Option<PathBuf> = None;
+                            let mut do_delete: Option<PathBuf> = None;
+                            let mut do_reveal: Option<PathBuf> = None;
+
+                            for item in &visible {
+                                let selected = self.library_selected.contains(&item.path);
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
-                                        if !item.is_video {
-                                            ui.add(egui::Image::new(format!("file://{}", item.path.display()))
-                                                .fit_to_exact_size(Vec2::new(64.0, 36.0)));
-                                        }
-                                        let icon = if item.is_video { "🎥" } else { "📸" };
-                                        ui.label(RichText::new(format!("{} {}", icon, item.name)).strong().color(Color32::from_rgb(0xec, 0xe5, 0xd6)));
-                                        ui.label(RichText::new(format!("({})", item.size_str)).small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                                        
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            let item_path = item.path.clone();
-                                            if ui.button("🗑 Delete").clicked() {
-                                                let _ = std::fs::remove_file(&item_path);
-                                                self.show_toast("File deleted");
-                                            }
-                                            if ui.button("📂 Finder").clicked() {
-                                                let _ = reveal_in_file_manager(&item_path);
-                                            }
-                                            if item.is_video {
-                                                if ui.button("✂ Edit").clicked() {
-                                                    self.edit_file = Some(item_path.clone());
-                                                    self.current_tab = AppTab::Edit;
-                                                    self.load_filmstrip(ctx, item_path);
-                                                }
+                                        let mut checked = selected;
+                                        if ui.checkbox(&mut checked, "").changed() {
+                                            if checked {
+                                                self.library_selected.insert(item.path.clone());
                                             } else {
-                                                if ui.button("📋 Copy").clicked() {
-                                                    self.copy_image_to_clipboard(&item_path);
+                                                self.library_selected.remove(&item.path);
+                                            }
+                                        }
+
+                                        if matches!(item.category, MediaCategory::Screenshot | MediaCategory::Gif) {
+                                            ui.add(
+                                                egui::Image::new(format!("file://{}", item.path.display()))
+                                                    .fit_to_exact_size(Vec2::new(64.0, 36.0)),
+                                            );
+                                        }
+
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} {}",
+                                                    item.category.icon(),
+                                                    item.name
+                                                ))
+                                                .strong()
+                                                .color(Color32::from_rgb(0xec, 0xe5, 0xd6)),
+                                            );
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} · {}",
+                                                    item.category.label(),
+                                                    item.size_str
+                                                ))
+                                                .small()
+                                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                                            );
+                                        });
+
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            if ui.button("🗑").on_hover_text("Delete").clicked() {
+                                                do_delete = Some(item.path.clone());
+                                            }
+                                            if ui.button("📂").on_hover_text("Reveal in Finder").clicked() {
+                                                do_reveal = Some(item.path.clone());
+                                            }
+                                            match item.category {
+                                                MediaCategory::Video | MediaCategory::Gif => {
+                                                    if ui.button("✂ Edit").clicked() {
+                                                        open_edit = Some(item.path.clone());
+                                                    }
+                                                }
+                                                MediaCategory::Screenshot => {
+                                                    if ui.button("📋 Copy").clicked() {
+                                                        do_copy = Some(item.path.clone());
+                                                    }
+                                                }
+                                                _ => {
+                                                    if ui.button("↗ Open").clicked() {
+                                                        let _ = open_path(&item.path);
+                                                    }
                                                 }
                                             }
                                         });
                                     });
                                 });
-                                ui.add_space(4.0);
+                                ui.add_space(3.0);
+                            }
+
+                            if show_n < total_filtered {
+                                ui.add_space(8.0);
+                                ui.vertical_centered(|ui| {
+                                    if ui
+                                        .button(format!(
+                                            "Show more ({} hidden)",
+                                            total_filtered - show_n
+                                        ))
+                                        .clicked()
+                                    {
+                                        self.library_show_limit =
+                                            self.library_show_limit.saturating_add(LIBRARY_PAGE_SIZE);
+                                    }
+                                });
+                            }
+
+                            if let Some(p) = do_delete {
+                                self.delete_library_paths(&[p]);
+                            }
+                            if let Some(p) = do_reveal {
+                                self.reveal_paths(&[p]);
+                            }
+                            if let Some(p) = do_copy {
+                                self.copy_image_to_clipboard(&p);
+                            }
+                            if let Some(p) = open_edit {
+                                self.edit_file = Some(p.clone());
+                                self.current_tab = AppTab::Edit;
+                                self.load_filmstrip(ctx, p);
                             }
                         });
                     }
@@ -2024,7 +2302,11 @@ impl eframe::App for VibecapApp {
                     }
 
                     ui.horizontal(|ui| {
-                        ui.heading(RichText::new("💬 Agent Feedback Inbox").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong());
+                        ui.heading(
+                            RichText::new("🤖 Agent Inbox")
+                                .color(Color32::from_rgb(0xf5, 0x9e, 0x4b))
+                                .strong(),
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("🧹 Clear answered").clicked() {
                                 self.clear_answered_feedback();
@@ -2034,98 +2316,205 @@ impl eframe::App for VibecapApp {
                             }
                         });
                     });
-                    ui.label(RichText::new("Your AI assistant asks for your eyes here — answer now or later; it picks up your reply automatically.").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
+                    ui.label(
+                        RichText::new("Agent → you: questions from AI tools land here. You answer; the agent reads your reply.")
+                            .small()
+                            .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
+                    );
+                    ui.label(
+                        RichText::new("Different from Capture “notes on a screenshot” (you start those). This inbox is agent-started.")
+                            .small()
+                            .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                    );
                     ui.separator();
 
-                    if self.feedback_requests.is_empty() {
+                    let pending: Vec<FeedbackRequest> = self
+                        .feedback_requests
+                        .iter()
+                        .filter(|r| r.status != "answered")
+                        .cloned()
+                        .collect();
+                    let answered: Vec<FeedbackRequest> = self
+                        .feedback_requests
+                        .iter()
+                        .filter(|r| r.status == "answered")
+                        .cloned()
+                        .collect();
+
+                    if pending.is_empty() && answered.is_empty() {
                         ui.add_space(30.0);
                         ui.vertical_centered(|ui| {
-                            ui.label(RichText::new("Nothing needs your eyes right now. When your AI assistant asks about a pic, GIF or video, it appears here.").color(Color32::from_rgb(0x6d, 0x63, 0x50)));
+                            ui.label(
+                                RichText::new("No agent questions yet.")
+                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                            );
+                            ui.label(
+                                RichText::new("When an agent calls vibecap_request_feedback, it shows up here.")
+                                    .small()
+                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                            );
                         });
                     } else {
-                        let requests = self.feedback_requests.clone();
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            for req in &requests {
-                                ui.group(|ui| {
-                                    ui.horizontal(|ui| {
-                                        let (icon, words) = if req.status == "answered" { ("✅", "Sent") } else { ("⏳", "Waiting for you") };
-                                        ui.label(RichText::new(format!("{} {} — {}", icon, words, req.question)).strong().color(Color32::from_rgb(0xec, 0xe5, 0xd6)));
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            if ui.button("📂 Open Media").clicked() {
-                                                let _ = open_path(std::path::Path::new(&req.media_path));
-                                            }
-                                            if req.status != "answered" {
+                            if !pending.is_empty() {
+                                ui.label(
+                                    RichText::new(format!("Needs your answer ({})", pending.len()))
+                                        .strong()
+                                        .color(Color32::from_rgb(0xf5, 0x9e, 0x4b)),
+                                );
+                                ui.add_space(4.0);
+                                for req in &pending {
+                                    ui.group(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(format!("⏳ {}", req.question))
+                                                    .strong()
+                                                    .color(Color32::from_rgb(0xec, 0xe5, 0xd6)),
+                                            );
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                if ui.button("📂 Media").clicked() {
+                                                    let _ = open_path(std::path::Path::new(&req.media_path));
+                                                }
                                                 let lower = req.media_path.to_lowercase();
-                                                let is_image = [".jpg", ".jpeg", ".png", ".gif", ".webp"].iter().any(|e| lower.ends_with(e));
-                                                if is_image && ui.button("✏ Annotate & Reply").on_hover_text("Draw arrows, text and badges on the image, then send it back").clicked() {
+                                                let is_image = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+                                                    .iter()
+                                                    .any(|e| lower.ends_with(e));
+                                                if is_image
+                                                    && ui
+                                                        .button("✏ Mark up")
+                                                        .on_hover_text("Draw on the image, then send back to the agent")
+                                                        .clicked()
+                                                {
                                                     self.annotating_feedback_id = Some(req.id.clone());
                                                     self.annotate_media(ui.ctx(), PathBuf::from(&req.media_path));
                                                 }
-                                                if ui.button("📝 Answer").clicked() {
+                                                if ui.button("📝 Reply").clicked() {
                                                     self.feedback_selected = Some(req.id.clone());
                                                 }
-                                            }
+                                            });
                                         });
-                                    });
-                                    let fname = std::path::Path::new(&req.media_path)
-                                        .file_name().map(|f| f.to_string_lossy().to_string())
-                                        .unwrap_or_else(|| req.media_path.clone());
-                                    ui.label(RichText::new(format!("{} · {}", req.created_at, fname)).small().color(Color32::from_rgb(0x6d, 0x63, 0x50)))
+                                        let fname = std::path::Path::new(&req.media_path)
+                                            .file_name()
+                                            .map(|f| f.to_string_lossy().to_string())
+                                            .unwrap_or_else(|| req.media_path.clone());
+                                        ui.label(
+                                            RichText::new(format!("{} · {}", req.created_at, fname))
+                                                .small()
+                                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
+                                        )
                                         .on_hover_text(&req.media_path);
 
-                                    if req.status == "answered" {
-                                        if !self.feedback_reply_cache.contains_key(&req.id) {
-                                            if let Ok(s) = std::fs::read_to_string(feedback_responses_dir().join(format!("{}.json", req.id))) {
-                                                if let Ok(resp) = serde_json::from_str::<FeedbackResponse>(&s) {
-                                                    let mut txt = resp.feedback_text.clone();
-                                                    if !resp.annotated_media_path.is_empty() { txt.push_str(&format!("\n🎨 {}", resp.annotated_media_path)); }
-                                                    if !resp.voice_note_path.is_empty() { txt.push_str(&format!("\n🎙 {}", resp.voice_note_path)); }
-                                                    self.feedback_reply_cache.insert(req.id.clone(), txt);
+                                        if self.feedback_selected.as_deref() == Some(req.id.as_str()) {
+                                            ui.add_space(6.0);
+                                            ui.label(
+                                                RichText::new("Your reply to the agent:")
+                                                    .small()
+                                                    .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
+                                            );
+                                            ui.add(
+                                                egui::TextEdit::multiline(&mut self.feedback_draft)
+                                                    .hint_text("What looks right, what’s wrong, what to change…"),
+                                            );
+                                            ui.horizontal(|ui| {
+                                                let voice_label = if self.is_recording_voice_memo {
+                                                    RichText::new("🔴 Stop voice").color(Color32::WHITE).strong()
+                                                } else {
+                                                    RichText::new("🎙 Voice note")
+                                                        .color(Color32::from_rgb(0x5e, 0xc2, 0x6a))
+                                                        .strong()
+                                                };
+                                                if ui.button(voice_label).clicked() {
+                                                    let was_recording = self.is_recording_voice_memo;
+                                                    self.toggle_voice_memo();
+                                                    if !was_recording {
+                                                        self.feedback_voice_note =
+                                                            self.active_voice_memo_path.clone();
+                                                    }
                                                 }
-                                            }
+                                                if let Some(p) = &self.feedback_voice_note {
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "🎙 {}",
+                                                            p.file_name().unwrap_or_default().to_string_lossy()
+                                                        ))
+                                                        .small(),
+                                                    );
+                                                }
+                                            });
+                                            ui.horizontal(|ui| {
+                                                if ui
+                                                    .button(
+                                                        RichText::new("✅ Send to agent")
+                                                            .color(Color32::from_rgb(0x1c, 0x14, 0x08))
+                                                            .strong(),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    self.submit_feedback_response(&req.id);
+                                                }
+                                                if ui.button("Cancel").clicked() {
+                                                    self.feedback_selected = None;
+                                                }
+                                            });
                                         }
-                                        if let Some(reply) = self.feedback_reply_cache.get(&req.id).cloned() {
-                                            egui::CollapsingHeader::new(RichText::new("View your reply").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)))
-                                                .id_source(format!("reply_{}", req.id))
-                                                .show(ui, |ui| {
-                                                    ui.label(RichText::new(reply).color(Color32::from_rgb(0xec, 0xe5, 0xd6)));
-                                                });
-                                        }
-                                    }
+                                    });
+                                    ui.add_space(4.0);
+                                }
+                            }
 
-                                    if self.feedback_selected.as_deref() == Some(req.id.as_str()) && req.status != "answered" {
-                                        ui.add_space(6.0);
-                                        ui.label(RichText::new("Your feedback (sent back to the agent):").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
-                                        ui.add(egui::TextEdit::multiline(&mut self.feedback_draft)
-                                            .hint_text("Say what you see, what's off, or what to change…"));
-                                        ui.horizontal(|ui| {
-                                            let voice_label = if self.is_recording_voice_memo {
-                                                RichText::new("🔴 Stop Voice Note").color(Color32::WHITE).strong()
-                                            } else {
-                                                RichText::new("🎙 Voice Note").color(Color32::from_rgb(0x5e, 0xc2, 0x6a)).strong()
-                                            };
-                                            if ui.button(voice_label).clicked() {
-                                                let was_recording = self.is_recording_voice_memo;
-                                                self.toggle_voice_memo();
-                                                if !was_recording {
-                                                    self.feedback_voice_note = self.active_voice_memo_path.clone();
+                            if !answered.is_empty() {
+                                ui.add_space(8.0);
+                                egui::CollapsingHeader::new(
+                                    RichText::new(format!("Already answered ({})", answered.len()))
+                                        .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
+                                )
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    for req in &answered {
+                                        ui.group(|ui| {
+                                            ui.label(
+                                                RichText::new(format!("✅ {}", req.question))
+                                                    .color(Color32::from_rgb(0xec, 0xe5, 0xd6)),
+                                            );
+                                            if !self.feedback_reply_cache.contains_key(&req.id) {
+                                                if let Ok(s) = std::fs::read_to_string(
+                                                    feedback_responses_dir()
+                                                        .join(format!("{}.json", req.id)),
+                                                ) {
+                                                    if let Ok(resp) =
+                                                        serde_json::from_str::<FeedbackResponse>(&s)
+                                                    {
+                                                        let mut txt = resp.feedback_text.clone();
+                                                        if !resp.annotated_media_path.is_empty() {
+                                                            txt.push_str(&format!(
+                                                                "\n🎨 {}",
+                                                                resp.annotated_media_path
+                                                            ));
+                                                        }
+                                                        if !resp.voice_note_path.is_empty() {
+                                                            txt.push_str(&format!(
+                                                                "\n🎙 {}",
+                                                                resp.voice_note_path
+                                                            ));
+                                                        }
+                                                        self.feedback_reply_cache
+                                                            .insert(req.id.clone(), txt);
+                                                    }
                                                 }
                                             }
-                                            if let Some(p) = &self.feedback_voice_note {
-                                                ui.label(RichText::new(format!("🎙 {}", p.file_name().unwrap_or_default().to_string_lossy())).small());
+                                            if let Some(reply) =
+                                                self.feedback_reply_cache.get(&req.id).cloned()
+                                            {
+                                                ui.label(
+                                                    RichText::new(reply)
+                                                        .small()
+                                                        .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
+                                                );
                                             }
                                         });
-                                        ui.horizontal(|ui| {
-                                            if ui.button(RichText::new("✅ Submit Feedback").color(Color32::from_rgb(0x1c, 0x14, 0x08)).strong()).clicked() {
-                                                self.submit_feedback_response(&req.id);
-                                            }
-                                            if ui.button("Cancel").clicked() {
-                                                self.feedback_selected = None;
-                                            }
-                                        });
+                                        ui.add_space(3.0);
                                     }
                                 });
-                                ui.add_space(4.0);
                             }
                         });
                     }
