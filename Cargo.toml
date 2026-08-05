@@ -2,6 +2,26 @@
 name = "vibecap"
 version = "0.1.0"
 edition = "2021"
+description = "High-performance native screen recorder, annotation studio, and MCP sidecar for AI coding agents"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/TekosherM/vibecap"
+homepage = "https://github.com/TekosherM/vibecap"
+documentation = "https://github.com/TekosherM/vibecap#readme"
+keywords = ["screen-capture", "mcp", "annotation", "egui", "agent"]
+categories = ["multimedia", "gui", "command-line-utilities", "development-tools"]
+authors = ["Vibecap Contributors"]
+exclude = [
+    "target/",
+    "test.png",
+    ".vibecap_temp/",
+    "Vibecap.app/",
+    "**/.DS_Store",
+]
+
+[[bin]]
+name = "vibecap"
+path = "src/main.rs"
 
 [dependencies]
 eframe = "0.28"
@@ -15,4 +35,3 @@ egui_extras = { version = "0.28", features = ["image"] }
 arboard = "3.4"
 serde_json = "1.0"
 serde = { version = "1", features = ["derive"] }
-

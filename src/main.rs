@@ -66,6 +66,40 @@ struct MediaItem {
     size_str: String,
 }
 
+// ---------- Paths (macOS defaults today; cross-platform abstraction is planned) ----------
+
+/// Default media folder for screenshots, videos, and GIFs.
+fn default_media_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let dir = PathBuf::from(format!("{}/Movies/Vibecap", home));
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Live-inspection frames directory under the media folder.
+fn default_live_dir() -> PathBuf {
+    let dir = default_media_dir().join("live");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Headless full-screen screenshot via macOS `screencapture`. Returns the output path on success.
+fn capture_screenshot_to_media_dir() -> Result<PathBuf, String> {
+    let out = default_media_dir().join(format!(
+        "screenshot_{}.jpg",
+        Local::now().format("%Y-%m-%d_%H-%M-%S")
+    ));
+    let status = Command::new("screencapture")
+        .args(["-x", "-t", "jpg", out.to_str().unwrap_or_default()])
+        .status()
+        .map_err(|e| format!("could not start screencapture: {}", e))?;
+    if status.success() {
+        Ok(out)
+    } else {
+        Err("screencapture failed (grant Screen Recording permission in System Settings)".into())
+    }
+}
+
 // ---------- Agent Budget & Feedback (shared between app & MCP server via ~/.config/vibecap) ----------
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -387,9 +421,7 @@ impl VibecapApp {
 
         let receiver = GlobalHotKeyEvent::receiver().clone();
         
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let default_dir = PathBuf::from(format!("{}/Movies/Vibecap", home));
-        let _ = std::fs::create_dir_all(&default_dir);
+        let default_dir = default_media_dir();
 
         let (capture_tx, capture_rx) = crossbeam_channel::unbounded();
         let (screenshot_tx, screenshot_rx) = crossbeam_channel::unbounded();
@@ -513,6 +545,7 @@ impl VibecapApp {
             id: request_id.to_string(),
             feedback_text: self.feedback_draft.trim().to_string(),
             voice_note_path: self.feedback_voice_note.take().map(|p| p.display().to_string()).unwrap_or_default(),
+            annotated_media_path: String::new(),
             answered_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         };
         let resp_path = feedback_responses_dir().join(format!("{}.json", request_id));
@@ -2114,7 +2147,7 @@ fn run_mcp_server() {
                         "tools": [
                             {
                                 "name": "vibecap_capture",
-                                "description": "Triggers screen capture & opens developer annotation UI",
+                                "description": "Captures a full-screen screenshot (macOS screencapture) to ~/Movies/Vibecap/. Optionally focuses an app first. For pen/arrow/step-badge annotation, open the desktop app Annotation Studio.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
@@ -2295,20 +2328,9 @@ fn run_mcp_server() {
                             std::thread::sleep(Duration::from_millis(400));
                         }
 
-                        let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                        let out_file = format!("{}/Movies/Vibecap/screenshot_{}.jpg", home, timestamp);
-                        
-                        let status = Command::new("screencapture")
-                            .arg("-x")
-                            .arg("-t").arg("jpg")
-                            .arg(&out_file)
-                            .status();
-
-                        if status.map(|s| s.success()).unwrap_or(false) {
-                            (format!("Captured screenshot successfully to {}", out_file), false)
-                        } else {
-                            ("Failed to capture screenshot".to_string(), true)
+                        match capture_screenshot_to_media_dir() {
+                            Ok(out) => (format!("Captured screenshot successfully to {}", out.display()), false),
+                            Err(e) => (e, true),
                         }
                     }
                     "vibecap_record_video" => {
@@ -2318,10 +2340,7 @@ fn run_mcp_server() {
                         let duration_secs = raw_duration.min(600);
                         let clamp_note = if raw_duration > 600 { " (clamped from your request — 600s max per clip)" } else { "" };
 
-                        let home_live = {
-                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                            format!("{}/Movies/Vibecap/live", home)
-                        };
+                        let home_live = default_live_dir().display().to_string();
                         if let Some(reason) = budget_exceeded_reason(&home_live) {
                             (format!("⚠️ BUDGET EXHAUSTED — recording refused: {}. Raise caps with vibecap_set_budget or ask the human to adjust them in the Vibecap app.", reason), true)
                         } else {
@@ -2379,10 +2398,7 @@ fn run_mcp_server() {
                         let interval_secs = args.and_then(|a| a.get("interval_secs")).and_then(|v| v.as_u64())
                             .unwrap_or_else(|| match budget_now.analysis_tier.as_str() { "eco" => 5, "intensive" => 1, _ => 3 });
                         
-                        let default_dir = {
-                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                            format!("{}/Movies/Vibecap/live", home)
-                        };
+                        let default_dir = default_live_dir().display().to_string();
                         let live_dir = args.and_then(|a| a.get("output_dir")).and_then(|s| s.as_str()).unwrap_or(&default_dir).to_string();
 
                         if LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst) {
@@ -2489,8 +2505,7 @@ fn run_mcp_server() {
                             ("unknown", "", "")
                         };
 
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                        let default_dir = format!("{}/Movies/Vibecap/live", home);
+                        let default_dir = default_live_dir().display().to_string();
                         let target_dir = if !ts_frame.is_empty() {
                             std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
                         } else {
@@ -2513,8 +2528,7 @@ fn run_mcp_server() {
                         let parts: Vec<&str> = state.split('|').collect();
                         let ts_frame = if parts.len() == 3 { parts[2] } else { "" };
                         
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                        let default_dir = format!("{}/Movies/Vibecap/live", home);
+                        let default_dir = default_live_dir().display().to_string();
                         let target_dir = if !ts_frame.is_empty() {
                             std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
                         } else {
@@ -2578,8 +2592,7 @@ fn run_mcp_server() {
                         let state = get_latest_live_gif_mutex().lock().map(|l| l.clone()).unwrap_or_default();
                         let parts: Vec<&str> = state.split('|').collect();
                         let ts_frame = if parts.len() == 3 { parts[2] } else { "" };
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                        let default_dir = format!("{}/Movies/Vibecap/live", home);
+                        let default_dir = default_live_dir().display().to_string();
                         let target_dir = if !ts_frame.is_empty() {
                             std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
                         } else {
@@ -2696,12 +2709,32 @@ fn main() -> eframe::Result<()> {
 
     if args.iter().any(|a| a == "--help" || a == "-h" || a == "help") {
         println!("Vibecap Studio 0.1.0");
-        println!("Usage: vibecap [FLAGS]");
+        println!("Native screen capture, annotation studio, and MCP sidecar for AI agents.");
+        println!("\nUsage: vibecap [FLAGS]");
         println!("\nFlags:");
-        println!("  --mcp        Run as Model Context Protocol (MCP) stdio server");
-        println!("  --version    Display version info");
-        println!("  --help       Display help message");
+        println!("  (none)         Launch the desktop UI");
+        println!("  --mcp          Run as Model Context Protocol (MCP) stdio server");
+        println!("  --screenshot   Headless full-screen capture → ~/Movies/Vibecap/");
+        println!("  --version, -v  Print version");
+        println!("  --help, -h     Print this help");
+        println!("\nDocs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md");
+        println!("MCP tools: vibecap_capture | record_video | export_gif |");
+        println!("           start/get/stop_live_inspection | set_budget | get_spending |");
+        println!("           request_feedback | get_feedback");
         return Ok(());
+    }
+
+    if args.iter().any(|a| a == "--screenshot" || a == "screenshot") {
+        match capture_screenshot_to_media_dir() {
+            Ok(path) => {
+                println!("{}", path.display());
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 
     if args.iter().any(|a| a == "--mcp" || a == "mcp") {

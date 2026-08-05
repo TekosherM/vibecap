@@ -1,68 +1,146 @@
 # Vibecap Studio 🎬
 
-**High-Performance Native Screen Recorder, Annotation Studio & AI Agent Visual Inspection Sidecar.**
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20(Windows%2FLinux%20planned)-lightgrey.svg)](#-platform-support)
 
-Vibecap Studio is a lightweight, pure-Rust native desktop application built with `eframe`/`egui`. It provides an interactive screen recorder, screenshot annotation studio, timeline-range GIF exporter, developer voice-note recorder, and a Model Context Protocol (MCP) server for AI coding agents (Antigravity, Cursor, Claude Desktop, Windsurf).
+**High-performance native screen recorder, annotation studio, and AI agent visual inspection sidecar.**
+
+Vibecap Studio is a lightweight pure-Rust desktop app (`eframe` / `egui`) with an interactive recorder, screenshot annotation studio, timeline GIF exporter, developer voice-note capture, and a Model Context Protocol (MCP) server for AI coding agents (Cursor, Claude Desktop, Gemini, Windsurf, and more).
 
 ---
 
 ## 🌟 Features
 
-- **🎥 High-Performance Screen Recording**: Full-screen, window, or region selection with optional system/microphone audio and 30/60 FPS controls.
-- **📸 Auto-Focusing Screenshot & App Window Capture**: Automatically focuses target windows (`open -a AppName` or `screencapture -l`) to guarantee clean, un-obscured captures.
-- **🎨 Rich Annotation & Feedback Studio**:
-  - ✏ Freehand Pen, ➡ Arrows, 🔲 Rectangles, 🖍 Highlights
-  - 🔤 Custom Text Annotations
-  - 💧 Blur / Pixelate Confidential Information Box
-  - 🔢 Incrementing Numbered Step Badges (`[1]`, `[2]`, `[3]`) for tutorial & bug reproduction flows
-  - 📋 One-Click Copy to System Clipboard
-- **🎙 Developer Voice Note Audio Feedback**: Record accompanying `.m4a` audio voice feedback and attach written context notes alongside screenshots for AI agents.
-- **🎞 Interactive Video Editor & Timeline Range GIF Exporter**:
-  - Background thumbnail filmstrip extraction via `ffmpeg`.
-  - Non-destructive fast video trimming (`-c copy`).
-  - Range-based GIF Exporter: Select exact `Start` and `End` timestamps (`00:00:10` to `00:00:15`) to generate smooth 15-FPS Lanczos GIFs for analyzing UI animations and scrolling motion.
-- **🤖 Built-in MCP Server & Agent Skill**: Integrates directly with AI Coding Agents for human-in-the-loop pair programming.
-- **💰 Agent Budget & Spending Controls**: Agents set their own analysis budget (`vibecap_set_budget`: frame/MB/minute caps + eco/standard/intensive tiers) and report spending (`vibecap_get_spending`) — because intensive frame analysis can be expensive. Caps are enforced live (auto-stop + refusal) and are human-supervised in Settings.
-- **💬 Agent Feedback Inbox**: Agents submit pics/GIFs/videos with a question (`vibecap_request_feedback`); the human answers live in-session or later from the app; agents poll `vibecap_get_feedback`.
-- **🎛 Wardrobe Menus — Optional Pro Tools**: collapsible advanced panels keep the base UI clean — video frame-extract/mute/compress/rotate/speed, and a full image editor (crop, rotate, flip, resize, brightness/contrast, grayscale, blur).
+- **🎥 High-performance screen recording** — full-screen, window, or region with optional system/mic audio and 30/60 FPS controls.
+- **📸 Auto-focusing screenshot & app window capture** — focuses the target window so captures stay clean (macOS: `open -a` / `screencapture`).
+- **🎨 Annotation & feedback studio**
+  - Freehand pen, arrows, rectangles, highlights
+  - Custom text annotations
+  - Blur / pixelate for sensitive regions
+  - Numbered step badges (`[1]`, `[2]`, `[3]`) for tutorials & bug repros
+  - One-click copy to system clipboard
+- **🎙 Voice notes** — attach `.m4a` audio and text notes next to screenshots for agents.
+- **🎞 Video editor & timeline GIF export**
+  - Background filmstrip via `ffmpeg`
+  - Non-destructive trim (`-c copy`)
+  - Range GIF export: pick start/end timestamps for smooth 15-FPS Lanczos GIFs
+- **🤖 MCP server & agent skill** — human-in-the-loop pair programming with coding agents
+- **💰 Agent budget controls** — `vibecap_set_budget` / `vibecap_get_spending` with live caps (frames / MB / minutes + eco/standard/intensive tiers)
+- **💬 Feedback inbox** — agents submit media + questions; humans reply in-app; agents poll for answers
+- **🎛 Wardrobe menus** — collapsible pro tools (frame extract, mute, compress, rotate, speed; full image editor)
 
 ---
 
-## 🆚 Vibecap Studio vs. Browser MCPs
+## 🆚 Vibecap vs browser MCPs
 
-| Workspace / Environment | Browser MCPs | Vibecap Studio |
+| Workspace | Browser MCPs | Vibecap Studio |
 | :--- | :--- | :--- |
-| **Web DOM** | ✅ Supported | ✅ Supported |
-| **Native Desktop Apps** | ❌ Impossible | ✅ Native macOS, Tauri, Rust `egui`, Electron, Qt, SwiftUI |
-| **Mobile Simulators** | ❌ Impossible | ✅ Xcode iOS Simulator & Android Studio Emulator |
-| **Game Canvas Engines** | ❌ Fails (No DOM nodes in WebGL) | ✅ Unity, Unreal Engine, Bevy, WebGL 3D Canvas |
-| **Human Voice & Drawing** | ❌ None | ✅ Voice notes, freehand drawing, step badges |
-| **Animation Motion Analysis** | ⚠️ Static images only | ✅ Timeline Range GIF Exporter (15 FPS Lanczos) |
+| **Web DOM** | ✅ | ✅ |
+| **Native desktop apps** | ❌ | ✅ (Tauri, egui, Electron, Qt, SwiftUI, …) |
+| **Mobile simulators** | ❌ | ✅ (iOS Simulator, Android Emulator) |
+| **Game / WebGL canvases** | ⚠️ often fails | ✅ |
+| **Human voice & drawing** | ❌ | ✅ |
+| **Motion / animation analysis** | ⚠️ stills only | ✅ timeline GIF export |
 
 ---
 
-## 🚀 Installation & Build
+## 🏗 Architecture
 
-### 1. Build and Install Binary to PATH
-```bash
-git clone https://github.com/your-username/vibecap.git
-cd vibecap
-
-# Install 'vibecap' binary globally into ~/.cargo/bin/vibecap
-cargo install --path .
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                     Vibecap Studio                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐  │
+│  │ Capture UI   │  │ Annotation   │  │ Video Editor /    │  │
+│  │ (eframe/egui)│  │ Studio       │  │ GIF Timeline      │  │
+│  └──────┬───────┘  └──────┬───────┘  └─────────┬─────────┘  │
+│         │                 │                    │            │
+│         └─────────────────┼────────────────────┘            │
+│                           ▼                                 │
+│              Media store (~/Movies/Vibecap)                 │
+│                           ▲                                 │
+│  ┌────────────────────────┴──────────────────────────────┐  │
+│  │  MCP Server (--mcp)  ·  Budget  ·  Feedback inbox     │  │
+│  │  stdio JSON-RPC · shared ~/.config/vibecap state      │  │
+│  └────────────────────────┬──────────────────────────────┘  │
+└───────────────────────────┼─────────────────────────────────┘
+                            │
+              AI agents (Cursor, Claude, Gemini, …)
 ```
 
-### 2. Run Vibecap Desktop App
+**MCP tools (10):** `capture`, `record_video`, `export_gif`, `start_live_inspection`, `get_live_frame`, `stop_live_inspection`, `set_budget`, `get_spending`, `request_feedback`, `get_feedback`.
+
+---
+
+## 🚀 Install & run
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (edition 2021)
+- [ffmpeg](https://ffmpeg.org/) on `PATH` (GIF export, filmstrip, wardrobe video tools)
+- **macOS** Screen Recording permission for the terminal / app (System Settings → Privacy & Security)
+
+### Build from source
+
+```bash
+git clone https://github.com/TekosherM/vibecap.git
+cd vibecap
+
+# Install binary to ~/.cargo/bin/vibecap
+cargo install --path .
+
+# Or run without installing
+cargo run --release
+```
+
+### Desktop app
+
 ```bash
 vibecap
 ```
 
+### Headless screenshot
+
+```bash
+vibecap --screenshot   # prints path under ~/Movies/Vibecap/
+```
+
+Annotation (pen, arrows, step badges) is in the **desktop UI**, not this CLI flag.
+
+### MCP server mode
+
+```bash
+vibecap --mcp
+```
+
+### Verify install
+
+```bash
+./scripts/smoke_mcp.sh              # CLI + MCP tools (no GUI)
+SMOKE_CAPTURE=1 ./scripts/smoke_mcp.sh   # also tries screenshot + GIF export
+```
+
 ---
 
-## 🤖 AI Agent & MCP Setup
+## 📚 Documentation
 
-### MCP Server Config (`mcp_config.json`)
-Add Vibecap to your Antigravity, Cursor, or Claude Desktop MCP configuration:
+| Doc | Contents |
+| :--- | :--- |
+| [docs/USAGE.md](docs/USAGE.md) | CLI, desktop tabs, agent workflows, troubleshooting |
+| [docs/MCP.md](docs/MCP.md) | All 10 MCP tools, config, disk state |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Single-binary design, deps, size |
+| [docs/TESTING.md](docs/TESTING.md) | Smoke script + manual GUI checklist |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | PR hygiene, keep it lightweight |
+| [skills/vibecap/SKILL.md](skills/vibecap/SKILL.md) | Agent skill definition |
+
+---
+
+## 🤖 AI agent & MCP setup
+
+### MCP config
+
+Add Vibecap to Cursor (`~/.cursor/mcp.json`), Claude Desktop, Gemini, or any MCP client:
+
 ```json
 {
   "mcpServers": {
@@ -74,12 +152,21 @@ Add Vibecap to your Antigravity, Cursor, or Claude Desktop MCP configuration:
 }
 ```
 
-### Agent Skill Installation
-The skill file is installed at:
-- **Global**: `~/.gemini/config/skills/vibecap/SKILL.md`
-- **Workspace**: `.agents/skills/vibecap/SKILL.md`
+Use the installed binary (`vibecap` on `PATH`). Avoid hardcoding machine-local `cargo --manifest-path` absolute paths in shared configs.
 
-AI agents can trigger window focus & screenshot captures via:
+### Agent skill
+
+Canonical skill files live in this repo:
+
+| Location | Purpose |
+| :--- | :--- |
+| `skills/vibecap/SKILL.md` | Canonical skill definition |
+| `.agents/skills/vibecap/SKILL.md` | Workspace skill (kept in sync) |
+
+Copy or symlink into your agent skill directory as needed (e.g. `~/.agents/skills/vibecap/`).
+
+### Example agent capture flow (macOS)
+
 ```bash
 open -a "iTerm" && sleep 0.4 && screencapture -t jpg ~/Movies/Vibecap/capture.jpg
 ```
@@ -88,9 +175,64 @@ open -a "iTerm" && sleep 0.4 && screencapture -t jpg ~/Movies/Vibecap/capture.jp
 
 ## ⌨ Hotkeys
 
-- **Ctrl + Shift + 2**: Global shortcut to Start / Stop Screen Recording.
+| Shortcut | Action |
+| :--- | :--- |
+| **Ctrl + Shift + 2** | Start / stop screen recording |
+
+---
+
+## 🌍 Platform support
+
+| Platform | Status |
+| :--- | :--- |
+| **macOS** | ✅ Supported (`screencapture`, `open -a`) |
+| **Windows** | 🚧 Planned (ffmpeg gdigrab / Graphics Capture API) |
+| **Linux** | 🚧 Planned (ffmpeg x11grab/pipewire, grim/slurp) |
+
+Cross-platform capture abstraction is the next major engineering track (Phase 3).
+
+---
+
+## 📁 Default media paths
+
+| Path | Use |
+| :--- | :--- |
+| `~/Movies/Vibecap/` | Screenshots, videos, GIFs (macOS default) |
+| `~/Movies/Vibecap/live/` | Live inspection stream frames |
+| `.vibecap_temp/` | Local temp (gitignored) |
+| `~/.config/vibecap/` | Agent budget + feedback inbox state |
+
+---
+
+## 🛠 Development
+
+```bash
+# Debug build
+cargo build
+
+# Release
+cargo build --release
+
+# MCP smoke (stdio; leave running while a client connects)
+cargo run --release -- --mcp
+```
 
 ---
 
 ## 📄 License
-MIT License.
+
+Licensed under either of:
+
+- [Apache License, Version 2.0](LICENSE-APACHE)
+- [MIT license](LICENSE-MIT)
+
+at your option.
+
+---
+
+## 🗺 Roadmap
+
+1. ~~Housekeeping & path sanitization~~ · ~~Open-source metadata & dual license~~
+2. ~~Docs + headless smoke tests (CLI/MCP)~~
+3. Cross-platform capture / OS abstraction (`open`, `dirs`, Windows & Linux backends)
+4. Public GitHub releases + CI for macOS (Intel/Apple Silicon), Windows, and Linux binaries

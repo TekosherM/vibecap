@@ -5,7 +5,7 @@
     <key>CFBundleExecutable</key>
     <string>vibecap</string>
     <key>CFBundleIdentifier</key>
-    <string>com.tekosher.vibecap</string>
+    <string>app.vibecap.studio</string>
     <key>CFBundleName</key>
     <string>Vibecap</string>
     <key>CFBundleVersion</key>

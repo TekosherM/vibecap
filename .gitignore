@@ -27,3 +27,6 @@ dist-ssr
 target/
 .vibecap_temp/
 test.png
+
+# Local macOS app bundle binary (rebuild with cargo)
+Vibecap.app/Contents/MacOS/
