@@ -19,10 +19,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Both macOS targets build on macos-latest (Apple Silicon runners).
+          # x86_64 is cross-compiled so we avoid scarce macos-13 Intel queues.
           - os: macos-latest
             target: aarch64-apple-darwin
             asset: vibecap-aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             asset: vibecap-x86_64-apple-darwin
           - os: ubuntu-latest
