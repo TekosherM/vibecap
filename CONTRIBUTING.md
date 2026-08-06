@@ -2,12 +2,24 @@
 
 Thanks for helping with Vibecap. Keep the project **comprehensive but lightweight**: one binary, clear docs, no unnecessary crates or services.
 
+## Try first (with your agent)
+
+The most useful contributions start from real use:
+
+1. Install and leave `vibecap` running in the tray.  
+2. Wire `vibecap --mcp` (and/or the skill under `skills/vibecap/`) into **your** agent harness.  
+3. Use capture + Inbox for visual feedback while coding.  
+4. Open an [issue](https://github.com/TekosherM/vibecap/issues) with OS, harness name, and what felt broken or missing.
+
+Screenshots or short GIFs taken **with Vibecap** are ideal repros.
+
 ## Setup
 
 ```bash
 git clone https://github.com/TekosherM/vibecap.git
 cd vibecap
 cargo build --release
+./scripts/smoke_mcp.sh
 ```
 
 Needs: Rust (edition 2021), ffmpeg, macOS Screen Recording permission for capture tests.
@@ -32,7 +44,12 @@ Needs: Rust (edition 2021), ffmpeg, macOS Screen Recording permission for captur
 
 ## Code layout
 
-Everything ships from `src/main.rs` for now. Prefer small helper functions near related state rather than a premature multi-crate split. Platform abstraction (Phase 3) should land as clear modules when Windows/Linux backends are real.
+| Path | Role |
+| :--- | :--- |
+| `src/main.rs` | eframe shell, tray, hotkeys, orchestration |
+| `src/app/` | Budget, feedback, library, MCP, recording, retro, session |
+| `src/ui/` | Safelight tabs, theme, components |
+| `src/platform/` | Capture, ffmpeg resolve, notify, shell/OS |
 
 ## License
 

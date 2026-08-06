@@ -40,7 +40,13 @@ cat >"$MCP_IN" <<'EOF'
 {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"vibecap_get_spending","arguments":{}}}
 {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"vibecap_request_feedback","arguments":{"media_path":"/tmp/vibecap_smoke_missing.jpg","question":"Smoke test — ignore"}}}
 {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"vibecap_get_feedback","arguments":{"request_id":"does-not-exist-yet"}}}
-{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"vibecap_stop_live_inspection","arguments":{}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"vibecap_list_feedback","arguments":{"status":"all"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"vibecap_cancel_feedback","arguments":{"request_id":"does-not-exist-yet"}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"vibecap_request_feedback","arguments":{"question":"Smoke text-only decision?","options":["allow","deny"],"priority":"low","agent_label":"smoke","preferred_reply":"choice"}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"vibecap_stop_live_inspection","arguments":{}}}
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"vibecap_list_apps","arguments":{}}}
+{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"vibecap_set_retro","arguments":{"enabled":false}}}
+{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"vibecap_save_retro","arguments":{}}}
 EOF
 
 # Run MCP; close stdin after requests so the server can exit when EOF is hit
@@ -49,7 +55,7 @@ EOF
 MCP_PID=$!
 # Wait for responses (max ~8s)
 for _ in $(seq 1 40); do
-  if [[ -s "$MCP_OUT" ]] && [[ $(wc -l <"$MCP_OUT" | tr -d ' ') -ge 6 ]]; then
+  if [[ -s "$MCP_OUT" ]] && [[ $(wc -l <"$MCP_OUT" | tr -d ' ') -ge 12 ]]; then
     break
   fi
   sleep 0.2
@@ -73,14 +79,21 @@ else
   echo "$RESP" | grep -q 'vibecap_get_spending' && ok "tools/list has get_spending" || bad "tools spending" "$RESP"
   echo "$RESP" | grep -q 'vibecap_request_feedback' && ok "tools/list has request_feedback" || bad "tools req fb" "$RESP"
   echo "$RESP" | grep -q 'vibecap_get_feedback' && ok "tools/list has get_feedback" || bad "tools get fb" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_list_feedback' && ok "tools/list has list_feedback" || bad "tools list fb" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_cancel_feedback' && ok "tools/list has cancel_feedback" || bad "tools cancel fb" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_list_apps' && ok "tools/list has list_apps" || bad "tools list_apps" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_set_retro' && ok "tools/list has set_retro" || bad "tools set_retro" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_save_retro' && ok "tools/list has save_retro" || bad "tools save_retro" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_bug_report' && ok "tools/list has bug_report" || bad "tools bug_report" "$RESP"
   TOOL_COUNT=$(echo "$RESP" | tr ',' '\n' | grep -c '"name":"vibecap_' || true)
-  if [[ "$TOOL_COUNT" -ge 10 ]]; then
-    ok "tools/list reports ≥10 vibecap_* tools ($TOOL_COUNT)"
+  if [[ "$TOOL_COUNT" -ge 16 ]]; then
+    ok "tools/list reports ≥16 vibecap_* tools ($TOOL_COUNT)"
   else
     bad "tool count" "found $TOOL_COUNT"
   fi
   echo "$RESP" | grep -q 'BUDGET\|budget\|eco\|tier\|spending\|frames' && ok "get_spending/set_budget responded" || bad "budget response" "$RESP"
-  echo "$RESP" | grep -q 'request_id\|feedback\|pending\|not found\|No feedback\|⏳\|✅\|Human' && ok "feedback tools responded" || bad "feedback response" "$RESP"
+  echo "$RESP" | grep -q 'request_id\|feedback\|pending\|not found\|No feedback\|⏳\|✅\|Human\|does not exist\|Unknown request' && ok "feedback tools responded" || bad "feedback response" "$RESP"
+  echo "$RESP" | grep -q 'Feedback inbox\|No feedback requests\|text-only\|poll required' && ok "list/text-only feedback paths" || bad "list/text-only" "$RESP"
 fi
 
 if [[ "${SMOKE_CAPTURE:-0}" == "1" ]]; then

@@ -5,16 +5,28 @@
 | Requirement | Why |
 | :--- | :--- |
 | **OS** | macOS primary; Windows/Linux via ffmpeg (see [PLATFORMS.md](PLATFORMS.md)) |
-| **ffmpeg** on `PATH` | GIF export, filmstrip, wardrobe; required for Win/Linux capture |
+| **ffmpeg** installed | Screen record, GIF export, filmstrip (GUI also searches Homebrew paths; override with `VIBECAP_FFMPEG`) |
 | **Screen Recording** permission (macOS) | System Settings → Privacy & Security → Screen Recording |
 
 Install ffmpeg (Homebrew): `brew install ffmpeg`
 
 ## Install
 
+### CLI / MCP (terminal)
+
 ```bash
 cargo install --path .
 # binary: ~/.cargo/bin/vibecap
+```
+
+That only installs the command-line binary. It does **not** put an icon in **Applications**.
+
+### macOS app (Finder / Spotlight / Launchpad)
+
+```bash
+./scripts/install_macos_app.sh
+# → /Applications/Vibecap.app  (or ~/Applications if /Applications is not writable)
+open -a Vibecap
 ```
 
 Or from a clone without installing:
@@ -68,11 +80,41 @@ Default save root: platform Videos folder `/Vibecap` (often `~/Movies/Vibecap` o
 
 | Tab | Purpose |
 | :--- | :--- |
-| **Capture** | Fullscreen / region / window recording; FPS & audio toggles |
+| **Capture** | Fullscreen / region / **window picker**; FPS & audio; retro status when enabled |
 | **Library** | Browse saved media; reveal in Finder |
 | **Edit** | Trim, GIF range export, filmstrip; wardrobe advanced tools |
 | **Feedback** | Agent feedback inbox — answer questions on media |
-| **Settings** | Save dir, agent budget supervision |
+| **Settings** | Save dir, agent budget, theme, **retro buffer** (off by default) |
+
+### Retro buffer (optional)
+
+Rolling low-FPS screen capture so you can dump “what just happened” after a bug:
+
+1. **Settings → Recording → Enable retro buffer** (stays **off** until you turn it on).
+2. Pick a window: **15s / 30s / 60s** (~2 fps, hard-capped at ~200 MB under `~/.config/vibecap/retro_buffer/`).
+3. When something breaks, hit **Save last as GIF** (Settings, Capture strip, or ⌘K → “Save retro buffer as GIF”).
+
+Disable anytime — frames are cleared. **Restarting the app keeps frames** (until you disable or Clear). Agents can `vibecap_set_retro` (starts capture in the MCP process) then `vibecap_save_retro`. Requires Screen Recording permission + ffmpeg for the GIF export.
+
+### Record countdown
+
+**Settings → Recording → Countdown:** Off / 3s / 5s. Shows a big-number bubble before ffmpeg starts; **Esc** cancels. Applies to full-screen and region record.
+
+### Bug report pack
+
+One shot for agent bug hunts:
+
+- ⌘K → **Bug report pack**, or Settings / Capture **Bug pack**
+- Saves a still (`bug_….jpg`) plus a retro GIF when the buffer has frames  
+- Enable retro buffer first if you want the “what just happened” clip
+
+### Window target
+
+1. Capture → **Window**
+2. Pick a running app from the combo (↻ refreshes) or type a name  
+3. Screenshot / Record focuses that app first, then captures  
+
+Agents: `vibecap_list_apps` then `vibecap_capture` / `vibecap_bug_report` with `app_name`.
 
 ### Annotation Studio
 
@@ -89,14 +131,26 @@ Triggered after a screenshot from the UI (or when annotating a feedback request)
 
 Save exports annotated JPG (+ optional `.txt` / `.m4a`) into the media folder.
 
-### Video editor (Edit tab)
+### Clip studio (video)
 
+Dedicated Loop rail stage for motion media:
+
+- Preview filmstrip first, then range controls
 - Set **Start** / **End** timestamps (`HH:MM:SS`)
 - **Trim** (stream copy, non-destructive)
 - **Export GIF** (15 FPS Lanczos, scale width 800)
 - **Extract audio**
-- **Wardrobe → Advanced Video**: frame extract, mute, compress (CRF 28), rotate, speed
-- **Wardrobe → Image Editor**: crop, rotate, flip, resize, brightness/contrast, grayscale, blur
+- **More tools**: frame extract, mute, compress (CRF 28), rotate, speed
+
+### Still studio (image)
+
+Dedicated Loop rail stage for screenshots and photos:
+
+- Live preview canvas first, then adjust controls
+- Crop, rotate, flip, resize, brightness/contrast, grayscale, blur
+- **Save edited image** writes a new file beside the source
+
+From **Media**: open video/GIF with **Clip**, screenshots with **Still**.
 
 ### Hotkeys
 
@@ -116,14 +170,23 @@ vibecap --screenshot
 ### B. Motion analysis
 
 1. Record with UI or `vibecap_record_video`
-2. Export a range with Edit tab or `vibecap_export_gif`
+2. Export a range from **Clip** or `vibecap_export_gif`
 3. Feed the GIF to the agent’s vision model
 
 ### C. Human-in-the-loop feedback
 
-1. Agent: `vibecap_request_feedback(media_path, question)` → `request_id`
-2. Human: open Vibecap → **Feedback** tab → answer (text / voice / annotate)
-3. Agent: poll `vibecap_get_feedback(request_id)`
+1. Agent: `vibecap_request_feedback(question, media_path?, options?, …)` → `request_id`
+2. **Vibecap notifies you** (even if hidden to the menu bar):
+   - macOS notification (“Vibecap · agent…”) with sound  
+   - Menu bar title becomes **Inbox** / **Inbox N**  
+   - Dock bounce · in-app toast · window opens on **Inbox** with the question selected  
+3. Human: answer with text / choice chips / voice / **Mark up**
+4. Agent: **poll** `vibecap_get_feedback(request_id)` every few seconds (answers are file-based, not pushed into chat)
+5. Optional: `vibecap_list_feedback` · `vibecap_cancel_feedback`
+
+Keep **Vibecap running in the tray** while coding with agents — that is the live link.
+
+See [FEEDBACK_USE_CASES.md](FEEDBACK_USE_CASES.md) for 30 supported scenarios.
 
 ### D. Live inspection (budget-aware)
 

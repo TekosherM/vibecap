@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Safelight Studio — Vibecap UI mocks</title>
+<style>
+/* ══════════════════════════ SAFELIGHT DESIGN TOKENS ══════════════════════════ */
+:root{
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  --mono:"SF Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* graphite dark */
+  --bg:#131417; --surface:#1a1c21; --card:#20232a; --card-hi:#262a33; --hud:#17181dee;
+  --line:#2c313a; --line-hi:#3b4250;
+  --tx:#edeff2; --tx2:#a7adba; --tx3:#707786;
+  /* accent = LIVE states only */
+  --accent:#f6a723; --accent-ink:#20160a; --accent-soft:rgba(246,167,35,.13); --accent-ring:rgba(246,167,35,.38);
+  /* semantic */
+  --ok:#3ecf8e; --warn:#f0c050; --danger:#f2726d; --info:#6aa6ff; --violet:#a78bfa; --orange:#f29e6e;
+  /* calm primary */
+  --primary:#edeff2; --primary-ink:#15161a; --ghost:#2b303b;
+  --r-s:6px; --r-m:10px; --r-l:14px;
+  --shadow-1:0 1px 2px rgba(0,0,0,.35);
+  --shadow-2:0 6px 22px rgba(0,0,0,.42);
+  --shadow-3:0 14px 44px rgba(0,0,0,.5);
+  --grid:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:#0b0c0e;color:var(--tx);font-family:var(--sans);font-size:15px;line-height:1.45;padding:0 0 96px}
+::selection{background:#f6a72344}
+
+/* mock navigation chrome (outside the app windows) */
+.mocknav{position:sticky;top:0;z-index:99;display:flex;gap:8px;align-items:center;padding:14px 24px;
+  background:rgba(11,12,14,.9);backdrop-filter:blur(10px);border-bottom:1px solid #1e2126}
+.mocknav .tag{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:#8b93a3;
+  border:1px solid #272c34;border-radius:99px;padding:6px 10px;margin-right:8px}
+.mocknav a{color:#c6ccd6;text-decoration:none;font-size:13px;font-weight:500;padding:7px 12px;border-radius:8px;border:1px solid transparent}
+.mocknav a:hover{background:#191c21;border-color:#272c34}
+.mocknav .kbd{margin-left:auto;font:11px var(--mono);color:#6f7684}
+h2.screentitle{max-width:1440px;margin:56px auto 6px;padding:0 8px;font-size:24px;font-weight:650;letter-spacing:-.01em}
+p.screennote{max-width:1440px;margin:0 auto 18px;padding:0 8px;color:#8b93a3;font-size:13px}
+p.screennote b{color:#c6ccd6;font-weight:600}
+
+/* ══════════════════════════ WINDOW ══════════════════════════ */
+.window{position:relative;width:1440px;height:900px;margin:0 auto;border-radius:var(--r-l);overflow:hidden;
+  background:var(--bg);color:var(--tx);display:grid;grid-template-columns:64px 1fr;grid-template-rows:1fr;box-shadow:var(--shadow-3)}
+.window.solo{grid-template-columns:1fr}
+.titlebar{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;gap:8px;padding:0 16px;z-index:30;
+  -webkit-app-region:drag}
+.tb-dots{display:flex;gap:8px}
+.tb-dots i{width:12px;height:12px;border-radius:50%;display:block}
+.tb-dots i:nth-child(1){background:#ff5f57}.tb-dots i:nth-child(2){background:#febc2e}.tb-dots i:nth-child(3){background:#28c840}
+.tb-title{margin:0 auto;font-size:12.5px;color:var(--tx3);font-weight:500;transform:translateX(-20px)}
+
+/* light theme */
+.window.light{--bg:#f2f3f1;--surface:#fafaf8;--card:#ffffff;--card-hi:#f4f4f1;--hud:#ffffffee;
+  --line:#e0e2e2;--line-hi:#cdd1d4;--tx:#191b1f;--tx2:#5b6270;--tx3:#8b92a0;
+  --ghost:#ececec;--primary:#191b1f;--primary-ink:#f5f5f3;
+  --shadow-1:0 1px 2px rgba(20,22,26,.08);--shadow-2:0 6px 22px rgba(20,22,26,.12);--shadow-3:0 14px 44px rgba(20,22,26,.16)}
+
+/* ══════════════════════════ LOOP RAIL ══════════════════════════ */
+.rail{grid-row:1;grid-column:1;background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;
+  padding:52px 0 14px;gap:4px;z-index:20}
+.rail .mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(145deg,#262a33,#191b20);
+  border:1px solid var(--line-hi);display:grid;place-items:center;color:var(--tx);margin-bottom:18px}
+.window.light .rail .mark{background:linear-gradient(145deg,#fff,#ececе8);background:linear-gradient(145deg,#fff,#ecece8)}
+.rail .stage{position:relative;width:52px;padding:8px 0 7px;border-radius:var(--r-m);display:flex;flex-direction:column;align-items:center;gap:4px;
+  color:var(--tx3);cursor:pointer;border:1px solid transparent}
+.rail .stage svg{width:20px;height:20px}
+.rail .stage span{font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.rail .stage:hover{color:var(--tx2);background:var(--card)}
+.rail .stage.on{color:var(--tx);background:var(--card);border-color:var(--line)}
+.rail .stage.on::before{content:"";position:absolute;left:-7px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--tx2)}
+.rail .badge{position:absolute;top:4px;right:6px;min-width:15px;height:15px;padding:0 4px;border-radius:99px;background:var(--accent);
+  color:var(--accent-ink);font:700 9.5px/15px var(--sans);text-align:center;box-shadow:0 0 0 3px var(--accent-soft)}
+.rail .spacer{flex:1}
+.rail .foot{color:var(--tx3)}
+.rail .foot:hover{color:var(--tx2)}
+
+/* ══════════════════════════ GENERIC BITS ══════════════════════════ */
+svg{display:block}
+.chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border-radius:99px;font-size:12.5px;font-weight:550;
+  background:var(--ghost);color:var(--tx2);border:1px solid transparent;white-space:nowrap}
+.chip.on{background:var(--primary);color:var(--primary-ink)}
+.chip.line{background:transparent;border-color:var(--line-hi)}
+.chip svg{width:13px;height:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 15px;border-radius:var(--r-m);
+  font-size:13.5px;font-weight:600;border:1px solid var(--line-hi);background:var(--card);color:var(--tx);cursor:pointer}
+.btn:hover{background:var(--card-hi)}
+.btn.primary{background:var(--primary);color:var(--primary-ink);border-color:transparent}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--tx2)}
+.btn.sm{height:28px;padding:0 11px;font-size:12.5px;border-radius:8px}
+.btn svg{width:15px;height:15px}
+.kbd{font:600 10.5px var(--mono);color:var(--tx3);background:var(--ghost);border:1px solid var(--line);border-bottom-width:2px;
+  border-radius:5px;padding:2px 5px;letter-spacing:.02em}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.loopbadge{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 7px;border-radius:99px;font-size:10px;font-weight:650;
+  letter-spacing:.03em;text-transform:uppercase;backdrop-filter:blur(6px)}
+.loopbadge svg{width:10px;height:10px}
+.lb-capture{background:rgba(106,166,255,.24);color:#a8cbff}
+.lb-review{background:rgba(167,179,201,.22);color:#c3cddc}
+.lb-annotate{background:rgba(167,139,250,.24);color:#c9b8ff}
+.lb-ask{background:rgba(242,158,110,.24);color:#ffc09d}
+.lb-answer{background:rgba(62,207,142,.2);color:#8fe6bd}
+
+/* fake captured thumbnails */
+.thumb{position:relative;border-radius:8px;overflow:hidden;background:#0e0f12;border:1px solid var(--line)}
+.thumb .faketool{height:14%;background:#1d2027;display:flex;align-items:center;gap:4px;padding:0 5%}
+.thumb .faketool i{width:5px;height:5px;border-radius:50%;background:#3a4150}
+.thumb .faketool i:first-child{background:#f2726d}.thumb .faketool i:nth-child(2){background:#f0c050}.thumb .faketool i:nth-child(3){background:#3ecf8e}
+.thumb .fakebody{position:absolute;inset:14% 0 0}
+.thumb.v-editor .fakebody{background:linear-gradient(180deg,#232836 0%,#1b1f29 100%)}
+.thumb.v-editor .fakebody::before{content:"";position:absolute;left:8%;top:12%;width:36%;height:10px;border-radius:3px;background:#39415a}
+.thumb.v-editor .fakebody::after{content:"";position:absolute;left:8%;top:34%;width:62%;height:52%;border-radius:4px;background:#2b3346}
+.thumb.v-term .fakebody{background:#101314}
+.thumb.v-term .fakebody::before{content:"";position:absolute;left:7%;top:12%;width:48%;height:7px;border-radius:2px;background:#3ecf8e66}
+.thumb.v-term .fakebody::after{content:"";position:absolute;left:7%;top:32%;width:70%;height:7px;border-radius:2px;background:#3a415088}
+.thumb.v-web .fakebody{background:linear-gradient(180deg,#2a2f3a,#20242d)}
+.thumb.v-web .fakebody::before{content:"";position:absolute;left:6%;top:10%;width:88%;height:16%;border-radius:4px;background:#6aa6ff33}
+.thumb.v-web .fakebody::after{content:"";position:absolute;left:6%;top:36%;width:42%;height:50%;border-radius:4px;background:#343b4c}
+.thumb.v-set .fakebody{background:#1c1f26}
+.thumb.v-set .fakebody::before{content:"";position:absolute;left:8%;top:14%;width:30%;height:72%;border-radius:4px;background:#262b36}
+.thumb.v-set .fakebody::after{content:"";position:absolute;left:46%;top:14%;width:46%;height:34%;border-radius:4px;background:#262b36}
+.thumb.v-chat .fakebody{background:#191c22}
+.thumb.v-chat .fakebody::before{content:"";position:absolute;left:8%;top:12%;width:52%;height:18%;border-radius:8px;background:#333a49}
+.thumb.v-chat .fakebody::after{content:"";position:absolute;right:8%;top:42%;width:52%;height:18%;border-radius:8px;background:#3d4a63}
+.window.light .thumb{background:#e9eaea;border-color:#d8dadc}
+.window.light .thumb .faketool{background:#f0f0ee}
+.thumb .dur{position:absolute;right:6px;bottom:6px;font:600 10px var(--mono);color:#fff;background:rgba(10,11,13,.72);padding:2px 6px;border-radius:5px}
+.thumb .glyph{position:absolute;left:6px;top:6px;width:18px;height:18px;border-radius:5px;background:rgba(10,11,13,.6);display:grid;place-items:center;color:#e7eaee}
+.thumb .glyph svg{width:11px;height:11px}
+
+/* ══════════════════════════ SCREEN 1 · SHELL + LIBRARY ══════════════════════════ */
+.main{display:flex;flex-direction:column;min-width:0;min-height:0;padding-top:40px;grid-row:1;grid-column:2}
+.header{display:flex;align-items:center;gap:14px;padding:14px 24px 10px}
+.crumb{font-size:18px;font-weight:650;letter-spacing:-.01em}
+.crumb small{color:var(--tx3);font-weight:500;font-size:13px;margin-left:8px}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;width:280px;height:32px;padding:0 11px;border-radius:9px;
+  background:var(--card);border:1px solid var(--line);color:var(--tx3);font-size:13px;white-space:nowrap}
+.search svg{width:14px;height:14px}
+.filters{display:flex;align-items:center;gap:8px;padding:2px 24px 12px}
+.filters .sort{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--tx3);font-size:12.5px}
+.libscroll{flex:1;overflow:hidden;padding:0 24px}
+.daylabel{font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--tx3);margin:14px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.mcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:9px;cursor:pointer;position:relative}
+.mcard:hover{background:var(--card-hi);border-color:var(--line-hi)}
+.mcard .thumb{height:112px;margin-bottom:9px}
+.mcard .row1{display:flex;align-items:center;gap:7px}
+.mcard .name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.mcard .meta{display:flex;align-items:center;gap:7px;margin-top:5px;color:var(--tx3);font-size:11.5px}
+.mcard .meta svg{width:11px;height:11px}
+.agentchip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:650;color:var(--tx2);
+  background:var(--ghost);border-radius:99px;padding:2px 8px 2px 5px}
+.agentchip i{width:7px;height:7px;border-radius:50%}
+.mcard .lb{position:absolute;top:15px;right:15px;z-index:2}
+
+/* REC pill */
+.rec-pill{position:absolute;top:50px;left:50%;transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:9px;height:34px;padding:0 7px 0 13px;
+  border-radius:99px;background:var(--hud);border:1px solid var(--line-hi);box-shadow:var(--shadow-2)}
+.rec-pill .recdot{width:9px;height:9px;border-radius:50%;background:var(--accent);position:relative}
+.rec-pill .recdot::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:1.5px solid var(--accent-ring);animation:pulse 1.6s ease-out infinite}
+.rec-pill b{font:650 12.5px var(--mono);letter-spacing:.03em}
+.rec-pill .pb{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--tx2);cursor:pointer}
+.rec-pill .pb:hover{background:var(--ghost);color:var(--tx)}
+.rec-pill .pb svg{width:12px;height:12px}
+@keyframes pulse{0%{transform:scale(.55);opacity:1}100%{transform:scale(1.5);opacity:0}}
+
+/* Shutter bar */
+.shutter{position:absolute;left:50%;transform:translateX(-50%);bottom:44px;z-index:35;display:flex;align-items:center;gap:6px;
+  height:58px;padding:8px;background:var(--hud);border:1px solid var(--line-hi);border-radius:16px;box-shadow:var(--shadow-3);
+  backdrop-filter:blur(14px)}
+.shutter .region{display:flex;align-items:center;gap:7px;height:42px;padding:0 12px;border-radius:10px;color:var(--tx2);font-size:12.5px;font-weight:600;cursor:pointer}
+.shutter .region:hover{background:var(--ghost)}
+.shutter .region svg{width:14px;height:14px}
+.shutter .sep{width:1px;height:30px;background:var(--line-hi);margin:0 3px}
+.shutter .mode{display:flex;flex-direction:column;align-items:center;gap:3px;width:64px;height:42px;padding-top:5px;border-radius:10px;
+  color:var(--tx2);font-size:10px;font-weight:650;letter-spacing:.02em;cursor:pointer;position:relative}
+.shutter .mode svg{width:17px;height:17px}
+.shutter .mode:hover{background:var(--ghost);color:var(--tx)}
+.shutter .mode .kbd{position:absolute;top:-9px;right:-3px;transform:scale(.86)}
+.shutter .retro{display:flex;align-items:center;gap:7px;height:42px;padding:0 13px;border-radius:10px;border:1px dashed var(--line-hi);
+  color:var(--tx2);font-size:12px;font-weight:600;cursor:pointer}
+.shutter .retro svg{width:14px;height:14px;color:var(--warn)}
+
+/* status strip */
+.status{height:30px;border-top:1px solid var(--line);background:var(--surface);display:flex;align-items:center;gap:18px;padding:0 16px;
+  font-size:11.5px;color:var(--tx3);z-index:25}
+.status .item{display:flex;align-items:center;gap:6px}
+.status .item svg{width:12px;height:12px}
+.status svg.ok{color:var(--ok)}
+.status .meter{width:64px;height:4px;border-radius:3px;background:var(--ghost);overflow:hidden}
+.status .meter i{display:block;height:100%;border-radius:3px;background:var(--tx3)}
+.status .right{margin-left:auto;display:flex;gap:16px;align-items:center}
+.status .agent-live{display:flex;align-items:center;gap:6px;color:var(--tx2)}
+.status .agent-live i{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+
+/* toast card (item 10/19) */
+.toast{position:absolute;right:20px;bottom:112px;z-index:45;display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:12px;
+  background:var(--hud);border:1px solid var(--line-hi);box-shadow:var(--shadow-2);backdrop-filter:blur(12px)}
+.toast .tico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:rgba(62,207,142,.14);color:var(--ok)}
+.toast .tico svg{width:15px;height:15px}
+.toast .tt{font-size:13px;font-weight:600}
+.toast .ts{font-size:11.5px;color:var(--tx3)}
+.toast .tbtns{display:flex;gap:6px;margin-left:6px}
+
+/* ══════════════════════════ SCREEN 2 · INBOX ══════════════════════════ */
+.inbox{display:grid;grid-template-columns:330px 1fr;flex:1;min-height:0}
+.threads{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.threads .thead{display:flex;align-items:center;gap:8px;padding:14px 16px 10px}
+.threads .thead h3{font-size:16px;font-weight:650}
+.threads .thead .chip{margin-left:auto}
+.lanes{display:flex;gap:6px;padding:0 16px 10px}
+.lane{font-size:11.5px;font-weight:650;color:var(--tx3);padding:4px 9px;border-radius:7px;cursor:pointer}
+.lane.on{background:var(--ghost);color:var(--tx)}
+.lane b{color:var(--warn);font-weight:700;margin-left:3px}
+.tlist{flex:1;overflow:hidden;padding:0 10px 10px;display:flex;flex-direction:column;gap:8px}
+.tcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:11px 12px;cursor:pointer;position:relative}
+.tcard:hover{background:var(--card-hi)}
+.tcard.on{border-color:var(--line-hi);background:var(--card-hi);box-shadow:inset 3px 0 0 var(--info)}
+.tcard .r1{display:flex;align-items:center;gap:7px}
+.tcard .adot{width:9px;height:9px;border-radius:50%}
+.tcard .agent{font-size:12px;font-weight:700;letter-spacing:.02em}
+.tcard .prio{font-size:9.5px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;padding:2.5px 7px;border-radius:5px}
+.prio.high{background:rgba(242,114,109,.14);color:var(--danger)}
+.prio.norm{background:var(--ghost);color:var(--tx3)}
+.prio.low{background:transparent;border:1px solid var(--line);color:var(--tx3)}
+.tcard .age{margin-left:auto;font:600 11px var(--mono);color:var(--tx3)}
+.tcard .age.hot{color:var(--accent)}
+.tcard .q{font-size:13px;font-weight:600;margin-top:7px;line-height:1.35}
+.tcard .r3{display:flex;align-items:center;gap:8px;margin-top:9px}
+.tcard .minithumb{width:44px;height:30px;border-radius:5px;background:linear-gradient(135deg,#2b3242,#1c212b);border:1px solid var(--line)}
+.tcard .pin{position:absolute;top:10px;right:10px;color:var(--warn)}
+.tcard .pin svg{width:12px;height:12px}
+.tcard .snoozed{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:var(--tx3);background:var(--ghost);border-radius:99px;padding:2px 8px}
+.tcard .snoozed svg{width:10px;height:10px}
+
+.convo{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.convo .chead{display:flex;align-items:center;gap:10px;padding:13px 22px;border-bottom:1px solid var(--line)}
+.convo .chead .adot{width:10px;height:10px;border-radius:50%;background:#6f9dff;box-shadow:0 0 0 3px rgba(111,157,255,.18)}
+.convo .chead h3{font-size:15px;font-weight:650}
+.convo .poll{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--tx2);background:var(--accent-soft);
+  border:1px solid rgba(246,167,35,.3);padding:4px 11px;border-radius:99px}
+.convo .poll i{width:7px;height:7px;border-radius:50%;background:var(--accent);position:relative}
+.convo .poll i::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1.5px solid var(--accent-ring);animation:pulse 1.6s ease-out infinite}
+.convo .chead .acts{margin-left:auto;display:flex;gap:6px}
+.msgs{flex:1;overflow:hidden;padding:22px 26px;display:flex;flex-direction:column;gap:16px}
+.msg{max-width:620px;display:flex;gap:10px}
+.msg .adot{flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;color:#fff;font:700 10px var(--sans);margin-top:2px}
+.msg .bubble{background:var(--card);border:1px solid var(--line);border-radius:4px 14px 14px 14px;padding:13px 15px;font-size:13.5px;color:var(--tx);min-width:0}
+.msg.from-me{align-self:flex-end;flex-direction:row-reverse}
+.msg.from-me .bubble{background:#26303f;border-color:#31405a;border-radius:14px 4px 14px 14px}
+.msg .who{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tx3);margin-bottom:6px;display:flex;gap:7px;align-items:center}
+.msg .who time{font:500 10.5px var(--mono);color:var(--tx3);text-transform:none;letter-spacing:0}
+.mediacard{margin-top:10px;border:1px solid var(--line-hi);border-radius:10px;overflow:hidden;background:var(--bg)}
+.mediacard .thumb{height:150px;border-radius:0;border:none;background:#1a1f2a}
+.mediacard .v-set .fakebody{background:#1a1f2a}
+.mediacard .v-set .fakebody::before{background:#39415a}
+.mediacard .v-set .fakebody::after{background:#2e3648}
+.mediacard .mbar{display:flex;align-items:center;gap:8px;padding:8px 11px;font-size:11.5px;color:var(--tx2)}
+.mediacard .mbar svg{width:12px;height:12px}
+.mediacard .mbar .loopbadge{margin-left:auto}
+.choicechips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.choice{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:99px;border:1px solid var(--line-hi);
+  background:var(--card);font-size:13px;font-weight:600;color:var(--tx);cursor:pointer}
+.choice:hover{background:var(--card-hi);border-color:var(--tx3)}
+.choice.picked{background:var(--primary);color:var(--primary-ink);border-color:transparent}
+.choice svg{width:13px;height:13px}
+.voicenote{display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);margin-top:10px}
+.voicenote .play{width:30px;height:30px;border-radius:50%;background:var(--primary);color:var(--primary-ink);display:grid;place-items:center;flex:none}
+.voicenote .play svg{width:12px;height:12px}
+.wave{display:flex;align-items:center;gap:2.5px;height:26px;flex:1}
+.wave i{width:3px;border-radius:2px;background:var(--tx3);opacity:.85}
+.msg.from-me .wave i{background:#8fb2dd}
+.voicenote .vlen{font:600 11px var(--mono);color:var(--tx3)}
+.transcript{font-size:12px;color:var(--tx2);font-style:italic;margin-top:8px;padding-left:4px;border-left:2px solid var(--line-hi);margin-left:2px;padding:2px 0 2px 10px}
+.composer{border-top:1px solid var(--line);padding:13px 22px 15px;background:var(--surface)}
+.composer .types{display:flex;gap:7px;margin-bottom:10px}
+.tbtn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:8px;border:1px solid var(--line);
+  background:var(--card);color:var(--tx2);font-size:12px;font-weight:600;cursor:pointer}
+.tbtn svg{width:13px;height:13px}
+.tbtn.on{border-color:var(--line-hi);color:var(--tx);background:var(--card-hi)}
+.composer .row{display:flex;gap:9px;align-items:center}
+.composer .input{flex:1;height:40px;border-radius:11px;border:1px solid var(--line-hi);background:var(--card);display:flex;align-items:center;
+  padding:0 13px;color:var(--tx3);font-size:13.5px}
+.composer .input .kbd{margin-left:auto}
+.composer .send{height:40px;padding:0 18px;border-radius:11px;background:var(--primary);color:var(--primary-ink);font-weight:700;font-size:13.5px;
+  display:flex;align-items:center;gap:8px;border:none;cursor:pointer}
+.composer .send svg{width:14px;height:14px}
+
+/* ══════════════════════════ SCREEN 3 · ANNOTATION STUDIO ══════════════════════════ */
+.annbar{display:flex;align-items:center;gap:12px;padding:12px 22px;border-bottom:1px solid var(--line)}
+.annbar .fname{font-size:14px;font-weight:650}
+.annbar .chip{margin-left:2px}
+.annbar .zoom{margin-left:auto;display:flex;align-items:center;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:3px}
+.annbar .zoom button{border:none;background:transparent;color:var(--tx2);font:600 11.5px var(--sans);padding:5px 10px;border-radius:6px;cursor:pointer}
+.annbar .zoom button.on{background:var(--ghost);color:var(--tx)}
+.annbar .ur{display:flex;gap:4px}
+.annbar .ur .btn{width:32px;padding:0}
+.annstage{flex:1;position:relative;display:grid;place-items:center;background:
+  radial-gradient(900px 420px at 50% 30%, rgba(255,255,255,.022), transparent 70%), var(--bg);overflow:hidden}
+.canvas{position:relative;width:760px;height:520px;border-radius:10px;overflow:hidden;box-shadow:var(--shadow-2);border:1px solid var(--line-hi);
+  background:linear-gradient(180deg,#232836 0%,#1b1f29 100%)}
+.canvas .ctool{height:34px;background:#171a21;display:flex;align-items:center;gap:5px;padding:0 14px}
+.canvas .ctool i{width:9px;height:9px;border-radius:50%}
+.canvas .ctool i:nth-child(1){background:#ff5f57}.canvas .ctool i:nth-child(2){background:#febc2e}.canvas .ctool i:nth-child(3){background:#28c840}
+.canvas .ctool .addr{margin-left:14px;height:17px;width:300px;border-radius:5px;background:#262b36}
+.canvas .cbody{position:absolute;inset:34px 0 0;display:flex}
+.canvas .cside{width:170px;background:#191d26;border-right:1px solid #262b36;padding:14px}
+.canvas .cside .n{height:9px;border-radius:3px;background:#2c3342;margin-bottom:10px}
+.canvas .cside .n.w1{width:80%}.canvas .cside .n.w2{width:60%}.canvas .cside .n.w3{width:90%}
+.canvas .cmain{flex:1;padding:22px;position:relative}
+.canvas .hero{height:130px;border-radius:8px;background:linear-gradient(120deg,#33405c,#2a3348);margin-bottom:16px}
+.canvas .ln{height:10px;border-radius:3px;background:#2e3648;margin-bottom:11px}
+.canvas .ln.a{width:84%}.canvas .ln.b{width:66%}.canvas .ln.c{width:74%}
+.canvas .fakebtn{position:absolute;right:26px;bottom:30px;width:120px;height:34px;border-radius:8px;background:#6aa6ff;display:flex;align-items:center;justify-content:center}
+.canvas .fakebtn i{width:56px;height:9px;border-radius:3px;background:#1c2330}
+.canvas .misalign{position:absolute;left:196px;top:196px;width:150px;height:44px;border-radius:8px;background:#2e3648;display:flex;align-items:center;padding:0 12px;gap:8px}
+.canvas .misalign i{width:14px;height:14px;border-radius:4px;background:#4a5568}
+.canvas .misalign b{width:64px;height:8px;border-radius:3px;background:#4a5568}
+/* annotations */
+.ann-arrow{position:absolute;left:560px;top:330px;width:170px;height:140px;color:var(--danger);pointer-events:none}
+.badge-n{position:absolute;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:700 11.5px var(--sans);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.badge-n.b1{left:546px;top:298px;background:var(--danger)}
+.badge-n.b2{left:188px;top:172px;background:var(--warn);color:#241a05}
+.ann-rect{position:absolute;left:188px;top:188px;width:166px;height:60px;border:2px solid var(--warn);border-radius:10px;pointer-events:none}
+.ann-rect::before{content:"";position:absolute;left:-2px;top:-2px;width:8px;height:8px;border-radius:2px;background:var(--warn)}
+.ann-check{position:absolute;left:214px;top:84px;display:flex;align-items:center;gap:6px;background:rgba(62,207,142,.15);border:1px solid rgba(62,207,142,.5);
+  color:var(--ok);font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:99px}
+.ann-check svg{width:12px;height:12px}
+.callout{position:absolute;left:390px;top:120px;background:var(--info);color:#0d1826;font-size:12px;font-weight:650;padding:7px 11px;border-radius:9px;box-shadow:var(--shadow-2)}
+.callout::after{content:"";position:absolute;left:18px;bottom:-6px;width:10px;height:10px;background:var(--info);transform:rotate(45deg)}
+/* floating palette */
+.palette{position:absolute;left:26px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:4px;padding:8px;
+  background:var(--hud);border:1px solid var(--line-hi);border-radius:14px;box-shadow:var(--shadow-2);backdrop-filter:blur(12px);z-index:10}
+.palette .tool{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--tx2);cursor:pointer}
+.palette .tool:hover{background:var(--ghost);color:var(--tx)}
+.palette .tool.on{background:var(--primary);color:var(--primary-ink)}
+.palette .tool svg{width:16px;height:16px}
+.palette .psep{height:1px;background:var(--line-hi);margin:3px 4px}
+.palette .colors{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:2px}
+.palette .colors i{width:14px;height:14px;border-radius:50%;cursor:pointer;border:2px solid transparent}
+.palette .colors i.on{border-color:var(--tx);box-shadow:0 0 0 2px var(--bg)}
+.palette .width{padding:4px 6px 2px;display:flex;flex-direction:column;gap:5px;align-items:center}
+.palette .width i{border-radius:99px;background:var(--tx2)}
+.annpanel{width:264px;border-left:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column}
+.annpanel h4{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--tx3);padding:14px 16px 8px}
+.layers{padding:0 10px}
+.layer{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;font-size:12.5px;color:var(--tx2);cursor:pointer}
+.layer:hover{background:var(--card)}
+.layer.on{background:var(--card);color:var(--tx)}
+.layer svg{width:13px;height:13px;color:var(--tx3)}
+.layer .sw{width:9px;height:9px;border-radius:3px}
+.layer .lk{margin-left:auto;color:var(--tx3)}
+.layer .lk svg{width:11px;height:11px}
+.annlist{padding:0 10px;display:flex;flex-direction:column;gap:6px}
+.annitem{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;background:var(--card);border:1px solid var(--line);font-size:12px;color:var(--tx2)}
+.annitem .badge-n{position:static;width:18px;height:18px;font-size:10px;box-shadow:none;flex:none}
+.annitem b{color:var(--tx);font-weight:600}
+.annfoot{margin-top:auto;padding:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.annfoot .hint{font-size:11px;color:var(--tx3);text-align:center}
+
+/* ══════════════════════════ SCREEN 4 · WIZARD ══════════════════════════ */
+.wizwrap{position:relative;width:100%;height:100%;display:grid;place-items:center;
+  background:radial-gradient(700px 420px at 50% 24%, rgba(246,167,35,.05), transparent 70%), var(--bg)}
+.wizlogo{position:absolute;top:22px;left:26px;display:flex;align-items:center;gap:10px;color:var(--tx2)}
+.wizlogo .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(145deg,#262a33,#191b20);border:1px solid var(--line-hi);display:grid;place-items:center;color:var(--tx)}
+.wizlogo span{font-size:13px;font-weight:650}
+.wizskip{position:absolute;top:24px;right:30px;color:var(--tx3);font-size:13px;font-weight:550;cursor:pointer}
+.wizcard{width:760px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:44px 48px 36px;box-shadow:var(--shadow-3)}
+.dots{display:flex;gap:7px;justify-content:center;margin-bottom:30px}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--line-hi)}
+.dots i.done{background:var(--tx3)}
+.dots i.now{background:var(--tx);width:22px;border-radius:99px}
+.wizcard h1{font-size:26px;font-weight:700;letter-spacing:-.015em;text-align:center}
+.wizcard .sub{color:var(--tx2);font-size:14px;text-align:center;margin:9px auto 30px;max-width:520px}
+.tiers{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.tier{border:1px solid var(--line-hi);border-radius:14px;padding:18px 16px;cursor:pointer;position:relative;background:var(--card)}
+.tier:hover{background:var(--card-hi)}
+.tier.picked{border-color:var(--tx);box-shadow:0 0 0 1px var(--tx);background:var(--card-hi)}
+.tier .tick{position:absolute;top:12px;right:12px;width:20px;height:20px;border-radius:50%;background:var(--primary);color:var(--primary-ink);
+  display:none;place-items:center}
+.tier.picked .tick{display:grid}
+.tier .tick svg{width:11px;height:11px}
+.tier h3{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px}
+.tier h3 svg{width:16px;height:16px;color:var(--tx2)}
+.tier .tdesc{font-size:12.5px;color:var(--tx2);margin:8px 0 12px;min-height:54px}
+.tier .cost{font:600 11.5px var(--mono);color:var(--tx3);border-top:1px dashed var(--line-hi);padding-top:10px;display:flex;justify-content:space-between}
+.tier .strip{display:flex;gap:5px;margin-top:12px}
+.tier .strip i{flex:1;height:30px;border-radius:5px;background:var(--ghost)}
+.tier .strip i.f{background:linear-gradient(120deg,#33405c,#2a3348)}
+.wiznav{display:flex;align-items:center;margin-top:34px}
+.wiznav .foot{font-size:11.5px;color:var(--tx3)}
+.wiznav .right{margin-left:auto;display:flex;gap:9px}
+
+/* ══════════════════════════ SCREEN 5 · LIGHT + HUD ══════════════════════════ */
+.hud-region{position:absolute;left:220px;top:150px;width:700px;height:430px;border:1.5px dashed var(--accent);border-radius:4px;z-index:36;pointer-events:none}
+.hud-region::before{content:"";position:absolute;inset:0;background:
+  linear-gradient(var(--accent-ring),var(--accent-ring)) 33.3% 0/1px 100% no-repeat,
+  linear-gradient(var(--accent-ring),var(--accent-ring)) 66.6% 0/1px 100% no-repeat,
+  linear-gradient(var(--accent-ring),var(--accent-ring)) 0 33.3%/100% 1px no-repeat,
+  linear-gradient(var(--accent-ring),var(--accent-ring)) 0 66.6%/100% 1px no-repeat;opacity:.5}
+.hud-region .h{position:absolute;width:9px;height:9px;background:var(--accent);border-radius:2px}
+.hud-region .h.tl{left:-5px;top:-5px}.hud-region .h.tr{right:-5px;top:-5px}
+.hud-region .h.bl{left:-5px;bottom:-5px}.hud-region .h.br{right:-5px;bottom:-5px}
+.hud-region .wh{position:absolute;left:50%;bottom:-34px;transform:translateX(-50%);font:650 12px var(--mono);letter-spacing:.04em;
+  background:var(--hud);color:var(--tx);border:1px solid var(--line-hi);padding:5px 12px;border-radius:8px;box-shadow:var(--shadow-2);backdrop-filter:blur(10px)}
+.hud-region .loupe{position:absolute;right:-64px;top:-64px;width:56px;height:56px;border-radius:50%;border:2px solid var(--accent);
+  background:conic-gradient(from 210deg,#3a4150,#20242c 40%,#3a4150 75%,#20242c);box-shadow:var(--shadow-2)}
+.hud-region .loupe::after{content:"";position:absolute;inset:0;border-radius:50%;background:
+  linear-gradient(var(--accent-ring),var(--accent-ring)) 50% 0/1px 100% no-repeat,
+  linear-gradient(var(--accent-ring),var(--accent-ring)) 0 50%/100% 1px no-repeat}
+.countdown{position:absolute;left:50%;top:104px;transform:translateX(-50%);z-index:38;display:flex;flex-direction:column;align-items:center;gap:8px}
+.countdown .num{width:92px;height:92px;border-radius:50%;background:var(--hud);border:1.5px solid var(--accent);display:grid;place-items:center;
+  font-size:44px;font-weight:250;letter-spacing:-.02em;box-shadow:0 0 0 8px var(--accent-soft),var(--shadow-3);backdrop-filter:blur(10px)}
+.countdown .cap{font-size:12px;color:var(--tx2);background:var(--hud);border:1px solid var(--line-hi);padding:5px 13px;border-radius:99px;backdrop-filter:blur(10px)}
+.countdown .cap b{color:var(--tx)}
+</style>
+</head>
+<body>
+
+<!-- SVG icon set (tintable vectors — item 4) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-aperture" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v6.5M19.8 7.5l-5.6 3.2M19.8 16.5H13.3M12 21v-6.5M4.2 16.5l5.6-3.2M4.2 7.5h6.5"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.2-1.8h5.4L15.9 6h1.6A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.4" r="3.2"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M8 5v14M16 5v14M3.5 9.5H8M3.5 14.5H8M16 9.5h4.5M16 14.5h4.5"/></symbol>
+    <symbol id="i-gif" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 3.5V7h-3.5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-inspect" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M15.8 15.8 20 20M11 8.2v2.6l1.9 1.4"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.8"/><rect x="13" y="4" width="7" height="7" rx="1.8"/><rect x="4" y="13" width="7" height="7" rx="1.8"/><rect x="13" y="13" width="7" height="7" rx="1.8"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.2 18.8 9.5 8.7 19.6l-4.9 1 1-4.9zM12.6 7.1l4.3 4.3"/></symbol>
+    <symbol id="i-ask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.4a7.6 7.6 0 0 1-7.6 7.6 8.7 8.7 0 0 1-3.5-.7L4 19.6l1.4-4.5a7.6 7.6 0 1 1 14.6-3.7z"/><path d="M10.6 9.6a1.9 1.9 0 1 1 2.6 1.8c-.8.3-.8.9-.8 1.6M12.4 15.2v.01"/></symbol>
+    <symbol id="i-answer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.4a7.6 7.6 0 0 1-7.6 7.6 8.7 8.7 0 0 1-3.5-.7L4 19.6l1.4-4.5a7.6 7.6 0 1 1 14.6-3.7z"/><path d="m9.3 11.6 2 2 3.6-3.9"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.8v2.6M12 18.6v2.6M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M2.8 12h2.6M18.6 12h2.6M4.9 19.1l1.9-1.9M17.2 6.8l1.9-1.9"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="3.6" height="14" rx="1.2"/><rect x="13.9" y="5" width="3.6" height="14" rx="1.2"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="m12 3.6 2.5 5.1 5.6.8-4 4 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4-4 5.6-.8z"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M14.2 3.2l6.6 6.6-3.1.9-3.3 3.3.4 3.8-2.1 2.1-4-4L4 20.7l-.7-.7 4.8-4.8-4-4L6.2 9l3.8.4 3.3-3.3z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M15.8 15.8 20 20"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4.5 4 8l3.5 3.5M4 8h9.5a6.5 6.5 0 1 1 0 13H9"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 4.5 20 8l-3.5 3.5M20 8h-9.5a6.5 6.5 0 1 0 0 13H15"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M8.5 7.5 12 4l3.5 3.5M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2.8 12S6.5 5.8 12 5.8 21.2 12 21.2 12 17.5 18.2 12 18.2 2.8 12 2.8 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+    <symbol id="i-select" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 4l7 16 2-6.5L20.5 11z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 17.5 6.5M17.5 6.5H11M17.5 6.5V13"/></symbol>
+    <symbol id="i-rect" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="6" width="15" height="12" rx="2"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 6.5V4.8h14v1.7M12 4.8V19M9.2 19h5.6"/></symbol>
+    <symbol id="i-blur" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2.8 12S6.5 5.8 12 5.8 21.2 12 21.2 12 17.5 18.2 12 18.2 2.8 12 2.8 12z"/><path d="M4.5 19.5l15-15" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 3.5 3.5 10l6.5 2.5L12.5 19z"/><path d="m10 12.5 5-5"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-zzz" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h5l-5 6h5M13 4h4.5L13 10h4.5"/></symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19c0-8 4-13 14-14 .5 10-4.5 14-11 14-1.2 0-2.2-.3-3 0z"/><path d="M5 19c2-4.5 5.5-8 10-10.5"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4.5 17.5a8.5 8.5 0 1 1 15 0"/><path d="M12 14.5 16 9"/><circle cx="12" cy="15" r="1.6" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c3.9 0 6.5-2.5 6.5-6.2 0-2.6-1.5-4.6-3-6.3-.7 1-1.3 1.5-2 1.9.3-2.8-.9-5.6-3.4-7.4.2 2.3-.6 3.6-1.9 5.2-1.4 1.7-2.7 3.7-2.7 6.6C5.5 18.5 8.1 21 12 21z"/></symbol>
+  </defs>
+</svg>
+
+<nav class="mocknav">
+  <span class="tag">Safelight Studio · UI mocks</span>
+  <a href="#s1">1 · Shell &amp; Library</a>
+  <a href="#s2">2 · Inbox conversation</a>
+  <a href="#s3">3 · Annotation studio</a>
+  <a href="#s4">4 · First-run wizard</a>
+  <a href="#s5">5 · Light theme + Capture HUD</a>
+  <span class="kbd">keys 1–5 jump · dark graphite unless noted</span>
+</nav>
+
+<!-- ════════════════════════════════════════════════════════════════
+     SCREEN 1 · SHELL + LIBRARY (Loop rail · Shutter bar · status)
+════════════════════════════════════════════════════════════════ -->
+<h2 class="screentitle" id="s1">1 · App shell — the Loop rail, Library, Shutter bar</h2>
+<p class="screennote"><b>Loop rail</b> replaces the emoji tab bar; every card carries a <b>loop-position badge</b>. Amber is reserved for live state (REC pill). Calm paper-white chips for ordinary actions; status strip along the bottom.</p>
+<div class="window" id="w1">
+  <div class="titlebar"><div class="tb-dots"><i></i><i></i><i></i></div><div class="tb-title">Vibecap — Safelight Studio</div></div>
+
+  <aside class="rail">
+    <div class="mark"><svg width="19" height="19"><use href="#i-aperture"/></svg></div>
+    <div class="stage"><svg><use href="#i-camera"/></svg><span>Capture</span></div>
+    <div class="stage on"><svg><use href="#i-grid"/></svg><span>Review</span></div>
+    <div class="stage"><svg><use href="#i-pen"/></svg><span>Annotate</span></div>
+    <div class="stage"><svg><use href="#i-ask"/></svg><span>Ask</span></div>
+    <div class="stage"><svg><use href="#i-answer"/></svg><span>Answer</span><span class="badge">3</span></div>
+    <div class="spacer"></div>
+    <div class="stage foot"><svg><use href="#i-gear"/></svg><span>Settings</span></div>
+  </aside>
+
+  <div class="main">
+    <div class="header">
+      <div class="crumb">Library <small>42 captures · this project</small></div>
+      <div class="search"><svg><use href="#i-search"/></svg> Search captures, notes, requests… <span class="kbd" style="margin-left:auto">⌘K</span></div>
+    </div>
+    <div class="filters">
+      <span class="chip on">All</span><span class="chip">Stills</span><span class="chip">Clips</span><span class="chip">GIFs</span><span class="chip">Requests</span><span class="chip"><svg><use href="#i-star"/></svg> Starred</span>
+      <span class="sort">Sort · Newest first <svg width="12" height="12"><use href="#i-chev"/></svg></span>
+    </div>
+    <div class="libscroll">
+      <div class="daylabel">Today</div>
+      <div class="grid">
+        <div class="mcard">
+          <span class="loopbadge lb-review lb"><svg><use href="#i-grid"/></svg> Review</span>
+          <div class="thumb v-editor"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-camera"/></svg></span></div>
+          <div class="row1"><span class="name">auth-flow-error.png</span></div>
+          <div class="meta">Safari · 14:32 · 2.1 MB</div>
+        </div>
+        <div class="mcard">
+          <span class="loopbadge lb-annotate lb"><svg><use href="#i-pen"/></svg> Annotate</span>
+          <div class="thumb v-web"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-film"/></svg></span><span class="dur">0:12</span></div>
+          <div class="row1"><span class="name">checkout-lag.mp4</span></div>
+          <div class="meta">Chrome · 13:58 · 8.4 MB</div>
+        </div>
+        <div class="mcard">
+          <span class="loopbadge lb-ask lb"><svg><use href="#i-ask"/></svg> Ask</span>
+          <div class="thumb v-chat"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-gif"/></svg></span><span class="dur">2.1 s</span></div>
+          <div class="row1"><span class="name">button-hover.gif</span></div>
+          <div class="meta">Vibecap demo · 13:41 · 1.2 MB</div>
+        </div>
+        <div class="mcard">
+          <span class="loopbadge lb-answer lb"><svg><use href="#i-answer"/></svg> Answered</span>
+          <div class="thumb v-term"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-film"/></svg></span><span class="dur">0:34</span></div>
+          <div class="row1"><span class="name">onboarding-flow.mp4</span>
+            <span class="agentchip"><i style="background:#6f9dff"></i> Codex</span></div>
+          <div class="meta">Terminal · 11:20 · 21 MB</div>
+        </div>
+        <div class="mcard">
+          <span class="loopbadge lb-review lb"><svg><use href="#i-grid"/></svg> Review</span>
+          <div class="thumb v-set"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-camera"/></svg></span></div>
+          <div class="row1"><span class="name">settings-dark.png</span></div>
+          <div class="meta">Vibecap · 10:07 · 1.8 MB</div>
+        </div>
+      </div>
+      <div class="daylabel">Yesterday</div>
+      <div class="grid">
+        <div class="mcard">
+          <span class="loopbadge lb-capture lb"><svg><use href="#i-camera"/></svg> Capture</span>
+          <div class="thumb v-web"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-camera"/></svg></span></div>
+          <div class="row1"><span class="name">pricing-page.png</span></div>
+          <div class="meta">Arc · 18:44 · 2.6 MB</div>
+        </div>
+        <div class="mcard">
+          <span class="loopbadge lb-ask lb"><svg><use href="#i-ask"/></svg> Ask</span>
+          <div class="thumb v-editor"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-gif"/></svg></span><span class="dur">3.4 s</span></div>
+          <div class="row1"><span class="name">drag-drop-bug.gif</span>
+            <span class="agentchip"><i style="background:#e08a5e"></i> Claude</span></div>
+          <div class="meta">Finder · 16:02 · 3.1 MB</div>
+        </div>
+        <div class="mcard">
+          <span class="loopbadge lb-answer lb"><svg><use href="#i-answer"/></svg> Answered</span>
+          <div class="thumb v-term"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="glyph"><svg><use href="#i-film"/></svg></span><span class="dur">1:02</span></div>
+          <div class="row1"><span class="name">ffmpeg-encode.mp4</span></div>
+          <div class="meta">Terminal · 09:15 · 38 MB</div>
+        </div>
+      </div>
+    </div>
+    <div class="status">
+      <span class="item"><svg><use href="#i-film"/></svg> 12.4 GB <span class="meter"><i style="width:62%"></i></span> of 20 GB</span>
+      <span class="item">Today 38 MB · <b style="color:var(--tx2);font-weight:600">Eco tier</b></span>
+      <span class="item"><svg class="ok"><use href="#i-check"/></svg> ffmpeg ok</span>
+      <span class="item">MCP · 2 clients</span>
+      <span class="right">
+        <span class="agent-live"><i></i> Codex polled 4 s ago</span>
+        <span class="item"><svg><use href="#i-clock"/></svg> ⌘1–5 sections · ? cheatsheet</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="rec-pill">
+    <span class="recdot"></span><b>REC 00:12</b>
+    <span class="pb"><svg><use href="#i-pause"/></svg></span>
+    <span class="pb"><svg><use href="#i-stop"/></svg></span>
+  </div>
+
+  <div class="shutter">
+    <div class="region"><svg><use href="#i-inspect"/></svg> Full display <svg><use href="#i-chev"/></svg></div>
+    <div class="sep"></div>
+    <div class="mode"><svg><use href="#i-camera"/></svg> Still <span class="kbd">⇧C</span></div>
+    <div class="mode"><svg><use href="#i-film"/></svg> Record <span class="kbd">⇧R</span></div>
+    <div class="mode"><svg><use href="#i-gif"/></svg> GIF</div>
+    <div class="mode"><svg><use href="#i-inspect"/></svg> Inspect</div>
+    <div class="sep"></div>
+    <div class="retro"><svg><use href="#i-clock"/></svg> Retro · last 5 s</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     SCREEN 2 · INBOX AS CONVERSATION
+════════════════════════════════════════════════════════════════ -->
+<h2 class="screentitle" id="s2">2 · Inbox as conversation</h2>
+<p class="screennote">Requests are threads, not queue rows: <b>agent identity dots</b>, priority chips, age timers (amber when hot), media cards, <b>choice chips</b>, voice bubbles — and a composer with all four reply types. Amber pulse = agent waiting on you.</p>
+<div class="window" id="w2">
+  <div class="titlebar"><div class="tb-dots"><i></i><i></i><i></i></div><div class="tb-title">Vibecap — Answer</div></div>
+
+  <aside class="rail">
+    <div class="mark"><svg width="19" height="19"><use href="#i-aperture"/></svg></div>
+    <div class="stage"><svg><use href="#i-camera"/></svg><span>Capture</span></div>
+    <div class="stage"><svg><use href="#i-grid"/></svg><span>Review</span></div>
+    <div class="stage"><svg><use href="#i-pen"/></svg><span>Annotate</span></div>
+    <div class="stage"><svg><use href="#i-ask"/></svg><span>Ask</span></div>
+    <div class="stage on"><svg><use href="#i-answer"/></svg><span>Answer</span><span class="badge">3</span></div>
+    <div class="spacer"></div>
+    <div class="stage foot"><svg><use href="#i-gear"/></svg><span>Settings</span></div>
+  </aside>
+
+  <div class="main">
+    <div class="inbox">
+      <div class="threads">
+        <div class="thead"><h3>Inbox</h3><span class="chip line">Search <span class="kbd">/</span></span></div>
+        <div class="lanes"><span class="lane on">Waiting <b>3</b></span><span class="lane">Mine</span><span class="lane">Closed</span></div>
+        <div class="tlist">
+          <div class="tcard on">
+            <span class="pin"><svg><use href="#i-pin"/></svg></span>
+            <div class="r1"><span class="adot" style="background:#6f9dff"></span><span class="agent" style="color:#9db9ff">Codex</span><span class="prio high">High</span><span class="age hot" style="margin-right:16px">12 m</span></div>
+            <div class="q">Which empty-state layout for the Library?</div>
+            <div class="r3"><div class="minithumb thumb v-set"></div><span class="chip line" style="height:22px;font-size:11px">2 options attached</span></div>
+          </div>
+          <div class="tcard">
+            <div class="r1"><span class="adot" style="background:#e08a5e"></span><span class="agent" style="color:#eaa882">Claude</span><span class="prio norm">Normal</span><span class="age">38 m</span></div>
+            <div class="q">Approve trim on checkout-lag.mp4?</div>
+            <div class="r3"><div class="minithumb thumb v-web"></div><span class="chip line" style="height:22px;font-size:11px">0:12 → 0:08</span></div>
+          </div>
+          <div class="tcard">
+            <div class="r1"><span class="adot" style="background:#9d8cff"></span><span class="agent" style="color:#b4a6ff">Qwen</span><span class="prio low">Low</span><span class="age">2 h</span></div>
+            <div class="q">Voice note re: mic levels on the demo reel</div>
+            <div class="r3"><span class="snoozed"><svg><use href="#i-zzz"/></svg> Snoozed · 17:00</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="convo">
+        <div class="chead">
+          <span class="adot"></span><h3>Which empty-state layout for the Library?</h3>
+          <span class="poll"><i></i> Codex is waiting · polled 4 s ago</span>
+          <span class="acts"><span class="btn sm ghost"><svg width="13" height="13"><use href="#i-zzz"/></svg> Snooze</span><span class="btn sm ghost">Forward</span><span class="btn sm ghost">j / k · a / r</span></span>
+        </div>
+        <div class="msgs">
+          <div class="msg">
+            <span class="adot" style="background:#6f9dff">CX</span>
+            <div class="bubble">
+              <div class="who">Codex · request #128 <time>14:02</time></div>
+              The Library currently shows a bare gray label when empty. I drafted two directions — both reuse the filmstrip motif. Which one should I implement?
+              <div class="mediacard">
+                <div class="thumb v-set" style="height:150px"></div>
+                <div class="mbar"><svg><use href="#i-camera"/></svg> option-a-filmstrip.png · 1.6 MB <span class="loopbadge lb-ask"><svg><use href="#i-ask"/></svg> Ask</span></div>
+              </div>
+              <div class="choicechips">
+                <span class="choice picked"><svg><use href="#i-check"/></svg> Layout A · filmstrip</span>
+                <span class="choice">Layout B · shelf</span>
+                <span class="choice">Both — A/B test</span>
+                <span class="choice">Custom…</span>
+              </div>
+            </div>
+          </div>
+          <div class="msg from-me">
+            <span class="adot" style="background:#3b4250">AK</span>
+            <div class="bubble">
+              <div class="who">You · voice + annotation <time>14:11</time></div>
+              <div class="voicenote">
+                <span class="play"><svg><use href="#i-play"/></svg></span>
+                <span class="wave"><i style="height:30%"></i><i style="height:55%"></i><i style="height:80%"></i><i style="height:45%"></i><i style="height:95%"></i><i style="height:60%"></i><i style="height:35%"></i><i style="height:70%"></i><i style="height:50%"></i><i style="height:85%"></i><i style="height:40%"></i><i style="height:65%"></i><i style="height:30%"></i><i style="height:75%"></i><i style="height:55%"></i><i style="height:45%"></i><i style="height:88%"></i><i style="height:52%"></i><i style="height:38%"></i><i style="height:66%"></i></span>
+                <span class="vlen">0:07</span>
+              </div>
+              <div class="transcript">“Go with A — but widen the filmstrip and keep the import button centered.”</div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="types">
+            <span class="tbtn on"><svg><use href="#i-grid"/></svg> Chips</span>
+            <span class="tbtn"><svg><use href="#i-text"/></svg> Text</span>
+            <span class="tbtn"><svg><use href="#i-mic"/></svg> Voice</span>
+            <span class="tbtn"><svg><use href="#i-pen"/></svg> Annotated image</span>
+            <span class="tbtn" style="margin-left:auto"><svg><use href="#i-clock"/></svg> Snippets</span>
+          </div>
+          <div class="row">
+            <div class="input">Reply to Codex… <span class="kbd">⏎ send · ⇧⏎ chip builder</span></div>
+            <button class="send"><svg><use href="#i-send"/></svg> Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     SCREEN 3 · ANNOTATION STUDIO
+════════════════════════════════════════════════════════════════ -->
+<h2 class="screentitle" id="s3">3 · Annotation studio</h2>
+<p class="screennote">Focused canvas with a <b>floating tool palette</b> (semantic pen colors: red = bug, amber = question, green = approve, blue = note), step badges that renumber on drag, layers panel, and non-destructive save. <b>Esc returns you where you were.</b></p>
+<div class="window" id="w3">
+  <div class="titlebar"><div class="tb-dots"><i></i><i></i><i></i></div><div class="tb-title">Vibecap — Annotate</div></div>
+
+  <aside class="rail">
+    <div class="mark"><svg width="19" height="19"><use href="#i-aperture"/></svg></div>
+    <div class="stage"><svg><use href="#i-camera"/></svg><span>Capture</span></div>
+    <div class="stage"><svg><use href="#i-grid"/></svg><span>Review</span></div>
+    <div class="stage on"><svg><use href="#i-pen"/></svg><span>Annotate</span></div>
+    <div class="stage"><svg><use href="#i-ask"/></svg><span>Ask</span></div>
+    <div class="stage"><svg><use href="#i-answer"/></svg><span>Answer</span><span class="badge">3</span></div>
+    <div class="spacer"></div>
+    <div class="stage foot"><svg><use href="#i-gear"/></svg><span>Settings</span></div>
+  </aside>
+
+  <div class="main">
+    <div class="annbar">
+      <span class="fname">auth-flow-error.png</span>
+      <span class="chip line">original preserved · project file</span>
+      <div class="zoom"><button>Fit</button><button class="on">100%</button><button>＋</button></div>
+      <div class="ur"><span class="btn sm"><svg><use href="#i-undo"/></svg></span><span class="btn sm"><svg><use href="#i-redo"/></svg></span></div>
+      <span class="btn sm">Template ▾</span>
+      <span class="btn sm primary"><svg><use href="#i-check"/></svg> Save as new</span>
+      <span class="btn sm"><svg><use href="#i-export"/></svg> Export PNG</span>
+    </div>
+    <div class="annstage">
+      <div class="palette">
+        <span class="tool"><svg><use href="#i-select"/></svg></span>
+        <span class="tool"><svg><use href="#i-pen"/></svg></span>
+        <span class="tool on"><svg><use href="#i-arrow"/></svg></span>
+        <span class="tool"><svg><use href="#i-rect"/></svg></span>
+        <span class="tool"><svg><use href="#i-text"/></svg></span>
+        <span class="tool"><svg style="width:15px;height:15px"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.7"/><text x="12" y="15.5" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor" stroke="none">1</text></svg></span>
+        <span class="tool"><svg><use href="#i-blur"/></svg></span>
+        <div class="psep"></div>
+        <div class="colors">
+          <i class="on" style="background:var(--danger)"></i><i style="background:var(--warn)"></i>
+          <i style="background:var(--ok)"></i><i style="background:var(--info)"></i>
+        </div>
+        <div class="psep"></div>
+        <div class="width"><i style="width:14px;height:2px"></i><i style="width:14px;height:4px"></i><i style="width:14px;height:6px"></i></div>
+      </div>
+
+      <div class="canvas">
+        <div class="ctool"><i></i><i></i><i></i><span class="addr"></span></div>
+        <div class="cbody">
+          <div class="cside"><div class="n w1"></div><div class="n w2"></div><div class="n w3"></div><div class="n w1"></div><div class="n w2"></div></div>
+          <div class="cmain">
+            <div class="hero"></div>
+            <div class="ln a"></div><div class="ln b"></div><div class="ln c"></div>
+            <div class="fakebtn"><i></i></div>
+            <div class="misalign"><i></i><b></b></div>
+          </div>
+        </div>
+        <svg class="ann-arrow" viewBox="0 0 170 140" fill="none"><path d="M16 14 C 55 45, 105 85, 148 120" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M132 114 L 150 122 L 140 102" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="badge-n b1">1</span>
+        <div class="ann-rect"></div>
+        <span class="badge-n b2">2</span>
+        <span class="ann-check"><svg><use href="#i-check"/></svg> Approved spacing</span>
+        <span class="callout">Padding should be 16, not 8</span>
+      </div>
+
+      <aside class="annpanel" style="position:absolute;right:0;top:0;bottom:0">
+        <h4>Layers</h4>
+        <div class="layers">
+          <div class="layer on"><svg><use href="#i-eye"/></svg><span class="sw" style="background:var(--danger)"></span> Arrows · 1 <span class="lk"><svg><use href="#i-lock"/></svg></span></div>
+          <div class="layer"><svg><use href="#i-eye"/></svg><span class="sw" style="background:var(--warn)"></span> Boxes · badges</div>
+          <div class="layer"><svg><use href="#i-eye"/></svg><span class="sw" style="background:var(--info)"></span> Callouts</div>
+          <div class="layer" style="color:var(--tx3)"><svg><use href="#i-eye"/></svg><span class="sw" style="background:var(--tx3)"></span> Background <span class="lk"><svg><use href="#i-lock"/></svg></span></div>
+        </div>
+        <h4>Annotations</h4>
+        <div class="annlist">
+          <div class="annitem"><span class="badge-n" style="background:var(--danger)">1</span><div><b>CTA unreachable</b><br>arrow → bottom-right button</div></div>
+          <div class="annitem"><span class="badge-n" style="background:var(--warn);color:#241a05">2</span><div><b>Misaligned row</b><br>box · 16 px off baseline</div></div>
+          <div class="annitem"><span class="sw" style="width:9px;height:9px;border-radius:3px;background:var(--info);flex:none"></span><div><b>Callout</b><br>“Padding should be 16, not 8”</div></div>
+        </div>
+        <div class="annfoot">
+          <span class="btn sm primary" style="width:100%"><svg><use href="#i-send"/></svg> Attach to reply for Codex</span>
+          <span class="hint"><span class="kbd">Esc</span> returns to Library · undo history kept</span>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     SCREEN 4 · FIRST-RUN WIZARD
+════════════════════════════════════════════════════════════════ -->
+<h2 class="screentitle" id="s4">4 · First-run wizard — budget tier step</h2>
+<p class="screennote">The onboarding pattern extended to budget: progress dots, <b>one question per screen</b>, plain-language cards with estimated disk cost and sample-output strips, skip link, resumable. No amber here — nothing is live yet.</p>
+<div class="window solo" id="w4">
+  <div class="titlebar"><div class="tb-dots"><i></i><i></i><i></i></div><div class="tb-title">Vibecap — Welcome</div></div>
+  <div class="wizwrap">
+    <div class="wizlogo"><span class="mark"><svg width="16" height="16"><use href="#i-aperture"/></svg></span> Safelight Studio</div>
+    <span class="wizskip">Skip for now</span>
+    <div class="wizcard">
+      <div class="dots"><i class="done"></i><i class="done"></i><i class="now"></i><i></i><i></i><i></i></div>
+      <h1>How heavy should your captures be?</h1>
+      <p class="sub">This sets recording resolution, the retro buffer, and how long media is kept. You can change it anytime in Settings → Budget.</p>
+      <div class="tiers">
+        <div class="tier">
+          <span class="tick"><svg><use href="#i-check"/></svg></span>
+          <h3><svg><use href="#i-leaf"/></svg> Eco</h3>
+          <div class="tdesc">Stills + 3-second GIFs. Retro buffer off. Perfect for quick bug notes and design callouts.</div>
+          <div class="cost"><span>~2 GB / week</span><span>kept 30 d</span></div>
+          <div class="strip"><i class="f"></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="tier picked">
+          <span class="tick"><svg><use href="#i-check"/></svg></span>
+          <h3><svg><use href="#i-gauge"/></svg> Standard</h3>
+          <div class="tdesc">720p clips with audio plus a 5-second retro buffer. The sweet spot for agent workflows.</div>
+          <div class="cost"><span>~12 GB / week</span><span>kept 60 d</span></div>
+          <div class="strip"><i class="f"></i><i class="f"></i><i></i><i></i></div>
+        </div>
+        <div class="tier">
+          <span class="tick"><svg><use href="#i-check"/></svg></span>
+          <h3><svg><use href="#i-flame"/></svg> Intensive</h3>
+          <div class="tdesc">1080p clips, 15-second retro buffer, markers. For demos, launch videos, and deep QA sessions.</div>
+          <div class="cost"><span>~40 GB / week</span><span>kept 90 d</span></div>
+          <div class="strip"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></div>
+        </div>
+      </div>
+      <div class="wiznav">
+        <span class="foot">Step 3 of 6 · Role → Usage → Budget → Permissions → MCP → Tour</span>
+        <span class="right"><span class="btn">Back</span><span class="btn primary">Continue <svg><use href="#i-arrow"/></svg></span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     SCREEN 5 · LIGHT THEME + CAPTURE HUD
+════════════════════════════════════════════════════════════════ -->
+<h2 class="screentitle" id="s5">5 · Light theme + Capture HUD family</h2>
+<p class="screennote">True light-theme parity, and the HUD family unified: <b>region selector</b> with W×H readout, thirds grid and corner handles; <b>countdown bubble</b>; post-capture <b>toast card</b> with Annotate / Copy / Reveal instead of an automatic takeover.</p>
+<div class="window light" id="w5">
+  <div class="titlebar"><div class="tb-dots"><i></i><i></i><i></i></div><div class="tb-title">Vibecap — Safelight Studio</div></div>
+
+  <aside class="rail">
+    <div class="mark"><svg width="19" height="19" style="color:#191b1f"><use href="#i-aperture"/></svg></div>
+    <div class="stage"><svg><use href="#i-camera"/></svg><span>Capture</span></div>
+    <div class="stage on"><svg><use href="#i-grid"/></svg><span>Review</span></div>
+    <div class="stage"><svg><use href="#i-pen"/></svg><span>Annotate</span></div>
+    <div class="stage"><svg><use href="#i-ask"/></svg><span>Ask</span></div>
+    <div class="stage"><svg><use href="#i-answer"/></svg><span>Answer</span><span class="badge">3</span></div>
+    <div class="spacer"></div>
+    <div class="stage foot"><svg><use href="#i-gear"/></svg><span>Settings</span></div>
+  </aside>
+
+  <div class="main">
+    <div class="header">
+      <div class="crumb">Library <small>42 captures · this project</small></div>
+      <div class="search"><svg><use href="#i-search"/></svg> Search captures, notes, requests… <span class="kbd" style="margin-left:auto">⌘K</span></div>
+    </div>
+    <div class="filters">
+      <span class="chip on">All</span><span class="chip">Stills</span><span class="chip">Clips</span><span class="chip">GIFs</span><span class="chip">Requests</span><span class="chip"><svg><use href="#i-star"/></svg> Starred</span>
+      <span class="sort">Sort · Newest first <svg width="12" height="12"><use href="#i-chev"/></svg></span>
+    </div>
+    <div class="libscroll">
+      <div class="daylabel">Today</div>
+      <div class="grid">
+        <div class="mcard"><span class="loopbadge lb-review lb"><svg><use href="#i-grid"/></svg> Review</span>
+          <div class="thumb v-editor"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div></div>
+          <div class="row1"><span class="name">auth-flow-error.png</span></div><div class="meta">Safari · 14:32 · 2.1 MB</div></div>
+        <div class="mcard"><span class="loopbadge lb-annotate lb"><svg><use href="#i-pen"/></svg> Annotate</span>
+          <div class="thumb v-web"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="dur">0:12</span></div>
+          <div class="row1"><span class="name">checkout-lag.mp4</span></div><div class="meta">Chrome · 13:58 · 8.4 MB</div></div>
+        <div class="mcard"><span class="loopbadge lb-ask lb"><svg><use href="#i-ask"/></svg> Ask</span>
+          <div class="thumb v-chat"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="dur">2.1 s</span></div>
+          <div class="row1"><span class="name">button-hover.gif</span></div><div class="meta">Vibecap demo · 13:41 · 1.2 MB</div></div>
+        <div class="mcard"><span class="loopbadge lb-answer lb"><svg><use href="#i-answer"/></svg> Answered</span>
+          <div class="thumb v-term"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div><span class="dur">0:34</span></div>
+          <div class="row1"><span class="name">onboarding-flow.mp4</span><span class="agentchip"><i style="background:#6f9dff"></i> Codex</span></div><div class="meta">Terminal · 11:20 · 21 MB</div></div>
+        <div class="mcard"><span class="loopbadge lb-review lb"><svg><use href="#i-grid"/></svg> Review</span>
+          <div class="thumb v-set"><div class="faketool"><i></i><i></i><i></i></div><div class="fakebody"></div></div>
+          <div class="row1"><span class="name">settings-dark.png</span></div><div class="meta">Vibecap · 10:07 · 1.8 MB</div></div>
+      </div>
+    </div>
+    <div class="status">
+      <span class="item"><svg><use href="#i-film"/></svg> 12.4 GB <span class="meter"><i style="width:62%"></i></span> of 20 GB</span>
+      <span class="item">Today 38 MB · <b style="color:var(--tx2);font-weight:600">Standard tier</b></span>
+      <span class="item"><svg class="ok"><use href="#i-check"/></svg> ffmpeg ok</span>
+      <span class="item">MCP · 2 clients</span>
+      <span class="right"><span class="agent-live"><i></i> Claude polled 11 s ago</span></span>
+    </div>
+  </div>
+
+  <div class="countdown">
+    <div class="num">3</div>
+    <div class="cap"><b>Still capture</b> in 3 s — <span class="kbd">Esc</span> to cancel</div>
+  </div>
+
+  <div class="hud-region">
+    <span class="h tl"></span><span class="h tr"></span><span class="h bl"></span><span class="h br"></span>
+    <span class="wh">1840 × 1104 · Display 1</span>
+    <span class="loupe"></span>
+  </div>
+
+  <div class="shutter">
+    <div class="region"><svg><use href="#i-inspect"/></svg> Region <svg><use href="#i-chev"/></svg></div>
+    <div class="sep"></div>
+    <div class="mode" style="background:var(--ghost);color:var(--tx)"><svg><use href="#i-camera"/></svg> Still <span class="kbd">⇧C</span></div>
+    <div class="mode"><svg><use href="#i-film"/></svg> Record <span class="kbd">⇧R</span></div>
+    <div class="mode"><svg><use href="#i-gif"/></svg> GIF</div>
+    <div class="mode"><svg><use href="#i-inspect"/></svg> Inspect</div>
+    <div class="sep"></div>
+    <div class="retro"><svg><use href="#i-clock"/></svg> Retro · last 5 s</div>
+  </div>
+
+  <div class="toast">
+    <span class="tico"><svg><use href="#i-check"/></svg></span>
+    <span><span class="tt">Captured checkout-lag.png</span><br><span class="ts">2.1 MB · saved to Library — Today</span></span>
+    <span class="tbtns"><span class="btn sm">Annotate</span><span class="btn sm">Copy</span><span class="btn sm">Reveal</span></span>
+  </div>
+</div>
+
+<script>
+document.addEventListener('keydown', e => {
+  const map = {'1':'s1','2':'s2','3':'s3','4':'s4','5':'s5'};
+  if (map[e.key] && !e.metaKey && !e.ctrlKey && document.activeElement.tagName !== 'INPUT') {
+    document.getElementById(map[e.key]).scrollIntoView({behavior:'smooth', block:'start'});
+  }
+});
+</script>
+</body>
+</html>

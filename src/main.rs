@@ -1,5 +1,7 @@
+mod app;
 mod platform;
 mod tray_ui;
+mod ui;
 
 use eframe::egui;
 use std::process::{Command, Child};
@@ -9,46 +11,95 @@ use chrono::Local;
 use crossbeam_channel::Receiver;
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
 use global_hotkey::GlobalHotKeyEvent;
-use egui::{Color32, Stroke, Pos2, Rect, Vec2, ViewportId, ViewportBuilder, RichText, Frame, Rounding, Visuals, Align2, FontId};
+use egui::{
+    Color32, Stroke, Pos2, Rect, Vec2, ViewportId, ViewportBuilder, ViewportCommand, RichText,
+    Frame, Align2, FontId, UserAttentionType,
+};
 use rfd::FileDialog;
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 use platform::{
-    capture_live_frame, capture_screenshot_interactive, capture_to_media_dir, config_dir as platform_config_dir,
-    cont_process, export_gif_clip, focus_app, live_dir as platform_live_dir, live_session_dir,
-    media_dir, media_dir_display, open_path, record_screen_clip, reveal_in_file_manager,
-    spawn_screen_recorder, spawn_voice_memo, stop_process, LiveFormat,
+    capture_screenshot, capture_screenshot_interactive, cont_process, focus_app,
+    frontmost_app_name, list_running_apps, media_dir_display, notify_agent_question, open_path,
+    reveal_in_file_manager, spawn_screen_recorder, spawn_voice_memo, stop_process,
 };
-use tray_ui::{TrayAction, TrayController};
+use tray_ui::{TrayAction, TrayController, TrayLiveState};
+use ui::{
+    apply_current_theme, apply_graphite_theme, empty_state, loop_rail, show_capture_toast,
+    show_countdown_bubble, show_palette, show_region_selector, show_toast_card, shutter_strip,
+    status_strip, CaptureToastAction, Density, LoopStage, PaletteAction, RegionHudResult,
+    ShutterAction, StatusSnapshot, ThemeMode, ToastLevel,
+};
+use ui::icons::Icon;
+use ui::theme;
 
-static LIVE_INSPECTION_RUNNING: AtomicBool = AtomicBool::new(false);
-static LATEST_LIVE_GIF: OnceLock<Mutex<String>> = OnceLock::new();
-
-fn get_latest_live_gif_mutex() -> &'static Mutex<String> {
-    LATEST_LIVE_GIF.get_or_init(|| Mutex::new(String::new()))
-}
-
+use app::{
+    capture_screenshot_to_media_dir, default_live_dir, default_media_dir, even_crop,
+    extract_filmstrip_thumbs, feedback_requests_dir, feedback_responses_dir, filter_items,
+    finalize_recorder, format_feedback_answer, get_dir_size_bytes, kill_recorder,
+    live_usage_snapshot, load_budget, mcp_live_dir, run_mcp_server, save_budget, scan_media_dir,
+    write_json_atomic, BudgetConfig, FeedbackRequest, FeedbackResponse, MediaCategory, MediaItem,
+    LIBRARY_PAGE_SIZE,
+};
+use app::io::vibecap_config_dir;
+use app::session::{
+    density_from_str, density_to_str, load_session, save_session, SessionState,
+};
 
 #[derive(PartialEq, Clone, Copy)]
-enum AppTab {
+pub(crate) enum AppTab {
     Capture,
     Library,
-    Edit,
+    Clip,
+    Still,
     Feedback,
     Settings,
 }
 
+impl AppTab {
+    pub(crate) fn from_loop(stage: LoopStage) -> Self {
+        match stage {
+            LoopStage::Shutter => Self::Capture,
+            LoopStage::Media => Self::Library,
+            LoopStage::Clip => Self::Clip,
+            LoopStage::Still => Self::Still,
+            LoopStage::Inbox => Self::Feedback,
+            LoopStage::Settings => Self::Settings,
+        }
+    }
+
+    pub(crate) fn to_loop(self) -> LoopStage {
+        match self {
+            Self::Capture => LoopStage::Shutter,
+            Self::Library => LoopStage::Media,
+            Self::Clip => LoopStage::Clip,
+            Self::Still => LoopStage::Still,
+            Self::Feedback => LoopStage::Inbox,
+            Self::Settings => LoopStage::Settings,
+        }
+    }
+
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            Self::Capture => "Shutter",
+            Self::Library => "Media",
+            Self::Clip => "Clip",
+            Self::Still => "Still",
+            Self::Feedback => "Inbox",
+            Self::Settings => "Settings",
+        }
+    }
+}
+
 #[derive(PartialEq, Clone, Copy)]
-enum CaptureTarget {
+pub(crate) enum CaptureTarget {
     Fullscreen,
     Region,
     Window,
 }
 
 #[derive(PartialEq, Clone, Copy, Default)]
-enum AnnotationTool {
+pub(crate) enum AnnotationTool {
     #[default]
     Pen,
     Arrow,
@@ -60,256 +111,26 @@ enum AnnotationTool {
 }
 
 #[derive(Clone)]
-struct AnnotationAction {
-    tool: AnnotationTool,
-    color: Color32,
-    stroke_width: f32,
-    points: Vec<Pos2>,
-    text_content: String,
-    badge_number: usize,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MediaCategory {
-    Screenshot,
-    Video,
-    Gif,
-    Audio,
-    Note,
-}
-
-impl MediaCategory {
-    fn label(self) -> &'static str {
-        match self {
-            MediaCategory::Screenshot => "Screenshots",
-            MediaCategory::Video => "Videos",
-            MediaCategory::Gif => "GIFs",
-            MediaCategory::Audio => "Audio",
-            MediaCategory::Note => "Notes",
-        }
-    }
-
-    fn icon(self) -> &'static str {
-        match self {
-            MediaCategory::Screenshot => "📸",
-            MediaCategory::Video => "🎥",
-            MediaCategory::Gif => "🎞",
-            MediaCategory::Audio => "🎙",
-            MediaCategory::Note => "📝",
-        }
-    }
-
-    fn from_ext(ext: &str) -> Option<Self> {
-        match ext {
-            "png" | "jpg" | "jpeg" | "webp" => Some(MediaCategory::Screenshot),
-            "mp4" | "mov" | "webm" | "mkv" => Some(MediaCategory::Video),
-            "gif" => Some(MediaCategory::Gif),
-            "m4a" | "mp3" | "wav" | "aac" => Some(MediaCategory::Audio),
-            "txt" | "md" => Some(MediaCategory::Note),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct MediaItem {
-    path: PathBuf,
-    name: String,
-    size_str: String,
-    category: MediaCategory,
-    /// Unix secs for sort (newest first).
-    modified_secs: u64,
-}
-
-/// Max rows shown at once in the library (newest first). User can load more.
-const LIBRARY_PAGE_SIZE: usize = 40;
-
-// ---------- Paths / capture (see `platform` module) ----------
-
-fn default_media_dir() -> PathBuf {
-    media_dir()
-}
-
-fn default_live_dir() -> PathBuf {
-    platform_live_dir()
-}
-
-/// MCP / agent live stream dir — unique per process so multiple agents can run at once.
-fn mcp_live_dir() -> PathBuf {
-    live_session_dir()
-}
-
-fn capture_screenshot_to_media_dir() -> Result<PathBuf, String> {
-    capture_to_media_dir()
-}
-
-// ---------- Agent Budget & Feedback (shared between app & MCP server via platform config dir) ----------
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct BudgetConfig {
-    /// 0 = unlimited
-    max_frames: u32,
-    /// 0.0 = unlimited
-    max_mb: f64,
-    /// 0 = unlimited
-    max_minutes: u32,
-    /// "eco" | "standard" | "intensive"
-    analysis_tier: String,
-}
-
-impl Default for BudgetConfig {
-    fn default() -> Self {
-        Self { max_frames: 0, max_mb: 0.0, max_minutes: 0, analysis_tier: "standard".to_string() }
-    }
-}
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct FeedbackRequest {
-    id: String,
-    media_path: String,
-    question: String,
-    created_at: String,
-    status: String, // "pending" | "answered"
-}
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct FeedbackResponse {
-    id: String,
-    feedback_text: String,
-    #[serde(default)]
-    voice_note_path: String,
-    #[serde(default)]
-    annotated_media_path: String,
-    answered_at: String,
-}
-
-fn vibecap_config_dir() -> PathBuf {
-    platform_config_dir()
-}
-
-fn budget_file_path() -> PathBuf { vibecap_config_dir().join("budget.json") }
-
-/// Ok(None) = no budget set; Ok(Some) = budget; Err = corrupt/unreadable (enforcement fails closed).
-fn budget_file_state() -> Result<Option<BudgetConfig>, String> {
-    match std::fs::read_to_string(budget_file_path()) {
-        Ok(s) => serde_json::from_str(&s).map(Some).map_err(|e| format!("corrupt budget.json: {}", e)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("unreadable budget.json: {}", e)),
-    }
-}
-
-fn load_budget() -> BudgetConfig {
-    budget_file_state().ok().flatten().unwrap_or_default()
-}
-
-fn save_budget(cfg: &BudgetConfig) -> Result<(), String> {
-    let s = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    write_json_atomic(&budget_file_path(), &s)
-}
-
-/// Write-then-rename so a concurrent reader never sees a partial file.
-fn write_json_atomic(path: &PathBuf, contents: &str) -> Result<(), String> {
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, contents).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
-}
-
-fn feedback_requests_dir() -> PathBuf {
-    let dir = vibecap_config_dir().join("feedback").join("requests");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
-fn feedback_responses_dir() -> PathBuf {
-    let dir = vibecap_config_dir().join("feedback").join("responses");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
-/// When the current live-inspection session started (MCP process-local).
-static LIVE_STARTED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
-fn get_live_started_mutex() -> &'static Mutex<Option<Instant>> {
-    LIVE_STARTED_AT.get_or_init(|| Mutex::new(None))
-}
-
-/// Set by the live loop when it auto-stops on a budget cap.
-static BUDGET_NOTE: OnceLock<Mutex<String>> = OnceLock::new();
-fn get_budget_note_mutex() -> &'static Mutex<String> {
-    BUDGET_NOTE.get_or_init(|| Mutex::new(String::new()))
-}
-
-/// Budget usage snapshot for the live dir: (frames, mb, elapsed_minutes).
-/// Frames = timestamped capture files only (frame_*/live_*/video_*); MB = all bytes on disk.
-/// Elapsed is 0 when no stream is running (prevents stale timers from haunting later sessions).
-fn live_usage_snapshot(live_dir: &str) -> (usize, f64, f64) {
-    let mut frames = 0usize;
-    let mut total = 0u64;
-    if let Ok(entries) = std::fs::read_dir(live_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Ok(meta) = entry.metadata() {
-                if meta.is_file() {
-                    total += meta.len();
-                    if name.starts_with("frame_") || name.starts_with("live_") || name.starts_with("video_") {
-                        frames += 1;
-                    }
-                }
-            }
-        }
-    }
-    let mb = (total as f64) / (1024.0 * 1024.0);
-    let elapsed = if LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst) {
-        match get_live_started_mutex().lock() {
-            Ok(l) => (*l).map(|t| t.elapsed().as_secs_f64() / 60.0).unwrap_or(0.0),
-            Err(_) => 0.0,
-        }
-    } else {
-        0.0
-    };
-    (frames, mb, elapsed)
-}
-
-/// Returns Some(reason) if any budget cap is exceeded.
-fn budget_exceeded_reason(live_dir: &str) -> Option<String> {
-    if let Err(e) = budget_file_state() {
-        return Some(format!("⚠️ {} — enforcement is fail-closed; fix or delete {}", e, budget_file_path().display()));
-    }
-    let cfg = load_budget();
-    let (frames, mb, minutes) = live_usage_snapshot(live_dir);
-    if cfg.max_frames > 0 && frames >= cfg.max_frames as usize {
-        return Some(format!("frame cap reached ({}/{} frames)", frames, cfg.max_frames));
-    }
-    if cfg.max_mb > 0.0 && mb >= cfg.max_mb {
-        return Some(format!("storage cap reached ({:.1}/{:.1} MB)", mb, cfg.max_mb));
-    }
-    if cfg.max_minutes > 0 && minutes >= cfg.max_minutes as f64 {
-        return Some(format!("time cap reached ({:.1}/{} min)", minutes, cfg.max_minutes));
-    }
-    None
-}
-
-/// One-line budget status for MCP tool responses.
-fn budget_status_line(live_dir: &str) -> String {
-    let cfg = load_budget();
-    let (frames, mb, minutes) = live_usage_snapshot(live_dir);
-    let note = get_budget_note_mutex().lock().map(|n| n.clone()).unwrap_or_default();
-    let frames_cap = if cfg.max_frames == 0 { "unlimited".to_string() } else { cfg.max_frames.to_string() };
-    let mb_cap = if cfg.max_mb <= 0.0 { "unlimited".to_string() } else { format!("{:.1}", cfg.max_mb) };
-    let min_cap = if cfg.max_minutes == 0 { "unlimited".to_string() } else { cfg.max_minutes.to_string() };
-    let mut s = format!("💰 BUDGET: frames {}/{}, {:.1}/{} MB, {:.1}/{} min (tier: {})", frames, frames_cap, mb, mb_cap, minutes, min_cap, cfg.analysis_tier);
-    if !note.is_empty() {
-        s.push_str(&format!(" — ⚠️ {}", note));
-    }
-    s
+pub(crate) struct AnnotationAction {
+    pub tool: AnnotationTool,
+    pub color: Color32,
+    pub stroke_width: f32,
+    pub points: Vec<Pos2>,
+    pub text_content: String,
+    pub badge_number: usize,
 }
 
 #[derive(Default)]
-struct VibecapApp {
+pub(crate) struct VibecapApp {
     current_tab: AppTab,
     capture_target: CaptureTarget,
     capture_audio: bool,
     fps_target: u32,
     is_recording: bool,
+    /// Hide UI then spawn ffmpeg on a worker — true while countdown / spawn in flight.
+    recording_arming: bool,
+    /// User cancelled during arming (worker result is discarded / killed).
+    recording_cancel_armed: bool,
     is_paused: bool,
     accumulated_duration: Duration,
     segment_start: Option<Instant>,
@@ -321,10 +142,12 @@ struct VibecapApp {
     voice_memo_start: Option<Instant>,
     
     // Channels for async capture
-    capture_trigger_tx: Option<crossbeam_channel::Sender<bool>>,
-    capture_trigger_rx: Option<crossbeam_channel::Receiver<bool>>,
-    screenshot_tx: Option<crossbeam_channel::Sender<PathBuf>>,
-    screenshot_rx: Option<crossbeam_channel::Receiver<PathBuf>>,
+    /// Region-select → arm recording on next frame (avoids re-entrancy).
+    pending_arm_record: bool,
+    screenshot_tx: Option<crossbeam_channel::Sender<Result<PathBuf, String>>>,
+    screenshot_rx: Option<crossbeam_channel::Receiver<Result<PathBuf, String>>>,
+    /// Worker → main: ffmpeg child after hide delay (recording starts even if UI was minimized).
+    record_spawn_rx: Option<crossbeam_channel::Receiver<Result<(Child, PathBuf), String>>>,
     
     // File paths & Media Library
     save_dir: PathBuf,
@@ -347,6 +170,7 @@ struct VibecapApp {
     edit_file: Option<PathBuf>,
     filmstrip: Vec<egui::TextureHandle>,
     filmstrip_loading: bool,
+    filmstrip_error: Option<String>,
 
     // Annotation & Developer Feedback Note
     is_annotating: bool,
@@ -381,15 +205,29 @@ struct VibecapApp {
     region_start: Option<Pos2>,
     region_end: Option<Pos2>,
     selected_region: Option<Rect>,
+    /// Ghost outline for next region select (session-persisted).
+    last_region: Option<Rect>,
 
-    // Notification toast
-    toast_message: Option<(String, Instant)>,
+    // Notification toast (message, shown_at, severity)
+    toast_message: Option<(String, Instant, ToastLevel)>,
+    /// Post-capture action card (path + shown_at); mutually preferred over simple toast.
+    capture_toast: Option<(PathBuf, Instant)>,
+
+    // Phase 1d: palette, density, undo trash
+    palette_open: bool,
+    palette_query: String,
+    palette_selected: usize,
+    density: Density,
+    /// Soft-deleted paths staged for undo (restore before expiry).
+    undo_trash: Option<(Vec<PathBuf>, Instant, PathBuf)>,
 
     // Feedback Inbox (agent human-in-the-loop)
     feedback_requests: Vec<FeedbackRequest>,
     feedback_scanned: bool,
     feedback_selected: Option<String>,
     feedback_draft: String,
+    /// Quick-choice chip selected for the open reply (maps to selected_option).
+    feedback_choice: String,
 
     // Agent Budget panel (shared with MCP via ~/.config/vibecap/budget.json)
     budget_frames_input: String,
@@ -416,6 +254,8 @@ struct VibecapApp {
     // Feedback arrival polling & richer replies
     feedback_last_poll: Option<Instant>,
     feedback_pending_count: usize,
+    /// Request IDs we already notified about (OS toast + surface).
+    feedback_notified_ids: std::collections::HashSet<String>,
     feedback_reply_cache: std::collections::HashMap<String, String>,
     annotating_feedback_id: Option<String>,
     feedback_voice_note: Option<PathBuf>,
@@ -432,6 +272,28 @@ struct VibecapApp {
     img_preview_tex: Option<egui::TextureHandle>,
     img_preview_params: String,
     img_source_dims: String,
+
+    // First-run wizard (Phase 3)
+    wizard_open: bool,
+    wizard_step: u8,
+    wizard_done: bool,
+    wizard_budget_touched: bool,
+
+    /// Retro buffer (off by default) — rolling low-FPS frames for “save last N s”.
+    retro: app::RetroController,
+
+    /// Pre-record countdown preference: 0 / 3 / 5 seconds.
+    record_countdown_secs: u8,
+    /// When set, big bubble counts down until this instant, then arm_recording.
+    countdown_deadline: Option<Instant>,
+
+    /// Window-target picker: selected app name + cached list.
+    window_app: String,
+    window_app_list: Vec<String>,
+    window_list_scanned: bool,
+    /// Last non-Vibecap frontmost app (so Fullscreen screenshots are not bare desktop).
+    last_front_app: Option<String>,
+    last_front_poll: Option<Instant>,
 }
 
 impl Default for AppTab {
@@ -445,36 +307,7 @@ impl Default for CaptureTarget {
 impl VibecapApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
-        
-        let mut visuals = Visuals::dark();
-        visuals.panel_fill = Color32::from_rgb(0x14, 0x10, 0x08);
-        visuals.window_fill = Color32::from_rgb(0x14, 0x10, 0x08);
-        visuals.extreme_bg_color = Color32::from_rgb(0x21, 0x1a, 0x11);
-        visuals.faint_bg_color = Color32::from_rgb(0x2a, 0x21, 0x14);
-        
-        visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(0x21, 0x1a, 0x11);
-        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(235, 210, 170, 25));
-        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xec, 0xe5, 0xd6));
-        visuals.widgets.noninteractive.rounding = Rounding::same(10.0);
-        
-        visuals.widgets.inactive.bg_fill = Color32::from_rgb(0x2a, 0x21, 0x14);
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(235, 210, 170, 30));
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xec, 0xe5, 0xd6));
-        visuals.widgets.inactive.rounding = Rounding::same(10.0);
-
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x35, 0x2a, 0x1a);
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xf5, 0x9e, 0x4b));
-        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
-        visuals.widgets.hovered.rounding = Rounding::same(10.0);
-
-        visuals.widgets.active.bg_fill = Color32::from_rgb(0xf5, 0x9e, 0x4b);
-        visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0x1c, 0x14, 0x08));
-        visuals.widgets.active.rounding = Rounding::same(10.0);
-
-        visuals.selection.bg_fill = Color32::from_rgb(0xf5, 0x9e, 0x4b);
-        visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(0x1c, 0x14, 0x08));
-        
-        cc.egui_ctx.set_visuals(visuals);
+        apply_graphite_theme(&cc.egui_ctx);
 
         // Hotkeys are best-effort: a second GUI may fail to claim them.
         // Ctrl+Shift+2 = record toggle · Ctrl+Shift+3 = screenshot
@@ -495,7 +328,6 @@ impl VibecapApp {
         
         let default_dir = default_media_dir();
 
-        let (capture_tx, capture_rx) = crossbeam_channel::unbounded();
         let (screenshot_tx, screenshot_rx) = crossbeam_channel::unbounded();
         let (ffmpeg_tx, ffmpeg_rx) = crossbeam_channel::unbounded();
 
@@ -513,13 +345,12 @@ impl VibecapApp {
             trim_end: "00:00:05".to_string(),
             export_speed: "1.0".to_string(),
             current_tool: AnnotationTool::Pen,
-            current_color: Color32::from_rgb(0xf5, 0x9e, 0x4b),
+            current_color: theme::ACCENT(),
             current_stroke_width: 3.0,
             pending_text: "Sample Text".to_string(),
             feedback_description: String::new(),
+            feedback_choice: String::new(),
             step_counter: 1,
-            capture_trigger_tx: Some(capture_tx),
-            capture_trigger_rx: Some(capture_rx),
             screenshot_tx: Some(screenshot_tx),
             screenshot_rx: Some(screenshot_rx),
             ffmpeg_tx: Some(ffmpeg_tx),
@@ -535,11 +366,309 @@ impl VibecapApp {
             img_resize_pct: 100,
             allow_exit: false,
             start_hidden: false,
-            ..Default::default()
+            recording_arming: false,
+            recording_cancel_armed: false,
+            pending_arm_record: false,
+            filmstrip_error: None,
+            palette_open: false,
+            palette_query: String::new(),
+            palette_selected: 0,
+            density: Density::Comfortable,
+            undo_trash: None,
+            capture_toast: None,
+            ..Default::default() // wizard_* default closed / not done
         };
 
+        let session = load_session();
+        app.apply_session(session);
+        // Re-apply visuals if session asked for light (graphite was applied above).
+        apply_current_theme(&cc.egui_ctx);
         app.refresh_library();
         app
+    }
+
+    fn apply_session(&mut self, s: SessionState) {
+        self.density = density_from_str(&s.density);
+        if !s.library_filter.is_empty() {
+            self.library_filter = s.library_filter;
+        }
+        self.current_tab = match s.tab.as_str() {
+            "library" | "media" => AppTab::Library,
+            "edit" | "studio" | "clip" => AppTab::Clip,
+            "still" | "image" => AppTab::Still,
+            "feedback" | "inbox" => AppTab::Feedback,
+            "settings" => AppTab::Settings,
+            _ => AppTab::Capture,
+        };
+        if let Some(p) = s.edit_file {
+            let path = PathBuf::from(p);
+            if path.exists() {
+                self.edit_file = Some(path);
+            }
+        }
+        self.wizard_done = s.wizard_done;
+        self.wizard_open = !s.wizard_done;
+        self.wizard_step = 0;
+        theme::set_theme_mode(theme::theme_mode_from_str(&s.theme));
+        self.last_region = s.last_region.map(|a| {
+            Rect::from_min_max(Pos2::new(a[0], a[1]), Pos2::new(a[2], a[3]))
+        });
+        self.record_countdown_secs = match s.record_countdown_secs {
+            3 | 5 => s.record_countdown_secs,
+            _ => 0,
+        };
+    }
+
+    pub(crate) fn persist_session(&self) {
+        let tab = match self.current_tab {
+            AppTab::Capture => "capture",
+            AppTab::Library => "library",
+            AppTab::Clip => "clip",
+            AppTab::Still => "still",
+            AppTab::Feedback => "feedback",
+            AppTab::Settings => "settings",
+        };
+        let last_region = self.last_region.map(|r| {
+            [r.min.x, r.min.y, r.max.x, r.max.y]
+        });
+        save_session(&SessionState {
+            tab: tab.into(),
+            edit_file: self.edit_file.as_ref().map(|p| p.display().to_string()),
+            density: density_to_str(self.density).into(),
+            library_filter: self.library_filter.clone(),
+            window_w: 760.0,
+            window_h: 640.0,
+            wizard_done: self.wizard_done,
+            theme: theme::theme_mode_to_str(theme::theme_mode()).into(),
+            last_region,
+            record_countdown_secs: self.record_countdown_secs,
+        });
+    }
+
+    pub(crate) fn set_theme(&mut self, ctx: &egui::Context, mode: ThemeMode) {
+        match mode {
+            ThemeMode::Dark => apply_graphite_theme(ctx),
+            ThemeMode::Light => theme::apply_light_theme(ctx),
+        }
+        self.persist_session();
+    }
+
+    pub(crate) fn dump_retro_buffer(&mut self) {
+        match self.retro.dump_gif(&self.save_dir) {
+            Ok(path) => {
+                self.refresh_library();
+                self.show_toast(format!(
+                    "🎞 Retro GIF saved — {}",
+                    path.file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_else(|| path.display().to_string())
+                ));
+            }
+            Err(e) => self.show_toast(format!("❌ Retro dump failed: {e}")),
+        }
+    }
+
+    pub(crate) fn refresh_window_list(&mut self) {
+        self.window_app_list = list_running_apps();
+        self.window_list_scanned = true;
+        if self.window_app.is_empty() {
+            if let Some(first) = self.window_app_list.first() {
+                self.window_app = first.clone();
+            }
+        } else if !self.window_app_list.iter().any(|a| a == &self.window_app)
+            && !self.window_app_list.is_empty()
+        {
+            // Keep typed name even if not in list — user may have typed it.
+        }
+    }
+
+    /// Track the app the user was in before focusing Vibecap (for Fullscreen capture).
+    fn poll_frontmost_app(&mut self) {
+        let due = self
+            .last_front_poll
+            .map(|t| t.elapsed() > Duration::from_millis(400))
+            .unwrap_or(true);
+        if !due {
+            return;
+        }
+        self.last_front_poll = Some(Instant::now());
+        if let Some(name) = frontmost_app_name() {
+            let lower = name.to_ascii_lowercase();
+            if lower != "vibecap" && !lower.contains("vibecap") {
+                self.last_front_app = Some(name);
+            }
+        }
+    }
+
+    /// App to bring forward before Fullscreen / empty-Window capture.
+    fn capture_focus_target(&self) -> Option<String> {
+        match self.capture_target {
+            CaptureTarget::Window if !self.window_app.trim().is_empty() => {
+                Some(self.window_app.clone())
+            }
+            CaptureTarget::Window => self.last_front_app.clone(),
+            CaptureTarget::Fullscreen => self.last_front_app.clone(),
+            CaptureTarget::Region => None, // interactive selection
+        }
+    }
+
+    /// Start recording, optionally after a countdown bubble.
+    fn begin_recording(&mut self, ctx: &egui::Context) {
+        if self.is_recording || self.recording_arming || self.countdown_deadline.is_some() {
+            return;
+        }
+        if let Some(app) = self.capture_focus_target() {
+            let _ = focus_app(&app);
+            // Brief settle before hide+record arm
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        let secs = self.record_countdown_secs;
+        if secs == 0 {
+            self.arm_recording(ctx);
+        } else {
+            self.countdown_deadline =
+                Some(Instant::now() + Duration::from_secs(secs as u64));
+            self.show_window(ctx);
+            ctx.request_repaint();
+        }
+    }
+
+    /// One-shot bug pack: still + retro GIF (if buffer has frames).
+    pub(crate) fn bug_report_pack(&mut self, ctx: &egui::Context) {
+        let stamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
+        let shot = self.save_dir.join(format!("bug_{}.jpg", stamp));
+        let mut parts: Vec<String> = Vec::new();
+
+        match capture_screenshot(&shot) {
+            Ok(()) => {
+                parts.push(
+                    shot.file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "screenshot".into()),
+                );
+                self.latest_screenshot = Some(shot.clone());
+            }
+            Err(e) => {
+                self.show_toast(format!("❌ Bug report screenshot failed: {e}"));
+                return;
+            }
+        }
+
+        match self.retro.dump_gif(&self.save_dir) {
+            Ok(gif) => {
+                parts.push(
+                    gif.file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "retro.gif".into()),
+                );
+            }
+            Err(_) => {
+                // Retro empty / off — still is enough; hint to enable buffer next time.
+                parts.push("(no retro — enable buffer for last-N GIF)".into());
+            }
+        }
+
+        self.refresh_library();
+        self.show_window(ctx);
+        self.show_toast(format!("🐛 Bug pack saved — {}", parts.join(" · ")));
+    }
+
+    fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
+        match action {
+            PaletteAction::GoShutter => self.current_tab = AppTab::Capture,
+            PaletteAction::GoMedia => self.current_tab = AppTab::Library,
+            PaletteAction::GoClip => self.current_tab = AppTab::Clip,
+            PaletteAction::GoStill => self.current_tab = AppTab::Still,
+            PaletteAction::GoInbox => self.current_tab = AppTab::Feedback,
+            PaletteAction::GoSettings => self.current_tab = AppTab::Settings,
+            PaletteAction::Screenshot => self.trigger_capture(ctx, true),
+            PaletteAction::ToggleRecord => {
+                if self.is_recording {
+                    self.stop_recording(ctx);
+                } else if self.recording_arming || self.countdown_deadline.is_some() {
+                    self.cancel_recording(ctx);
+                } else {
+                    self.trigger_capture(ctx, false);
+                }
+            }
+            PaletteAction::BugReport => {
+                self.bug_report_pack(ctx);
+            }
+            PaletteAction::RefreshLibrary => {
+                self.refresh_library();
+                self.show_toast("Library refreshed");
+            }
+            PaletteAction::ToggleDensity => {
+                self.density = match self.density {
+                    Density::Comfortable => Density::Compact,
+                    Density::Compact => Density::Comfortable,
+                };
+                self.persist_session();
+                self.show_toast(format!(
+                    "Density: {}",
+                    density_to_str(self.density)
+                ));
+            }
+            PaletteAction::ToggleTheme => {
+                let next = match theme::theme_mode() {
+                    ThemeMode::Dark => ThemeMode::Light,
+                    ThemeMode::Light => ThemeMode::Dark,
+                };
+                self.set_theme(ctx, next);
+                self.show_toast(format!(
+                    "Theme: {}",
+                    theme::theme_mode_to_str(next)
+                ));
+            }
+            PaletteAction::ToggleRetro => {
+                let on = !self.retro.config().enabled;
+                self.retro.set_enabled(on);
+                self.show_toast(if on {
+                    "Retro buffer ON — rolling ~2 fps (off by default next launch if you disable)"
+                } else {
+                    "Retro buffer OFF — frames cleared"
+                });
+            }
+            PaletteAction::SaveRetro => {
+                self.dump_retro_buffer();
+            }
+            PaletteAction::OpenPaletteHelp => {
+                self.show_toast("⌘K / Ctrl+K — type to filter, Enter to run");
+            }
+        }
+        self.persist_session();
+    }
+
+    fn flush_expired_undo(&mut self) {
+        if let Some((paths, at, trash_dir)) = self.undo_trash.take() {
+            if at.elapsed() < Duration::from_secs(12) {
+                self.undo_trash = Some((paths, at, trash_dir));
+            } else {
+                let _ = std::fs::remove_dir_all(trash_dir);
+            }
+        }
+    }
+
+    fn undo_last_delete(&mut self) {
+        if let Some((paths, _, trash_dir)) = self.undo_trash.take() {
+            let mut n = 0usize;
+            for p in &paths {
+                let name = p.file_name().map(|f| f.to_os_string());
+                if let Some(name) = name {
+                    let staged = trash_dir.join(&name);
+                    if staged.exists() {
+                        if std::fs::rename(&staged, p).is_ok() {
+                            n += 1;
+                        }
+                    }
+                }
+            }
+            let _ = std::fs::remove_dir_all(trash_dir);
+            self.refresh_library();
+            self.show_toast(format!("Undid delete ({n} file(s))"));
+        } else {
+            self.show_toast("Nothing to undo");
+        }
     }
 
     fn show_window(&self, ctx: &egui::Context) {
@@ -571,14 +700,41 @@ impl VibecapApp {
                 TrayAction::ToggleRecord => {
                     if self.is_recording {
                         self.stop_recording(ctx);
+                    } else if self.recording_arming || self.countdown_deadline.is_some() {
+                        self.cancel_recording(ctx);
                     } else {
                         self.trigger_capture(ctx, false);
                     }
                 }
-                TrayAction::Feedback => {
+                TrayAction::GoShutter => {
+                    self.current_tab = AppTab::Capture;
+                    self.show_window(ctx);
+                }
+                TrayAction::GoMedia => {
+                    self.current_tab = AppTab::Library;
+                    self.refresh_library();
+                    self.show_window(ctx);
+                }
+                TrayAction::GoClip => {
+                    self.current_tab = AppTab::Clip;
+                    self.show_window(ctx);
+                }
+                TrayAction::GoStill => {
+                    self.current_tab = AppTab::Still;
+                    self.show_window(ctx);
+                }
+                TrayAction::GoInbox => {
                     self.current_tab = AppTab::Feedback;
                     self.scan_feedback_requests();
                     self.show_window(ctx);
+                }
+                TrayAction::GoSettings => {
+                    self.current_tab = AppTab::Settings;
+                    self.show_window(ctx);
+                }
+                TrayAction::BugReport => {
+                    self.show_window(ctx);
+                    self.bug_report_pack(ctx);
                 }
                 TrayAction::Quit => {
                     self.allow_exit = true;
@@ -589,18 +745,25 @@ impl VibecapApp {
     }
 
     fn sync_tray_recording_progress(&mut self) {
-        let elapsed = if self.is_recording {
-            Some(self.recording_elapsed_secs())
+        let state = if self.is_recording {
+            TrayLiveState::Recording {
+                elapsed_secs: self.recording_elapsed_secs(),
+            }
+        } else if self.recording_arming || self.countdown_deadline.is_some() {
+            TrayLiveState::Arming
         } else {
-            None
+            TrayLiveState::Idle
         };
+        let inbox = self.feedback_pending_count;
         if let Some(tray) = self.tray.as_mut() {
-            tray.set_recording_progress(elapsed);
+            tray.set_live_state(state, inbox);
         }
     }
 
     fn show_toast(&mut self, message: impl Into<String>) {
-        self.toast_message = Some((message.into(), Instant::now()));
+        let message = message.into();
+        let level = ToastLevel::from_message(&message);
+        self.toast_message = Some((message, Instant::now(), level));
     }
 
     fn toggle_voice_memo(&mut self) {
@@ -632,75 +795,94 @@ impl VibecapApp {
     }
 
     fn refresh_library(&mut self) {
-        self.library_items.clear();
-        // Drop selection for paths that no longer exist
         self.library_selected.retain(|p| p.exists());
-        if let Ok(entries) = std::fs::read_dir(&self.save_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-                let ext = path
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-                let Some(category) = MediaCategory::from_ext(&ext) else {
-                    continue;
-                };
-                let name = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?")
-                    .to_string();
-                let meta = entry.metadata().ok();
-                let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                let size_str = if size_bytes > 1_048_576 {
-                    format!("{:.1} MB", size_bytes as f64 / 1_048_576.0)
-                } else {
-                    format!("{} KB", size_bytes / 1024)
-                };
-                let modified_secs = meta
-                    .as_ref()
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-
-                self.library_items.push(MediaItem {
-                    path,
-                    name,
-                    size_str,
-                    category,
-                    modified_secs,
-                });
-            }
-        }
-        // Newest first
-        self.library_items
-            .sort_by(|a, b| b.modified_secs.cmp(&a.modified_secs).then_with(|| b.name.cmp(&a.name)));
+        self.library_items = scan_media_dir(&self.save_dir);
     }
 
     fn library_filtered(&self) -> Vec<&MediaItem> {
-        self.library_items
-            .iter()
-            .filter(|item| {
-                self.library_filter == "All" || item.category.label() == self.library_filter
-            })
-            .collect()
+        filter_items(&self.library_items, &self.library_filter)
+    }
+
+    /// Chrome-only snapshot for the bottom status strip (no new backends).
+    fn status_snapshot(&self) -> StatusSnapshot {
+        let (bytes, count) = get_dir_size_bytes(&self.save_dir.display().to_string());
+        let mb = bytes as f64 / (1024.0 * 1024.0);
+        let storage_label = if mb >= 1024.0 {
+            format!("{:.1} GB · {} files", mb / 1024.0, count)
+        } else {
+            format!("{:.0} MB · {} files", mb, count)
+        };
+
+        let cfg = load_budget();
+        let live = default_live_dir().display().to_string();
+        let (frames, live_mb, _) = live_usage_snapshot(&live);
+        let frames_cap = if cfg.max_frames == 0 {
+            "∞".into()
+        } else {
+            cfg.max_frames.to_string()
+        };
+        let budget_usage = format!("{frames}/{frames_cap} fr · {live_mb:.1} MB live");
+        let budget_tier = format!("{} tier", cfg.analysis_tier);
+
+        let ffmpeg_ok = platform::ffmpeg_available();
+
+        let rec_live = self.is_recording || self.recording_arming;
+        let rec_label = if self.is_recording {
+            let e = self.recording_elapsed_secs();
+            format!("REC {:02}:{:02}", e / 60, e % 60)
+        } else if self.recording_arming {
+            "Starting…".into()
+        } else {
+            String::new()
+        };
+
+        StatusSnapshot {
+            storage_label,
+            budget_tier,
+            budget_usage,
+            ffmpeg_ok,
+            pending_inbox: self.feedback_pending_count,
+            rec_live,
+            rec_label,
+        }
     }
 
     fn delete_library_paths(&mut self, paths: &[PathBuf]) {
+        if paths.is_empty() {
+            return;
+        }
+        // Stage into undo trash (12s window) instead of hard-delete only.
+        let trash_root = vibecap_config_dir().join("undo_trash");
+        let stamp = Local::now().format("%Y%m%d_%H%M%S%3f").to_string();
+        let trash_dir = trash_root.join(&stamp);
+        let _ = std::fs::create_dir_all(&trash_dir);
+        // Drop any previous staging
+        if let Some((_, _, old)) = self.undo_trash.take() {
+            let _ = std::fs::remove_dir_all(old);
+        }
+
+        let mut staged = Vec::new();
         let mut n = 0usize;
         for p in paths {
-            if std::fs::remove_file(p).is_ok() {
+            let name = match p.file_name() {
+                Some(n) => n.to_os_string(),
+                None => continue,
+            };
+            let dest = trash_dir.join(&name);
+            if std::fs::rename(p, &dest).is_ok() || (std::fs::copy(p, &dest).is_ok() && std::fs::remove_file(p).is_ok()) {
+                staged.push(p.clone());
                 n += 1;
                 self.library_selected.remove(p);
             }
         }
-        self.refresh_library();
-        self.show_toast(format!("Deleted {} file(s)", n));
+        if n > 0 {
+            self.undo_trash = Some((staged, Instant::now(), trash_dir));
+            self.refresh_library();
+            self.show_toast(format!("Deleted {n} file(s) — press Z to undo"));
+        } else {
+            let _ = std::fs::remove_dir_all(trash_dir);
+            self.show_toast("Could not delete file(s)");
+        }
     }
 
     fn reveal_paths(&mut self, paths: &[PathBuf]) {
@@ -734,43 +916,187 @@ impl VibecapApp {
                 }
             }
         }
-        self.feedback_requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        // High priority first, then newest.
+        self.feedback_requests.sort_by(|a, b| {
+            let rank = |p: &str| match p {
+                "high" => 0,
+                "low" => 2,
+                _ => 1,
+            };
+            rank(a.priority.as_str())
+                .cmp(&rank(b.priority.as_str()))
+                .then_with(|| b.created_at.cmp(&a.created_at))
+        });
     }
 
-    fn submit_feedback_response(&mut self, request_id: &str) {
-        let response = FeedbackResponse {
-            id: request_id.to_string(),
-            feedback_text: self.feedback_draft.trim().to_string(),
-            voice_note_path: self.feedback_voice_note.take().map(|p| p.display().to_string()).unwrap_or_default(),
-            annotated_media_path: String::new(),
-            answered_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-        };
-        let resp_path = feedback_responses_dir().join(format!("{}.json", request_id));
-        let saved = serde_json::to_string_pretty(&response).ok()
-            .and_then(|s| write_json_atomic(&resp_path, &s).ok());
-        if saved.is_none() {
-            self.show_toast("❌ Could not save feedback — check disk permissions.");
+    /// Detect newly pending agent questions and make them unmissable:
+    /// OS notification · Dock bounce · tray title · toast · open Inbox.
+    fn surface_new_feedback(&mut self, ctx: &egui::Context) {
+        let pending: Vec<FeedbackRequest> = self
+            .feedback_requests
+            .iter()
+            .filter(|r| r.status == "pending")
+            .cloned()
+            .collect();
+        let pending_ids: std::collections::HashSet<String> =
+            pending.iter().map(|r| r.id.clone()).collect();
+
+        // Drop ids that are no longer pending so a re-ask of the same id can fire again.
+        self.feedback_notified_ids
+            .retain(|id| pending_ids.contains(id));
+
+        let mut new_ones: Vec<FeedbackRequest> = pending
+            .into_iter()
+            .filter(|r| !self.feedback_notified_ids.contains(&r.id))
+            .collect();
+        if new_ones.is_empty() {
+            self.feedback_pending_count = pending_ids.len();
             return;
         }
-        // Only mark the request answered after the response is durably written.
+
+        for r in &new_ones {
+            self.feedback_notified_ids.insert(r.id.clone());
+            notify_agent_question(&r.agent_label, &r.question, &r.priority);
+        }
+
+        // Prefer highest-priority (already sorted: high first).
+        new_ones.sort_by(|a, b| {
+            let rank = |p: &str| match p {
+                "high" => 0,
+                "low" => 2,
+                _ => 1,
+            };
+            rank(a.priority.as_str())
+                .cmp(&rank(b.priority.as_str()))
+                .then_with(|| b.created_at.cmp(&a.created_at))
+        });
+        let first = &new_ones[0];
+        let agent = if first.agent_label.trim().is_empty() {
+            "Agent"
+        } else {
+            first.agent_label.trim()
+        };
+        let q: String = first
+            .question
+            .chars()
+            .take(90)
+            .collect();
+        let more = if new_ones.len() > 1 {
+            format!(" (+{} more)", new_ones.len() - 1)
+        } else {
+            String::new()
+        };
+        self.show_toast(format!("🤖 {agent} asks: {q}{more} — open Inbox"));
+
+        // Bounce Dock / taskbar even when the window is hidden.
+        ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(
+            UserAttentionType::Critical,
+        ));
+
+        // Open the Inbox on the first new question so the loop feels connected.
+        self.current_tab = AppTab::Feedback;
+        self.feedback_selected = Some(first.id.clone());
+        self.feedback_draft.clear();
+        self.feedback_choice.clear();
+        self.show_window(ctx);
+
+        self.feedback_pending_count = pending_ids.len();
+        // Force tray title refresh immediately (don't wait for next tick).
+        let live = if self.is_recording {
+            TrayLiveState::Recording {
+                elapsed_secs: self.recording_elapsed_secs(),
+            }
+        } else if self.recording_arming || self.countdown_deadline.is_some() {
+            TrayLiveState::Arming
+        } else {
+            TrayLiveState::Idle
+        };
+        let inbox_n = self.feedback_pending_count;
+        if let Some(tray) = self.tray.as_mut() {
+            // Reset debounce so Idle+Inbox title always applies.
+            tray.force_live_state(live, inbox_n);
+        }
+    }
+
+    fn mark_feedback_status(&self, request_id: &str, status: &str) {
         let req_path = feedback_requests_dir().join(format!("{}.json", request_id));
         if let Ok(s) = std::fs::read_to_string(&req_path) {
             if let Ok(mut req) = serde_json::from_str::<FeedbackRequest>(&s) {
-                req.status = "answered".to_string();
+                req.status = status.to_string();
                 if let Ok(s2) = serde_json::to_string_pretty(&req) {
                     let _ = write_json_atomic(&req_path, &s2);
                 }
             }
         }
+    }
+
+    fn submit_feedback_response(&mut self, request_id: &str) {
+        let choice = self.feedback_choice.trim().to_string();
+        let text = self.feedback_draft.trim().to_string();
+        let voice = self
+            .feedback_voice_note
+            .take()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        if text.is_empty() && choice.is_empty() && voice.is_empty() {
+            self.show_toast("Add a reply, pick a choice, or attach a voice note first.");
+            return;
+        }
+        let response = FeedbackResponse {
+            id: request_id.to_string(),
+            feedback_text: text,
+            voice_note_path: voice,
+            annotated_media_path: String::new(),
+            answered_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            selected_option: choice,
+        };
+        let resp_path = feedback_responses_dir().join(format!("{}.json", request_id));
+        let saved = serde_json::to_string_pretty(&response)
+            .ok()
+            .and_then(|s| write_json_atomic(&resp_path, &s).ok());
+        if saved.is_none() {
+            self.show_toast("❌ Could not save feedback — check disk permissions.");
+            return;
+        }
+        self.mark_feedback_status(request_id, "answered");
         self.feedback_draft.clear();
+        self.feedback_choice.clear();
         self.feedback_selected = None;
         self.scan_feedback_requests();
         self.show_toast("✅ Feedback submitted — the agent can pick it up now!");
     }
 
+    fn dismiss_feedback_request(&mut self, request_id: &str) {
+        let response = FeedbackResponse {
+            id: request_id.to_string(),
+            feedback_text: String::new(),
+            voice_note_path: String::new(),
+            annotated_media_path: String::new(),
+            answered_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            selected_option: "dismissed".to_string(),
+        };
+        let resp_path = feedback_responses_dir().join(format!("{}.json", request_id));
+        if serde_json::to_string_pretty(&response)
+            .ok()
+            .and_then(|s| write_json_atomic(&resp_path, &s).ok())
+            .is_some()
+        {
+            self.mark_feedback_status(request_id, "dismissed");
+            self.feedback_selected = None;
+            self.feedback_choice.clear();
+            self.feedback_draft.clear();
+            self.scan_feedback_requests();
+            self.show_toast("Dismissed — agent will see choice=dismissed on poll.");
+        } else {
+            self.show_toast("❌ Could not dismiss request.");
+        }
+    }
+
     fn clear_answered_feedback(&mut self) {
-        let answered: Vec<String> = self.feedback_requests.iter()
-            .filter(|r| r.status == "answered")
+        let answered: Vec<String> = self
+            .feedback_requests
+            .iter()
+            .filter(|r| r.status != "pending")
             .map(|r| r.id.clone())
             .collect();
         for id in &answered {
@@ -778,7 +1104,7 @@ impl VibecapApp {
             let _ = std::fs::remove_file(feedback_responses_dir().join(format!("{}.json", id)));
         }
         if !answered.is_empty() {
-            self.show_toast("🧹 Cleared answered requests");
+            self.show_toast("🧹 Cleared closed requests");
         }
         self.scan_feedback_requests();
     }
@@ -868,20 +1194,30 @@ impl VibecapApp {
         let Some(tx) = self.ffmpeg_tx.clone() else { return; };
         let ok_msg = ok_msg.to_string();
         std::thread::spawn(move || {
-            let result = Command::new("ffmpeg")
-                .args(&args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .output();
-            let (ok, msg) = match result {
-                Ok(out) if out.status.success() => (true, ok_msg),
-                Ok(out) => {
-                    let err = String::from_utf8_lossy(&out.stderr);
-                    let tail = err.lines().last().unwrap_or("unknown ffmpeg error").trim().to_string();
-                    (false, format!("❌ ffmpeg failed: {}", tail))
+            let (ok, msg) = match platform::ffmpeg_command() {
+                Err(e) => (false, format!("❌ {e}")),
+                Ok(mut cmd) => {
+                    let result = cmd
+                        .args(&args)
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::piped())
+                        .output();
+                    match result {
+                        Ok(out) if out.status.success() => (true, ok_msg),
+                        Ok(out) => {
+                            let err = String::from_utf8_lossy(&out.stderr);
+                            let tail = err
+                                .lines()
+                                .last()
+                                .unwrap_or("unknown ffmpeg error")
+                                .trim()
+                                .to_string();
+                            (false, format!("❌ ffmpeg failed: {}", tail))
+                        }
+                        Err(e) => (false, format!("❌ could not start ffmpeg: {}", e)),
+                    }
                 }
-                Err(e) => (false, format!("❌ could not start ffmpeg: {}", e)),
             };
             let _ = tx.send((ok, msg));
         });
@@ -1012,113 +1348,138 @@ impl VibecapApp {
     }
 
     fn cancel_recording(&mut self, ctx: &egui::Context) {
-        if let Some(mut child) = self.child_process.take() {
-            if self.is_paused {
-                cont_process(child.id());
-            }
-            let _ = child.kill();
-            let _ = child.wait();
+        if self.countdown_deadline.take().is_some() {
+            self.show_window(ctx);
+            self.show_toast("❌ Countdown cancelled");
+            return;
         }
-        
+
+        if self.recording_arming {
+            self.recording_cancel_armed = true;
+            self.recording_arming = false;
+            // Drop receiver; worker may still finish — drain_record_spawn kills it.
+            self.record_spawn_rx = None;
+            self.show_window(ctx);
+            self.show_toast("❌ Recording cancelled");
+            return;
+        }
+
+        if let Some(child) = self.child_process.take() {
+            kill_recorder(child, self.is_paused);
+        }
+
         if let Some(file) = self.current_mp4_file.take() {
             let _ = std::fs::remove_file(file);
         }
-        
+
         self.is_recording = false;
         self.is_paused = false;
         self.accumulated_duration = Duration::ZERO;
         self.segment_start = None;
-        
-        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        self.recording_arming = false;
+        self.recording_cancel_armed = false;
+
+        self.show_window(ctx);
         self.show_toast("❌ Recording cancelled");
     }
 
     fn stop_recording(&mut self, ctx: &egui::Context) {
+        if self.recording_arming {
+            // Nothing to save yet — treat as cancel.
+            self.cancel_recording(ctx);
+            return;
+        }
+
         if let Some(mut child) = self.child_process.take() {
             if self.is_paused {
                 cont_process(child.id());
             }
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(b"q\n");
-            }
-            let _ = child.wait();
+            let _ = finalize_recorder(child);
         }
         self.is_recording = false;
         self.is_paused = false;
         self.accumulated_duration = Duration::ZERO;
         self.segment_start = None;
-        
-        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        self.recording_arming = false;
 
-        if let Some(mp4) = &self.current_mp4_file {
+        // Always surface the main window (Visible + unminimize) so Editor is usable after tray/hidden rec.
+        self.show_window(ctx);
+
+        if let Some(mp4) = self.current_mp4_file.clone() {
+            // Brief settle so the filesystem sees a complete file.
+            if !mp4.exists() || std::fs::metadata(&mp4).map(|m| m.len()).unwrap_or(0) < 512 {
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            let bytes = std::fs::metadata(&mp4).map(|m| m.len()).unwrap_or(0);
             self.edit_file = Some(mp4.clone());
-            self.current_tab = AppTab::Edit;
+            self.current_tab = AppTab::Clip;
             self.load_filmstrip(ctx, mp4.clone());
+            self.refresh_library();
+            if bytes < 512 {
+                self.show_toast(format!(
+                    "⚠️ Saved {} but file looks empty ({bytes} bytes) — check Screen Recording permission.",
+                    mp4.file_name().and_then(|n| n.to_str()).unwrap_or("video")
+                ));
+            } else {
+                self.show_toast(format!(
+                    "💾 Video saved — open in Clip · {}",
+                    mp4.file_name().and_then(|n| n.to_str()).unwrap_or("video.mp4")
+                ));
+            }
+        } else {
+            self.refresh_library();
+            self.show_toast("⚠️ Stopped but no video path was set.");
         }
-        self.refresh_library();
-        self.show_toast("💾 Video saved successfully!");
     }
 
-    fn load_filmstrip(&mut self, _ctx: &egui::Context, file: PathBuf) {
+    fn load_filmstrip(&mut self, ctx: &egui::Context, file: PathBuf) {
         self.filmstrip.clear();
-        let out_dir = file.parent().unwrap().join("frames_temp");
-        let _ = std::fs::remove_dir_all(&out_dir);
-        let _ = std::fs::create_dir_all(&out_dir);
-        let out = out_dir.join("thumb_%03d.jpg");
-        
-        let _ = Command::new("ffmpeg")
-            .args(&["-i", file.to_str().unwrap(), "-vf", "fps=1", "-vframes", "10", "-s", "320x180", out.to_str().unwrap()])
-            .spawn()
-            .and_then(|mut c| c.wait());
-            
+        self.filmstrip_error = None;
         self.filmstrip_loading = true;
-    }
 
-    fn trigger_capture(&mut self, ctx: &egui::Context, is_screenshot: bool) {
-        if !is_screenshot && self.capture_target == CaptureTarget::Region {
-            self.is_selecting_region = true;
+        match extract_filmstrip_thumbs(&file) {
+            Ok((_out_dir, thumbs)) => {
+                let file_s = file.display().to_string();
+                for (i, thumb_path) in thumbs.iter().enumerate() {
+                    if let Ok(img) = image::open(thumb_path) {
+                        let size = [img.width() as _, img.height() as _];
+                        let image_buffer = img.to_rgba8();
+                        let pixels = image_buffer.as_flat_samples();
+                        let color_image =
+                            egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
+                        let tex = ctx.load_texture(
+                            format!("thumb_{}_{}", i + 1, file_s),
+                            color_image,
+                            Default::default(),
+                        );
+                        self.filmstrip.push(tex);
+                    }
+                    let _ = std::fs::remove_file(thumb_path);
+                }
+                if self.filmstrip.is_empty() {
+                    self.filmstrip_error = Some(
+                        "No frames extracted — video may be corrupt or too short.".into(),
+                    );
+                }
+            }
+            Err(e) => {
+                self.filmstrip_error = Some(e);
+            }
+        }
+        self.filmstrip_loading = false;
+    }
+    fn arm_recording(&mut self, ctx: &egui::Context) {
+        if self.is_recording || self.recording_arming {
             return;
         }
 
-        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-        
-        let ctx_clone = ctx.clone();
-        let is_screenshot = is_screenshot;
-        let capture_target = self.capture_target;
-        let save_dir = self.save_dir.clone();
-        
-        let screenshot_tx = self.screenshot_tx.clone().unwrap();
-        let capture_trigger_tx = self.capture_trigger_tx.clone().unwrap();
-        
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(400));
-            
-            if is_screenshot {
-                let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-                let shot_file = save_dir.join(format!("screenshot_{}.jpg", timestamp));
-                let interactive = matches!(
-                    capture_target,
-                    CaptureTarget::Region | CaptureTarget::Window
-                );
-                let _ = capture_screenshot_interactive(&shot_file, interactive);
-                let _ = screenshot_tx.send(shot_file);
-                ctx_clone.request_repaint();
-            } else {
-                let _ = capture_trigger_tx.send(false);
-                ctx_clone.request_repaint();
-            }
-        });
-    }
-
-    fn execute_capture(&mut self, ctx: &egui::Context) {
         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
         let mp4_file = self.save_dir.join(format!("video_{}.mp4", timestamp));
-
+        let fps = self.fps_target.max(1);
+        let with_audio = self.capture_audio;
         let crop = if self.capture_target == CaptureTarget::Region {
             self.selected_region.map(|rect| {
-                (
+                even_crop(
                     rect.width() as i32,
                     rect.height() as i32,
                     rect.min.x as i32,
@@ -1129,25 +1490,115 @@ impl VibecapApp {
             None
         };
 
-        match spawn_screen_recorder(&mp4_file, self.fps_target, self.capture_audio, crop) {
-            Ok(c) => {
-                self.child_process = Some(c);
-                self.current_mp4_file = Some(mp4_file);
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.record_spawn_rx = Some(rx);
+        self.recording_arming = true;
+        self.recording_cancel_armed = false;
+        self.current_mp4_file = Some(mp4_file.clone());
+
+        // Hide main window so it is not painted into the capture. Prefer Visible(false)
+        // over Minimized — minimized windows often stop receiving update ticks on macOS.
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        ctx.request_repaint();
+
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            // Let the compositor hide our UI before avfoundation/gdigrab starts.
+            std::thread::sleep(Duration::from_millis(350));
+            let result = spawn_screen_recorder(&mp4_file, fps, with_audio, crop)
+                .map(|child| (child, mp4_file));
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+
+    fn drain_record_spawn(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.record_spawn_rx.as_ref() else {
+            return;
+        };
+        let Ok(result) = rx.try_recv() else {
+            return;
+        };
+        self.record_spawn_rx = None;
+
+        if self.recording_cancel_armed {
+            self.recording_cancel_armed = false;
+            self.recording_arming = false;
+            if let Ok((mut child, path)) = result {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_file(path);
+            }
+            self.current_mp4_file = None;
+            return;
+        }
+
+        self.recording_arming = false;
+        match result {
+            Ok((child, path)) => {
+                self.child_process = Some(child);
+                self.current_mp4_file = Some(path);
                 self.is_recording = true;
                 self.is_paused = false;
                 self.accumulated_duration = Duration::ZERO;
                 self.segment_start = Some(Instant::now());
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                // Keep main hidden; floating REC bar is the control surface.
+                ctx.request_repaint();
             }
             Err(e) => {
-                self.show_toast(format!("❌ Record failed: {}", e));
+                self.current_mp4_file = None;
+                self.show_window(ctx);
+                self.show_toast(format!("❌ Record failed: {e}"));
             }
         }
     }
 
+    fn trigger_capture(&mut self, ctx: &egui::Context, is_screenshot: bool) {
+        if !is_screenshot {
+            if self.capture_target == CaptureTarget::Region {
+                self.selected_region = None;
+                self.is_selecting_region = true;
+                self.show_window(ctx);
+                return;
+            }
+            self.begin_recording(ctx);
+            return;
+        }
+
+        // Screenshot: re-focus the user's previous app (or Window picker), hide Vibecap,
+        // capture, then UI reopens when the worker returns a path.
+        let focus_target = self.capture_focus_target();
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+
+        let ctx_clone = ctx.clone();
+        let capture_target = self.capture_target;
+        let save_dir = self.save_dir.clone();
+        let screenshot_tx = self.screenshot_tx.clone().unwrap();
+
+        std::thread::spawn(move || {
+            if let Some(app) = focus_target {
+                let _ = focus_app(&app);
+                std::thread::sleep(Duration::from_millis(500));
+            } else {
+                // No prior app known — wait for compositor hide only.
+                std::thread::sleep(Duration::from_millis(400));
+            }
+            let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let shot_file = save_dir.join(format!("screenshot_{}.jpg", timestamp));
+            // Region uses interactive selection; Fullscreen/Window capture full display
+            // after focusing the target app (avoids empty desktop).
+            let interactive = matches!(capture_target, CaptureTarget::Region);
+            let result = capture_screenshot_interactive(&shot_file, interactive)
+                .map(|_| shot_file);
+            let _ = screenshot_tx.send(result);
+            ctx_clone.request_repaint();
+        });
+        ctx.request_repaint();
+    }
+
     fn show_annotation(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.heading(RichText::new("Annotation Studio").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong());
+            ui.heading(RichText::new("Annotation Studio").color(theme::ACCENT()).strong());
             ui.separator();
             ui.radio_value(&mut self.current_tool, AnnotationTool::Pen, "✏ Pen");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Arrow, "➡ Arrow");
@@ -1178,9 +1629,9 @@ impl VibecapApp {
             
             ui.separator();
             let voice_btn_text = if self.is_recording_voice_memo {
-                RichText::new("🔴 Stop Voice Note").color(Color32::WHITE).strong()
+                RichText::new("🔴 Stop Voice Note").color(theme::ON_SOLID()).strong()
             } else {
-                RichText::new("🎙 Voice Note").color(Color32::from_rgb(0x5e, 0xc2, 0x6a)).strong()
+                RichText::new("🎙 Voice Note").color(theme::SUCCESS()).strong()
             };
             if ui.button(voice_btn_text).clicked() {
                 self.toggle_voice_memo();
@@ -1193,7 +1644,7 @@ impl VibecapApp {
                 }
             }
             
-            if ui.button(RichText::new("💾 Save & Close").color(Color32::from_rgb(0x1c, 0x14, 0x08)).strong()).clicked() {
+            if ui.button(RichText::new("💾 Save & Close").color(theme::ACCENT_INK()).strong()).clicked() {
                 if !self.feedback_description.trim().is_empty() {
                     if let Some(shot) = &self.latest_screenshot {
                         let txt_path = shot.with_extension("txt");
@@ -1216,28 +1667,27 @@ impl VibecapApp {
                     let resp = FeedbackResponse {
                         id: fid.clone(),
                         feedback_text: self.feedback_description.trim().to_string(),
-                        voice_note_path: self.feedback_voice_note.take().map(|p| p.display().to_string()).unwrap_or_default(),
+                        voice_note_path: self
+                            .feedback_voice_note
+                            .take()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default(),
                         annotated_media_path: annotated_path,
                         answered_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                        selected_option: self.feedback_choice.trim().to_string(),
                     };
                     let resp_path = feedback_responses_dir().join(format!("{}.json", fid));
-                    let saved = serde_json::to_string_pretty(&resp).ok()
+                    let saved = serde_json::to_string_pretty(&resp)
+                        .ok()
                         .and_then(|s| write_json_atomic(&resp_path, &s).ok());
                     if saved.is_some() {
-                        let req_path = feedback_requests_dir().join(format!("{}.json", fid));
-                        if let Ok(s) = std::fs::read_to_string(&req_path) {
-                            if let Ok(mut req) = serde_json::from_str::<FeedbackRequest>(&s) {
-                                req.status = "answered".to_string();
-                                if let Ok(s2) = serde_json::to_string_pretty(&req) {
-                                    let _ = write_json_atomic(&req_path, &s2);
-                                }
-                            }
-                        }
+                        self.mark_feedback_status(&fid, "answered");
                         self.show_toast("✅ Annotated feedback submitted to the agent!");
                     } else {
                         self.show_toast("❌ Could not save feedback — check disk permissions.");
                     }
                     self.feedback_draft.clear();
+                    self.feedback_choice.clear();
                     self.scan_feedback_requests();
                 } else {
                     self.show_toast("Saved feedback note & annotations!");
@@ -1249,7 +1699,7 @@ impl VibecapApp {
 
         ui.separator();
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Optional note to attach with this capture:").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
+            ui.label(RichText::new("Optional note to attach with this capture:").small().color(theme::TEXT_MUTED()));
             ui.text_edit_singleline(&mut self.feedback_description);
         });
         ui.separator();
@@ -1270,7 +1720,7 @@ impl VibecapApp {
                 tex.id(),
                 response.rect,
                 egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                Color32::WHITE
+                theme::ON_SOLID()
             );
 
             let draw_action = |painter: &egui::Painter, action: &AnnotationAction| {
@@ -1307,19 +1757,19 @@ impl VibecapApp {
                             let start = action.points[0];
                             let end = *action.points.last().unwrap();
                             let rect = Rect::from_two_pos(start, end);
-                            painter.rect_filled(rect, 0.0, Color32::from_black_alpha(220));
-                            painter.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, Color32::GRAY));
+                            painter.rect_filled(rect, 0.0, theme::OVERLAY_BLUR());
+                            painter.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, theme::NEUTRAL_STROKE()));
                         }
                     }
                     AnnotationTool::Text => {
                         let pos = action.points[0];
-                        painter.rect_filled(Rect::from_min_size(pos - Vec2::new(4.0, 2.0), Vec2::new(action.text_content.len() as f32 * 10.0 + 8.0, 22.0)), 4.0, Color32::from_black_alpha(180));
+                        painter.rect_filled(Rect::from_min_size(pos - Vec2::new(4.0, 2.0), Vec2::new(action.text_content.len() as f32 * 10.0 + 8.0, 22.0)), 4.0, theme::OVERLAY_LABEL());
                         painter.text(pos, Align2::LEFT_TOP, &action.text_content, FontId::proportional(16.0), action.color);
                     }
                     AnnotationTool::StepBadge => {
                         let pos = action.points[0];
                         painter.circle_filled(pos, 14.0, action.color);
-                        painter.text(pos, Align2::CENTER_CENTER, action.badge_number.to_string(), FontId::proportional(14.0), Color32::from_rgb(0x1c, 0x14, 0x08));
+                        painter.text(pos, Align2::CENTER_CENTER, action.badge_number.to_string(), FontId::proportional(14.0), theme::ACCENT_INK());
                     }
                 }
             };
@@ -1388,92 +1838,84 @@ impl eframe::App for VibecapApp {
         }
 
         self.handle_tray_actions(ctx);
+        self.poll_frontmost_app();
+        self.drain_record_spawn(ctx);
+        if self.pending_arm_record {
+            self.pending_arm_record = false;
+            self.begin_recording(ctx);
+        }
+
+        // Pre-record countdown bubble
+        if let Some(deadline) = self.countdown_deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                self.countdown_deadline = None;
+                self.arm_recording(ctx);
+            } else {
+                let secs_left = remaining.as_secs().saturating_add(1) as u32;
+                if show_countdown_bubble(ctx, secs_left) {
+                    self.countdown_deadline = None;
+                    self.show_toast("❌ Countdown cancelled");
+                }
+                ctx.request_repaint();
+            }
+        }
+
         self.sync_tray_recording_progress();
-        // Keep pumping tray events + recording timer even when the window is hidden.
-        if self.tray.is_some() || self.is_recording {
-            ctx.request_repaint_after(Duration::from_millis(250));
+        // Keep pumping tray events, feedback poll, and recording timer even when hidden.
+        // Always repaint on a short cadence when tray is present so agent questions surface.
+        if self.tray.is_some()
+            || self.is_recording
+            || self.recording_arming
+            || self.countdown_deadline.is_some()
+            || self.feedback_pending_count > 0
+        {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        } else if self.retro.config().enabled {
+            // Keep status strip / Capture tab live while retro is rolling.
+            ctx.request_repaint_after(Duration::from_millis(500));
         }
 
         
-        // --- Region Selection Overlay Window ---
+        // --- Capture HUD: region selection (thirds + handles + W×H) ---
         if self.is_selecting_region {
-            let builder = ViewportBuilder::default()
-                .with_decorations(false)
-                .with_transparent(true)
-                .with_fullscreen(true)
-                .with_always_on_top();
-                
-            ctx.show_viewport_immediate(
-                ViewportId::from_hash_of("region_selector"),
-                builder,
-                |ctx, class| {
-                    if class == egui::ViewportClass::Immediate {
-                        let panel_frame = Frame::none().fill(Color32::from_black_alpha(100));
-                        egui::CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
-                            let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::drag());
-
-                            if self.region_start.is_none() {
-                                painter.text(
-                                    Pos2::new(response.rect.center().x, response.rect.min.y + 48.0),
-                                    Align2::CENTER_CENTER,
-                                    "Drag to select a region · Esc to cancel",
-                                    FontId::proportional(20.0),
-                                    Color32::from_rgb(0xec, 0xe5, 0xd6),
-                                );
-                            }
-                            
-                            if let (Some(start), Some(end)) = (self.region_start, self.region_end) {
-                                let rect = Rect::from_two_pos(start, end);
-                                painter.rect_filled(rect, 0.0, Color32::TRANSPARENT);
-                                painter.rect_stroke(rect, 0.0, Stroke::new(2.0_f32, Color32::from_rgb(0xf5, 0x9e, 0x4b)));
-                            }
-                            
-                            if response.drag_started() {
-                                if let Some(pos) = response.interact_pointer_pos() {
-                                    self.region_start = Some(pos);
-                                    self.region_end = Some(pos);
-                                }
-                            }
-                            if response.dragged() {
-                                if let Some(pos) = response.interact_pointer_pos() {
-                                    self.region_end = Some(pos);
-                                }
-                            }
-                            if response.drag_stopped() {
-                                if let (Some(start), Some(end)) = (self.region_start, self.region_end) {
-                                    self.selected_region = Some(Rect::from_two_pos(start, end));
-                                }
-                                self.is_selecting_region = false;
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                                
-                                let capture_trigger_tx = self.capture_trigger_tx.clone().unwrap();
-                                let ctx_clone = ctx.clone();
-                                std::thread::spawn(move || {
-                                    std::thread::sleep(Duration::from_millis(400));
-                                    let _ = capture_trigger_tx.send(false);
-                                    ctx_clone.request_repaint();
-                                });
-                            }
-                            
-                            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                self.is_selecting_region = false;
-                            }
-                        });
-                    }
+            match show_region_selector(
+                ctx,
+                &mut self.region_start,
+                &mut self.region_end,
+                self.last_region,
+            ) {
+                RegionHudResult::Continue => {}
+                RegionHudResult::Confirmed { selected } => {
+                    self.selected_region = Some(selected);
+                    self.last_region = Some(selected);
+                    self.persist_session();
+                    self.is_selecting_region = false;
+                    self.region_start = None;
+                    self.region_end = None;
+                    self.pending_arm_record = true;
+                    ctx.request_repaint();
                 }
-            );
+                RegionHudResult::Cancelled => {
+                    self.is_selecting_region = false;
+                    self.region_start = None;
+                    self.region_end = None;
+                }
+            }
             return;
         }
 
-        // --- Floating Minimized Recording Controller Bar ---
-        if self.is_recording {
+        // --- Floating controller: arming countdown + active recording ---
+        // Immediate viewport keeps the event loop awake while the main window is hidden.
+        if self.is_recording || self.recording_arming {
             let builder = ViewportBuilder::default()
                 .with_title("Vibecap Recorder")
                 .with_decorations(false)
                 .with_always_on_top()
-                .with_inner_size([310.0, 52.0])
+                .with_inner_size([320.0, 52.0])
                 .with_resizable(false)
-                .with_transparent(true);
+                .with_transparent(true)
+                .with_visible(true);
 
             ctx.show_viewport_immediate(
                 ViewportId::from_hash_of("recording_bar"),
@@ -1481,120 +1923,149 @@ impl eframe::App for VibecapApp {
                 |ctx, class| {
                     if class == egui::ViewportClass::Immediate {
                         let bar_frame = Frame::none()
-                            .fill(Color32::from_rgb(0x1a, 0x14, 0x0b))
-                            .rounding(Rounding::same(12.0))
-                            .stroke(Stroke::new(1.5_f32, Color32::from_rgb(0xf5, 0x9e, 0x4b)));
-                            
+                            .fill(theme::SURFACE())
+                            .rounding(theme::rounding_lg())
+                            .stroke(Stroke::new(1.5_f32, theme::ACCENT()));
+
                         egui::CentralPanel::default().frame(bar_frame).show(ctx, |ui| {
                             ui.horizontal(|ui| {
                                 ui.add_space(6.0);
-                                
+
                                 let pulse = (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
-                                let dot_color = if self.is_paused {
-                                    Color32::from_rgb(216, 164, 65)
+                                let dot_color = if self.recording_arming {
+                                    theme::ACCENT()
+                                } else if self.is_paused {
+                                    theme::WARN()
                                 } else {
-                                    Color32::from_rgb((180.0 + pulse * 75.0) as u8, 50, 50)
+                                    theme::danger_pulse(pulse)
                                 };
                                 ui.colored_label(dot_color, "●");
 
-                                let elapsed = self.recording_elapsed_secs();
-                                let mins = elapsed / 60;
-                                let secs = elapsed % 60;
-                                let status_text = if self.is_paused { "PAUSED" } else { "REC" };
-                                
-                                ui.label(RichText::new(format!("{} {:02}:{:02}", status_text, mins, secs))
-                                    .strong()
-                                    .color(Color32::from_rgb(0xec, 0xe5, 0xd6)));
+                                if self.recording_arming {
+                                    ui.label(
+                                        RichText::new("Starting…")
+                                            .strong()
+                                            .color(theme::TEXT()),
+                                    );
+                                } else {
+                                    let elapsed = self.recording_elapsed_secs();
+                                    let mins = elapsed / 60;
+                                    let secs = elapsed % 60;
+                                    let status_text = if self.is_paused { "PAUSED" } else { "REC" };
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{} {:02}:{:02}",
+                                            status_text, mins, secs
+                                        ))
+                                        .strong()
+                                        .color(theme::TEXT()),
+                                    );
+                                }
 
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.add_space(4.0);
-                                    
-                                    if ui.button(RichText::new("✖").color(Color32::from_rgb(228, 106, 94)).strong()).on_hover_text("Cancel Recording").clicked() {
-                                        self.cancel_recording(ctx);
-                                    }
-                                    
-                                    if ui.button(RichText::new("⏹").color(Color32::WHITE).strong()).on_hover_text("Stop & Save").clicked() {
-                                        self.stop_recording(ctx);
-                                    }
-                                    
-                                    let pause_icon = if self.is_paused { "▶" } else { "⏸" };
-                                    let pause_color = if self.is_paused { Color32::from_rgb(0x5e, 0xc2, 0x6a) } else { Color32::from_rgb(0xd8, 0xa4, 0x41) };
-                                    if ui.button(RichText::new(pause_icon).color(pause_color).strong()).on_hover_text(if self.is_paused { "Resume" } else { "Pause" }).clicked() {
-                                        self.toggle_pause();
-                                    }
-                                });
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.add_space(4.0);
+
+                                        if ui
+                                            .button(
+                                                RichText::new("✖")
+                                                    .color(theme::DANGER())
+                                                    .strong(),
+                                            )
+                                            .on_hover_text("Cancel Recording")
+                                            .clicked()
+                                        {
+                                            self.cancel_recording(ctx);
+                                        }
+
+                                        if !self.recording_arming {
+                                            if ui
+                                                .button(
+                                                    RichText::new("⏹")
+                                                        .color(theme::ON_SOLID())
+                                                        .strong(),
+                                                )
+                                                .on_hover_text("Stop & Save")
+                                                .clicked()
+                                            {
+                                                self.stop_recording(ctx);
+                                            }
+
+                                            let pause_icon = if self.is_paused { "▶" } else { "⏸" };
+                                            let pause_color = if self.is_paused {
+                                                theme::SUCCESS()
+                                            } else {
+                                                theme::WARN()
+                                            };
+                                            if ui
+                                                .button(
+                                                    RichText::new(pause_icon)
+                                                        .color(pause_color)
+                                                        .strong(),
+                                                )
+                                                .on_hover_text(if self.is_paused {
+                                                    "Resume"
+                                                } else {
+                                                    "Pause"
+                                                })
+                                                .clicked()
+                                            {
+                                                self.toggle_pause();
+                                            }
+                                        }
+                                    },
+                                );
                             });
                         });
                     }
-                }
+                },
             );
+            ctx.request_repaint();
         }
 
-        if self.filmstrip_loading {
-            if let Some(file) = &self.edit_file {
-                let out_dir = file.parent().unwrap().join("frames_temp");
-                for i in 1..=10 {
-                    let thumb_path = out_dir.join(format!("thumb_{:03}.jpg", i));
-                    if thumb_path.exists() {
-                        if let Ok(img) = image::open(&thumb_path) {
-                            let size = [img.width() as _, img.height() as _];
-                            let image_buffer = img.to_rgba8();
-                            let pixels = image_buffer.as_flat_samples();
-                            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
-                            let tex = ctx.load_texture(format!("thumb_{}", i), color_image, Default::default());
-                            self.filmstrip.push(tex);
-                        }
-                        let _ = std::fs::remove_file(thumb_path);
-                    }
-                }
-                self.filmstrip_loading = false;
-            }
-        }
-
-        // Agent feedback polling: surface new arrivals on any tab + badge the inbox tab.
-        let poll_due = self.feedback_last_poll.map(|t| t.elapsed() > Duration::from_secs(2)).unwrap_or(true);
+        // Agent feedback polling: OS notify + Dock bounce + tray title + open Inbox.
+        let poll_due = self
+            .feedback_last_poll
+            .map(|t| t.elapsed() > Duration::from_secs(2))
+            .unwrap_or(true);
         if poll_due {
             self.scan_feedback_requests();
-            let pending = self.feedback_requests.iter().filter(|r| r.status != "answered").count();
-            if pending > self.feedback_pending_count {
-                self.show_toast("🤖 An agent asked a question — open 🤖 Inbox to answer.");
-            }
-            self.feedback_pending_count = pending;
+            self.surface_new_feedback(ctx);
+            // Keep count in sync even when nothing new (answers cleared ids).
+            self.feedback_pending_count = self
+                .feedback_requests
+                .iter()
+                .filter(|r| r.status == "pending")
+                .count();
             self.feedback_last_poll = Some(Instant::now());
             self.feedback_scanned = true;
         }
+        // Poll often enough for HITL feel while hidden in tray.
         ctx.request_repaint_after(Duration::from_secs(2));
 
         self.drain_ffmpeg_results();
         self.check_annotated_save(ctx);
 
-        if let Some(rx) = &self.capture_trigger_rx {
-            if let Ok(_) = rx.try_recv() {
-                self.execute_capture(ctx);
-            }
-        }
-        
         if let Some(rx) = &self.screenshot_rx {
-            if let Ok(shot_file) = rx.try_recv() {
-                self.latest_screenshot = Some(shot_file.clone());
-                self.is_annotating = true;
-                
-                if let Ok(img) = image::open(&shot_file) {
-                    let size = [img.width() as _, img.height() as _];
-                    let image_buffer = img.to_rgba8();
-                    let pixels = image_buffer.as_flat_samples();
-                    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
-                    self.annotation_texture = Some(ctx.load_texture("screenshot", color_image, Default::default()));
+            if let Ok(result) = rx.try_recv() {
+                self.show_window(ctx);
+                match result {
+                    Ok(shot_file) => {
+                        self.latest_screenshot = Some(shot_file.clone());
+                        // Do not auto-open annotation — offer post-capture actions instead.
+                        self.refresh_library();
+                        self.toast_message = None;
+                        self.capture_toast = Some((shot_file, Instant::now()));
+                    }
+                    Err(e) => {
+                        self.show_toast(format!("❌ {e}"));
+                    }
                 }
-                self.annotation_actions.clear();
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                self.refresh_library();
-                self.show_toast("📸 Screenshot captured!");
             }
         }
-        
-        if self.is_recording || self.is_recording_voice_memo {
+
+        if self.is_recording || self.is_recording_voice_memo || self.recording_arming {
             ctx.request_repaint();
         }
 
@@ -1619,1615 +2090,188 @@ impl eframe::App for VibecapApp {
         for _ in 0..hotkey_recs {
             if self.is_recording {
                 self.stop_recording(ctx);
+            } else if self.recording_arming || self.countdown_deadline.is_some() {
+                self.cancel_recording(ctx);
             } else {
                 self.trigger_capture(ctx, false);
             }
         }
 
-        // In-window short commands when the app is focused (no modifiers needed).
-        // S = screenshot · R = toggle record · Esc = cancel close-to-tray hide is separate.
-        if !self.is_annotating {
-            let (press_s, press_r) = ctx.input(|i| {
+        // In-window short commands when the app is focused.
+        // S = screenshot · R = record · Z = undo delete · ⌘K/Ctrl+K = palette
+        if !self.is_annotating && !self.palette_open {
+            let (press_s, press_r, press_z, press_palette) = ctx.input(|i| {
+                let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
                 (
                     i.key_pressed(egui::Key::S) && !i.modifiers.any(),
                     i.key_pressed(egui::Key::R) && !i.modifiers.any(),
+                    i.key_pressed(egui::Key::Z) && !i.modifiers.any(),
+                    mod_cmd && i.key_pressed(egui::Key::K),
                 )
             });
-            if press_s {
+            if press_palette {
+                self.palette_open = true;
+                self.palette_query.clear();
+                self.palette_selected = 0;
+            } else if press_s {
                 self.trigger_capture(ctx, true);
             } else if press_r {
                 if self.is_recording {
                     self.stop_recording(ctx);
+                } else if self.recording_arming || self.countdown_deadline.is_some() {
+                    self.cancel_recording(ctx);
                 } else {
                     self.trigger_capture(ctx, false);
                 }
+            } else if press_z {
+                self.undo_last_delete();
+            }
+        } else if self.palette_open {
+            // Allow re-toggle close with ⌘K
+            let press_palette = ctx.input(|i| {
+                (i.modifiers.command || i.modifiers.ctrl) && i.key_pressed(egui::Key::K)
+            });
+            if press_palette {
+                self.palette_open = false;
             }
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        self.flush_expired_undo();
+
+        // First-run wizard (blocks main chrome while open)
+        if ui::wizard::show(self, ctx) {
+            return;
+        }
+
+        // Command palette
+        if let Some(action) = show_palette(
+            ctx,
+            &mut self.palette_query,
+            &mut self.palette_selected,
+            &mut self.palette_open,
+        ) {
+            self.run_palette_action(ctx, action);
+        }
+
+        // ── Loop rail (left) ─────────────────────────────────────
+        if !self.is_annotating {
+            egui::SidePanel::left("loop_rail")
+                .exact_width(76.0)
+                .resizable(false)
+                .frame(
+                    Frame::none()
+                        .fill(theme::SURFACE())
+                        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                        .inner_margin(0.0),
+                )
+                .show(ctx, |ui| {
+                    let rec_live = self.is_recording || self.recording_arming;
+                    if let Some(stage) = loop_rail(
+                        ui,
+                        self.current_tab.to_loop(),
+                        self.feedback_pending_count,
+                        rec_live,
+                    ) {
+                        self.current_tab = AppTab::from_loop(stage);
+                    }
+                });
+        }
+
+        egui::CentralPanel::default()
+            .frame(Frame::none().fill(theme::CANVAS()).inner_margin(theme::SP_4))
+            .show(ctx, |ui| {
             if self.is_annotating {
                 self.show_annotation(ui);
                 return;
             }
 
-            // ── Top tab bar ──────────────────────────────────────
-            Frame::none()
-                .fill(Color32::from_rgb(0x1c, 0x16, 0x0e))
-                .rounding(Rounding::same(8.0))
-                .inner_margin(egui::Margin::symmetric(8.0, 6.0))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let tab_btn = |ui: &mut egui::Ui, active: bool, text: &str| -> bool {
-                            let text_style = if active {
-                                RichText::new(text).color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong()
-                            } else {
-                                RichText::new(text).color(Color32::from_rgb(0xa2, 0x95, 0x7f))
-                            };
-                            let fill = if active { Color32::from_rgb(0x2d, 0x22, 0x14) } else { Color32::TRANSPARENT };
-                            ui.add(egui::Button::new(text_style).fill(fill).rounding(Rounding::same(6.0))).clicked()
-                        };
-
-                        if tab_btn(ui, self.current_tab == AppTab::Capture, "🎥 Capture") {
-                            self.current_tab = AppTab::Capture;
-                        }
-                        if tab_btn(ui, self.current_tab == AppTab::Library, "📂 Library") {
-                            self.current_tab = AppTab::Library;
-                        }
-                        if tab_btn(ui, self.current_tab == AppTab::Edit, "✂ Editor") {
-                            self.current_tab = AppTab::Edit;
-                        }
-                        let fb_label = if self.feedback_pending_count > 0 {
-                            format!("🤖 Inbox ({})", self.feedback_pending_count)
-                        } else {
-                            "🤖 Inbox".to_string()
-                        };
-                        if tab_btn(ui, self.current_tab == AppTab::Feedback, &fb_label) {
-                            self.current_tab = AppTab::Feedback;
-                        }
-                        if tab_btn(ui, self.current_tab == AppTab::Settings, "⚙ Settings") {
-                            self.current_tab = AppTab::Settings;
-                        }
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if self.is_recording {
-                                let e = self.recording_elapsed_secs();
-                                ui.label(
-                                    RichText::new(format!("● REC {:02}:{:02}", e / 60, e % 60))
-                                        .color(Color32::from_rgb(0xe8, 0x3b, 0x3b))
-                                        .strong()
-                                        .small(),
-                                );
-                            } else if self.tray.is_some() {
-                                ui.label(
-                                    RichText::new("tray on")
-                                        .color(Color32::from_rgb(0x6d, 0x63, 0x50))
-                                        .small(),
-                                );
-                            }
-                        });
-                    });
+            // ── Stage header ─────────────────────────────────────
+            ui.horizontal(|ui| {
+                ui.heading(
+                    RichText::new(self.current_tab.title())
+                        .size(22.0)
+                        .color(theme::TEXT())
+                        .strong(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button(RichText::new("⌘K").color(theme::TEXT_DIM()))
+                        .on_hover_text("Command palette (Ctrl+K / ⌘K)")
+                        .clicked()
+                    {
+                        self.palette_open = true;
+                        self.palette_query.clear();
+                        self.palette_selected = 0;
+                    }
+                    if self.is_recording {
+                        let e = self.recording_elapsed_secs();
+                        ui.label(
+                            RichText::new(format!("● REC {:02}:{:02}", e / 60, e % 60))
+                                .color(theme::DANGER())
+                                .strong()
+                                .small(),
+                        );
+                    } else if self.recording_arming {
+                        ui.label(
+                            RichText::new("● Starting…")
+                                .color(theme::ACCENT())
+                                .strong()
+                                .small(),
+                        );
+                    } else if self.tray.is_some() {
+                        ui.label(
+                            RichText::new("tray on")
+                                .color(theme::TEXT_DIM())
+                                .small(),
+                        );
+                    }
                 });
-
-            ui.add_space(12.0);
+            });
+            ui.add_space(self.density.sp(theme::SP_3));
 
             match self.current_tab {
-                AppTab::Capture => {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(12.0);
-                        ui.heading(
-                            RichText::new("Capture")
-                                .size(26.0)
-                                .color(Color32::from_rgb(0xf5, 0x9e, 0x4b))
-                                .strong(),
-                        );
-                        ui.label(
-                            RichText::new("Screenshot · screen record · agent-ready media")
-                                .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                        );
-                        ui.add_space(22.0);
-
-                        // ── Primary actions (top) ────────────────
-                        ui.horizontal(|ui| {
-                            ui.add_space(ui.available_width() / 2.0 - 180.0);
-
-                            let screenshot_btn = egui::Button::new(
-                                RichText::new("📸  Screenshot  (S)")
-                                    .color(Color32::from_rgb(0xf5, 0x9e, 0x4b))
-                                    .strong(),
-                            )
-                            .fill(Color32::from_rgb(0x2d, 0x22, 0x14))
-                            .stroke(Stroke::new(1.5_f32, Color32::from_rgb(0xf5, 0x9e, 0x4b)))
-                            .rounding(Rounding::same(10.0));
-
-                            if ui
-                                .add_sized([170.0, 52.0], screenshot_btn)
-                                .on_hover_text("Shortcut: S (in app) · Ctrl+Shift+3 (global)")
-                                .clicked()
-                            {
-                                self.trigger_capture(ctx, true);
-                            }
-
-                            ui.add_space(12.0);
-
-                            if self.is_recording {
-                                let elapsed = self.recording_elapsed_secs();
-                                let mins = elapsed / 60;
-                                let secs = elapsed % 60;
-                                let text = RichText::new(format!("⏹  Stop  [{:02}:{:02}]", mins, secs))
-                                    .color(Color32::WHITE)
-                                    .strong();
-                                let pulse = (ctx.input(|i| i.time) * 3.0).sin().abs() as f32;
-                                let bg_color = Color32::from_rgb((200.0 + pulse * 55.0) as u8, 40, 40);
-                                if ui
-                                    .add_sized(
-                                        [170.0, 52.0],
-                                        egui::Button::new(text).fill(bg_color).rounding(Rounding::same(10.0)),
-                                    )
-                                    .on_hover_text("Shortcut: R · Ctrl+Shift+2 · also in tray")
-                                    .clicked()
-                                {
-                                    self.stop_recording(ctx);
-                                }
-                            } else {
-                                let record_btn = egui::Button::new(
-                                    RichText::new("🎥  Record  (R)")
-                                        .color(Color32::from_rgb(0x1c, 0x14, 0x08))
-                                        .strong(),
-                                )
-                                .fill(Color32::from_rgb(0xf5, 0x9e, 0x4b))
-                                .rounding(Rounding::same(10.0));
-                                if ui
-                                    .add_sized([170.0, 52.0], record_btn)
-                                    .on_hover_text("Shortcut: R (in app) · Ctrl+Shift+2 (global) · tray menu")
-                                    .clicked()
-                                {
-                                    self.trigger_capture(ctx, false);
-                                }
-                            }
-                        });
-
-                        ui.add_space(18.0);
-
-                        // ── Subtle options (below buttons) ───────
-                        ui.horizontal(|ui| {
-                            ui.add_space(ui.available_width() / 2.0 - 200.0);
-                            ui.label(
-                                RichText::new("Target")
-                                    .small()
-                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                            );
-                            ui.add_space(6.0);
-                            ui.radio_value(&mut self.capture_target, CaptureTarget::Fullscreen, "Full");
-                            ui.radio_value(&mut self.capture_target, CaptureTarget::Region, "Region");
-                            ui.radio_value(&mut self.capture_target, CaptureTarget::Window, "Window");
-                        });
-                        ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(ui.available_width() / 2.0 - 80.0);
-                            ui.checkbox(
-                                &mut self.capture_audio,
-                                RichText::new("Include audio")
-                                    .small()
-                                    .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                            );
-                        });
-                        ui.label(
-                            RichText::new("S / R in app  ·  Ctrl+Shift+3 / 2 global  ·  FPS in Settings")
-                                .small()
-                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                        );
-
-                        ui.add_space(16.0);
-                        egui::CollapsingHeader::new(
-                            RichText::new("🤖 Agent session (live inspection & budget)")
-                                .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                        )
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            let live_dir = default_live_dir().display().to_string();
-                            let (bytes, count) = get_dir_size_bytes(&live_dir);
-                            let mb = (bytes as f64) / (1024.0 * 1024.0);
-                            let cfg = load_budget();
-                            ui.label(format!("Live frames: {} · {:.2} MB in {}", count, mb, live_dir));
-                            ui.label(format!(
-                                "Budget: frames cap {} · MB cap {:.1} · minutes cap {} · tier {}",
-                                if cfg.max_frames == 0 {
-                                    "unlimited".to_string()
-                                } else {
-                                    cfg.max_frames.to_string()
-                                },
-                                cfg.max_mb,
-                                if cfg.max_minutes == 0 {
-                                    "unlimited".to_string()
-                                } else {
-                                    cfg.max_minutes.to_string()
-                                },
-                                cfg.analysis_tier
-                            ));
-                            ui.label(
-                                RichText::new(
-                                    "Agents use vibecap_set_budget; live inspection auto-stops at caps.",
-                                )
-                                .small()
-                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                            );
-                        });
-                    });
-                }
-
-                AppTab::Library => {
-                    ui.horizontal(|ui| {
-                        ui.heading(RichText::new("Media Library").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🔄 Refresh").clicked() {
-                                self.refresh_library();
-                            }
-                        });
-                    });
-                    ui.add_space(4.0);
-
-                    // Category chips
-                    ui.horizontal_wrapped(|ui| {
-                        let cats = [
-                            "All",
-                            MediaCategory::Screenshot.label(),
-                            MediaCategory::Video.label(),
-                            MediaCategory::Gif.label(),
-                            MediaCategory::Audio.label(),
-                            MediaCategory::Note.label(),
-                        ];
-                        for cat in cats {
-                            let selected = self.library_filter == cat;
-                            let label = if cat == "All" {
-                                format!("All ({})", self.library_items.len())
-                            } else {
-                                let n = self.library_items.iter().filter(|i| i.category.label() == cat).count();
-                                format!("{} ({})", cat, n)
-                            };
-                            if ui
-                                .selectable_label(selected, RichText::new(label).small())
-                                .clicked()
-                            {
-                                self.library_filter = cat.to_string();
-                                self.library_show_limit = LIBRARY_PAGE_SIZE;
-                                self.library_confirm_clear = false;
-                            }
-                        }
-                    });
-                    ui.add_space(6.0);
-
-                    let filtered: Vec<MediaItem> = self
-                        .library_filtered()
-                        .into_iter()
-                        .cloned()
-                        .collect();
-                    let total_filtered = filtered.len();
-                    let show_n = self.library_show_limit.min(total_filtered);
-                    let visible: Vec<MediaItem> = filtered.into_iter().take(show_n).collect();
-                    let selected_count = self.library_selected.len();
-
-                    // Bulk toolbar
-                    ui.horizontal(|ui| {
-                        if ui.button("Select all shown").clicked() {
-                            for item in &visible {
-                                self.library_selected.insert(item.path.clone());
-                            }
-                        }
-                        if ui.button("Clear selection").clicked() {
-                            self.library_selected.clear();
-                        }
-                        ui.label(
-                            RichText::new(format!("{selected_count} selected · showing {show_n} of {total_filtered}"))
-                                .small()
-                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if selected_count > 0 {
-                                if ui
-                                    .button(RichText::new(format!("🗑 Delete ({selected_count})")).color(Color32::from_rgb(0xe8, 0x3b, 0x3b)))
-                                    .clicked()
-                                {
-                                    let paths: Vec<_> = self.library_selected.iter().cloned().collect();
-                                    self.delete_library_paths(&paths);
-                                }
-                                if ui.button(format!("📂 Open in Finder ({selected_count})")).clicked() {
-                                    let paths: Vec<_> = self.library_selected.iter().cloned().collect();
-                                    self.reveal_paths(&paths);
-                                }
-                            }
-                            if !self.library_confirm_clear {
-                                if ui
-                                    .button("Clear list…")
-                                    .on_hover_text("Delete all files in the current category from disk")
-                                    .clicked()
-                                {
-                                    self.library_confirm_clear = true;
-                                }
-                            } else {
-                                if ui
-                                    .button(RichText::new("Confirm clear").color(Color32::from_rgb(0xe8, 0x3b, 0x3b)).strong())
-                                    .clicked()
-                                {
-                                    let paths: Vec<_> = self
-                                        .library_filtered()
-                                        .into_iter()
-                                        .map(|i| i.path.clone())
-                                        .collect();
-                                    self.delete_library_paths(&paths);
-                                    self.library_confirm_clear = false;
-                                    self.library_show_limit = LIBRARY_PAGE_SIZE;
-                                }
-                                if ui.button("Cancel").clicked() {
-                                    self.library_confirm_clear = false;
-                                }
-                            }
-                        });
-                    });
-                    ui.separator();
-
-                    if total_filtered == 0 {
-                        ui.add_space(40.0);
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                RichText::new("No media in this category.")
-                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                            );
-                        });
-                    } else {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            let mut open_edit: Option<PathBuf> = None;
-                            let mut do_copy: Option<PathBuf> = None;
-                            let mut do_delete: Option<PathBuf> = None;
-                            let mut do_reveal: Option<PathBuf> = None;
-
-                            for item in &visible {
-                                let selected = self.library_selected.contains(&item.path);
-                                ui.group(|ui| {
-                                    ui.horizontal(|ui| {
-                                        let mut checked = selected;
-                                        if ui.checkbox(&mut checked, "").changed() {
-                                            if checked {
-                                                self.library_selected.insert(item.path.clone());
-                                            } else {
-                                                self.library_selected.remove(&item.path);
-                                            }
-                                        }
-
-                                        if matches!(item.category, MediaCategory::Screenshot | MediaCategory::Gif) {
-                                            ui.add(
-                                                egui::Image::new(format!("file://{}", item.path.display()))
-                                                    .fit_to_exact_size(Vec2::new(64.0, 36.0)),
-                                            );
-                                        }
-
-                                        ui.vertical(|ui| {
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} {}",
-                                                    item.category.icon(),
-                                                    item.name
-                                                ))
-                                                .strong()
-                                                .color(Color32::from_rgb(0xec, 0xe5, 0xd6)),
-                                            );
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} · {}",
-                                                    item.category.label(),
-                                                    item.size_str
-                                                ))
-                                                .small()
-                                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                                            );
-                                        });
-
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            if ui.button("🗑").on_hover_text("Delete").clicked() {
-                                                do_delete = Some(item.path.clone());
-                                            }
-                                            if ui.button("📂").on_hover_text("Reveal in Finder").clicked() {
-                                                do_reveal = Some(item.path.clone());
-                                            }
-                                            match item.category {
-                                                MediaCategory::Video | MediaCategory::Gif => {
-                                                    if ui.button("✂ Edit").clicked() {
-                                                        open_edit = Some(item.path.clone());
-                                                    }
-                                                }
-                                                MediaCategory::Screenshot => {
-                                                    if ui.button("📋 Copy").clicked() {
-                                                        do_copy = Some(item.path.clone());
-                                                    }
-                                                }
-                                                _ => {
-                                                    if ui.button("↗ Open").clicked() {
-                                                        let _ = open_path(&item.path);
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    });
-                                });
-                                ui.add_space(3.0);
-                            }
-
-                            if show_n < total_filtered {
-                                ui.add_space(8.0);
-                                ui.vertical_centered(|ui| {
-                                    if ui
-                                        .button(format!(
-                                            "Show more ({} hidden)",
-                                            total_filtered - show_n
-                                        ))
-                                        .clicked()
-                                    {
-                                        self.library_show_limit =
-                                            self.library_show_limit.saturating_add(LIBRARY_PAGE_SIZE);
-                                    }
-                                });
-                            }
-
-                            if let Some(p) = do_delete {
-                                self.delete_library_paths(&[p]);
-                            }
-                            if let Some(p) = do_reveal {
-                                self.reveal_paths(&[p]);
-                            }
-                            if let Some(p) = do_copy {
-                                self.copy_image_to_clipboard(&p);
-                            }
-                            if let Some(p) = open_edit {
-                                self.edit_file = Some(p.clone());
-                                self.current_tab = AppTab::Edit;
-                                self.load_filmstrip(ctx, p);
-                            }
-                        });
-                    }
-                }
-
-                AppTab::Edit => {
-                    ui.heading(RichText::new("Interactive Video Editor & Exporter").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong());
-                    ui.add_space(10.0);
-                    
-                    if ui.button("📂 Select Video").clicked() {
-                        if let Some(path) = FileDialog::new().add_filter("Video", &["mp4", "mov"]).pick_file() {
-                            self.edit_file = Some(path.clone());
-                            self.load_filmstrip(ctx, path);
-                        }
-                    }
-                    
-                    let edit_file_opt = self.edit_file.clone();
-                    if let Some(file) = &edit_file_opt {
-                        ui.add_space(6.0);
-                        ui.label(RichText::new(format!("Editing: {}", file.file_name().unwrap().to_str().unwrap())).color(Color32::from_rgb(0xec, 0xe5, 0xd6)));
-                        ui.add_space(12.0);
-                        
-                        ui.group(|ui| {
-                            ui.heading(RichText::new("Filmstrip Timeline").size(16.0).color(Color32::from_rgb(0xf5, 0x9e, 0x4b)));
-                            ui.add_space(8.0);
-                            
-                            egui::ScrollArea::horizontal().show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    if self.filmstrip.is_empty() {
-                                        ui.label(RichText::new("Generating filmstrip...").color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
-                                    } else {
-                                        for tex in &self.filmstrip {
-                                            ui.image((tex.id(), Vec2::new(160.0, 90.0)));
-                                        }
-                                    }
-                                });
-                            });
-                            
-                            ui.add_space(15.0);
-                            
-                            ui.horizontal(|ui| {
-                                ui.label("Start (HH:MM:SS):");
-                                ui.text_edit_singleline(&mut self.trim_start);
-                                ui.add_space(15.0);
-                                ui.label("End (HH:MM:SS):");
-                                ui.text_edit_singleline(&mut self.trim_end);
-                            });
-                            
-                            ui.add_space(10.0);
-                            ui.horizontal(|ui| {
-                                ui.label("Speed:");
-                                ui.selectable_value(&mut self.export_speed, "0.5".to_string(), "0.5x");
-                                ui.selectable_value(&mut self.export_speed, "1.0".to_string(), "1.0x");
-                                ui.selectable_value(&mut self.export_speed, "1.5".to_string(), "1.5x");
-                                ui.selectable_value(&mut self.export_speed, "2.0".to_string(), "2.0x");
-                            });
-                            
-                            ui.add_space(15.0);
-                            ui.horizontal(|ui| {
-                                let file_clone = file.clone();
-                                if ui.button(RichText::new("✂ Trim Video").color(Color32::from_rgb(0x1c, 0x14, 0x08)).strong()).clicked() {
-                                    let out = file_clone.with_file_name(format!("trimmed_{}", file_clone.file_name().unwrap().to_str().unwrap()));
-                                    self.spawn_ffmpeg_job(vec!["-y".into(), "-i".into(), file_clone.to_str().unwrap().into(), "-ss".into(), self.trim_start.clone(), "-to".into(), self.trim_end.clone(), "-c".into(), "copy".into(), out.to_str().unwrap().into()], "✂ Video trimmed!");
-                                }
-                                
-                                if ui.button(RichText::new("🎞 Export Range to GIF").color(Color32::from_rgb(0xf5, 0x9e, 0x4b))).clicked() {
-                                    let timestamp = Local::now().format("%H-%M-%S").to_string();
-                                    let gif_out = file_clone.with_file_name(format!("clip_{}_{}.gif", self.trim_start.replace(":", "-"), timestamp));
-                                    self.spawn_ffmpeg_job(vec!["-ss".into(), self.trim_start.clone(), "-to".into(), self.trim_end.clone(), "-i".into(), file_clone.to_str().unwrap().into(), "-vf".into(), "fps=15,scale=800:-1:flags=lanczos".into(), "-y".into(), gif_out.to_str().unwrap().into()], "🎞 GIF exported!");
-                                }
-
-                                if ui.button("🎵 Extract Audio").clicked() {
-                                    let audio_out = file_clone.with_extension("m4a");
-                                    self.spawn_ffmpeg_job(vec!["-y".into(), "-i".into(), file_clone.to_str().unwrap().into(), "-vn".into(), "-acodec".into(), "copy".into(), audio_out.to_str().unwrap().into()], "🎵 Audio extracted!");
-                                }
-                            });
-                        });
-                        
-                        ui.add_space(10.0);
-                        egui::CollapsingHeader::new(RichText::new("🎛 More video tools — extract frame, rotate, compress, mute, speed").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)))
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                ui.label(RichText::new("Optional pro tools. Jobs report their real result when done — no fake success.").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                                ui.add_space(6.0);
-                                ui.horizontal(|ui| {
-                                    let file_clone = file.clone();
-                                    if ui.button("🖼 Extract Frame @ Start").clicked() {
-                                        let out = file_clone.with_file_name(format!("frame_{}.jpg", self.trim_start.replace(":", "-")));
-                                        self.spawn_ffmpeg_job(vec!["-ss".into(), self.trim_start.clone(), "-i".into(), file_clone.to_str().unwrap().into(), "-vframes".into(), "1".into(), "-q:v".into(), "2".into(), "-y".into(), out.to_str().unwrap().into()], "🖼 Frame extracted!");
-                                    }
-                                    if ui.button("🔇 Remove Audio").clicked() {
-                                        let out = file_clone.with_file_name(format!("muted_{}", file_clone.file_name().unwrap().to_str().unwrap()));
-                                        self.spawn_ffmpeg_job(vec!["-i".into(), file_clone.to_str().unwrap().into(), "-an".into(), "-c:v".into(), "copy".into(), "-y".into(), out.to_str().unwrap().into()], "🔇 Audio removed!");
-                                    }
-                                    if ui.button("🗜 Compress (CRF 28)").clicked() {
-                                        let out = file_clone.with_file_name(format!("compressed_{}", file_clone.file_name().unwrap().to_str().unwrap()));
-                                        self.spawn_ffmpeg_job(vec!["-i".into(), file_clone.to_str().unwrap().into(), "-c:v".into(), "libx264".into(), "-crf".into(), "28".into(), "-preset".into(), "medium".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "96k".into(), "-y".into(), out.to_str().unwrap().into()], "🗜 Video compressed!");
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    let file_clone = file.clone();
-                                    if ui.button("🔄 Rotate 90° CW").clicked() {
-                                        let out = file_clone.with_file_name(format!("rot90_{}", file_clone.file_name().unwrap().to_str().unwrap()));
-                                        self.spawn_ffmpeg_job(vec!["-i".into(), file_clone.to_str().unwrap().into(), "-vf".into(), "transpose=1".into(), "-y".into(), out.to_str().unwrap().into()], "🔄 Rotated 90° CW!");
-                                    }
-                                    if ui.button("🔄 Rotate 90° CCW").clicked() {
-                                        let out = file_clone.with_file_name(format!("rot270_{}", file_clone.file_name().unwrap().to_str().unwrap()));
-                                        self.spawn_ffmpeg_job(vec!["-i".into(), file_clone.to_str().unwrap().into(), "-vf".into(), "transpose=2".into(), "-y".into(), out.to_str().unwrap().into()], "🔄 Rotated 90° CCW!");
-                                    }
-                                    if ui.button("🔄 Rotate 180°").clicked() {
-                                        let out = file_clone.with_file_name(format!("rot180_{}", file_clone.file_name().unwrap().to_str().unwrap()));
-                                        self.spawn_ffmpeg_job(vec!["-i".into(), file_clone.to_str().unwrap().into(), "-vf".into(), "hflip,vflip".into(), "-y".into(), out.to_str().unwrap().into()], "🔄 Rotated 180°!");
-                                    }
-                                    if ui.button(format!("⏩ Apply {}x Speed", self.export_speed)).clicked() {
-                                        let out = file_clone.with_file_name(format!("speed{}_{}", self.export_speed, file_clone.file_name().unwrap().to_str().unwrap()));
-                                        self.spawn_ffmpeg_job(vec!["-i".into(), file_clone.to_str().unwrap().into(), "-filter:v".into(), format!("setpts=PTS/{}", self.export_speed), "-filter:a".into(), format!("atempo={}", self.export_speed), "-y".into(), out.to_str().unwrap().into()], "⏩ Speed change applied!");
-                                    }
-                                });
-                            });
-
-                        ui.add_space(15.0);
-                        if ui.button("📂 Open Folder in Finder").clicked() {
-                            let _ = reveal_in_file_manager(file);
-                        }
-                    } else {
-                        ui.add_space(20.0);
-                        ui.label(RichText::new("No video selected. Record a video or select one from the Media Library.").color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                    }
-
-                    ui.add_space(15.0);
-                    egui::CollapsingHeader::new(RichText::new("🖼 Image tools — crop, rotate, resize, adjust").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)))
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            ui.label(RichText::new("Structural pic editing with live preview. Hidden by default to keep the studio clean.").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                            ui.add_space(6.0);
-                            ui.horizontal(|ui| {
-                                if ui.button("📂 Select Image").clicked() {
-                                    if let Some(path) = FileDialog::new().add_filter("Image", &["jpg", "jpeg", "png", "gif", "webp"]).pick_file() {
-                                        self.img_source_dims = image::image_dimensions(&path)
-                                            .map(|(w, h)| format!("{}×{}", w, h))
-                                            .unwrap_or_default();
-                                        self.img_preview_params.clear();
-                                        self.img_edit_file = Some(path);
-                                    }
-                                }
-                                if let Some(p) = &self.img_edit_file {
-                                    let dims = if self.img_source_dims.is_empty() { String::new() } else { format!(" · {} px", self.img_source_dims) };
-                                    ui.label(RichText::new(format!("Editing: {}{}", p.file_name().unwrap().to_str().unwrap(), dims)).color(Color32::from_rgb(0xec, 0xe5, 0xd6)));
-                                }
-                            });
-                            if self.img_edit_file.is_some() {
-                                ui.horizontal(|ui| {
-                                    ui.label("Rotate:");
-                                    ui.selectable_value(&mut self.img_rotate, 0, "0°");
-                                    ui.selectable_value(&mut self.img_rotate, 90, "90°");
-                                    ui.selectable_value(&mut self.img_rotate, 180, "180°");
-                                    ui.selectable_value(&mut self.img_rotate, 270, "270°");
-                                    ui.checkbox(&mut self.img_flip_h, "Flip H");
-                                    ui.checkbox(&mut self.img_flip_v, "Flip V");
-                                    ui.checkbox(&mut self.img_grayscale, "Grayscale");
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Brightness:");
-                                    ui.add(egui::Slider::new(&mut self.img_brightness, -100..=100));
-                                    ui.label("Contrast:");
-                                    ui.add(egui::Slider::new(&mut self.img_contrast, -100.0..=100.0));
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Blur:");
-                                    ui.add(egui::Slider::new(&mut self.img_blur, 0.0..=10.0));
-                                    ui.label("Resize %:");
-                                    ui.add(egui::Slider::new(&mut self.img_resize_pct, 10..=200));
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Crop (pixels, optional):");
-                                    ui.add(egui::TextEdit::singleline(&mut self.img_crop_x).hint_text("x").desired_width(50.0));
-                                    ui.add(egui::TextEdit::singleline(&mut self.img_crop_y).hint_text("y").desired_width(50.0));
-                                    ui.add(egui::TextEdit::singleline(&mut self.img_crop_w).hint_text("w").desired_width(50.0));
-                                    ui.add(egui::TextEdit::singleline(&mut self.img_crop_h).hint_text("h").desired_width(50.0));
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.checkbox(&mut self.img_preview_on, "👁 Live preview");
-                                    if ui.button("↺ Reset").clicked() {
-                                        self.img_rotate = 0;
-                                        self.img_flip_h = false;
-                                        self.img_flip_v = false;
-                                        self.img_grayscale = false;
-                                        self.img_brightness = 0;
-                                        self.img_contrast = 0.0;
-                                        self.img_blur = 0.0;
-                                        self.img_resize_pct = 100;
-                                        self.img_crop_x.clear();
-                                        self.img_crop_y.clear();
-                                        self.img_crop_w.clear();
-                                        self.img_crop_h.clear();
-                                        self.img_preview_params.clear();
-                                    }
-                                });
-                                if self.img_preview_on {
-                                    self.refresh_img_preview(ui.ctx());
-                                    if let Some(tex) = &self.img_preview_tex {
-                                        let size = tex.size_vec2();
-                                        let max_w = ui.available_width().min(480.0);
-                                        let scale = (max_w / size.x).min(1.0);
-                                        ui.image((tex.id(), size * scale));
-                                    }
-                                }
-                                ui.add_space(6.0);
-                                if ui.button(RichText::new("💾 Save Edited Image").color(Color32::from_rgb(0x1c, 0x14, 0x08)).strong()).clicked() {
-                                    self.apply_image_edits();
-                                }
-                            }
-                        });
-                }
-
-                AppTab::Feedback => {
-                    if !self.feedback_scanned {
-                        self.scan_feedback_requests();
-                        self.feedback_scanned = true;
-                    }
-
-                    ui.horizontal(|ui| {
-                        ui.heading(
-                            RichText::new("🤖 Agent Inbox")
-                                .color(Color32::from_rgb(0xf5, 0x9e, 0x4b))
-                                .strong(),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🧹 Clear answered").clicked() {
-                                self.clear_answered_feedback();
-                            }
-                            if ui.button("🔄 Refresh").clicked() {
-                                self.scan_feedback_requests();
-                            }
-                        });
-                    });
-                    ui.label(
-                        RichText::new("Agent → you: questions from AI tools land here. You answer; the agent reads your reply.")
-                            .small()
-                            .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                    );
-                    ui.label(
-                        RichText::new("Different from Capture “notes on a screenshot” (you start those). This inbox is agent-started.")
-                            .small()
-                            .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                    );
-                    ui.separator();
-
-                    let pending: Vec<FeedbackRequest> = self
-                        .feedback_requests
-                        .iter()
-                        .filter(|r| r.status != "answered")
-                        .cloned()
-                        .collect();
-                    let answered: Vec<FeedbackRequest> = self
-                        .feedback_requests
-                        .iter()
-                        .filter(|r| r.status == "answered")
-                        .cloned()
-                        .collect();
-
-                    if pending.is_empty() && answered.is_empty() {
-                        ui.add_space(30.0);
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                RichText::new("No agent questions yet.")
-                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                            );
-                            ui.label(
-                                RichText::new("When an agent calls vibecap_request_feedback, it shows up here.")
-                                    .small()
-                                    .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                            );
-                        });
-                    } else {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            if !pending.is_empty() {
-                                ui.label(
-                                    RichText::new(format!("Needs your answer ({})", pending.len()))
-                                        .strong()
-                                        .color(Color32::from_rgb(0xf5, 0x9e, 0x4b)),
-                                );
-                                ui.add_space(4.0);
-                                for req in &pending {
-                                    ui.group(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!("⏳ {}", req.question))
-                                                    .strong()
-                                                    .color(Color32::from_rgb(0xec, 0xe5, 0xd6)),
-                                            );
-                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                if ui.button("📂 Media").clicked() {
-                                                    let _ = open_path(std::path::Path::new(&req.media_path));
-                                                }
-                                                let lower = req.media_path.to_lowercase();
-                                                let is_image = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
-                                                    .iter()
-                                                    .any(|e| lower.ends_with(e));
-                                                if is_image
-                                                    && ui
-                                                        .button("✏ Mark up")
-                                                        .on_hover_text("Draw on the image, then send back to the agent")
-                                                        .clicked()
-                                                {
-                                                    self.annotating_feedback_id = Some(req.id.clone());
-                                                    self.annotate_media(ui.ctx(), PathBuf::from(&req.media_path));
-                                                }
-                                                if ui.button("📝 Reply").clicked() {
-                                                    self.feedback_selected = Some(req.id.clone());
-                                                }
-                                            });
-                                        });
-                                        let fname = std::path::Path::new(&req.media_path)
-                                            .file_name()
-                                            .map(|f| f.to_string_lossy().to_string())
-                                            .unwrap_or_else(|| req.media_path.clone());
-                                        ui.label(
-                                            RichText::new(format!("{} · {}", req.created_at, fname))
-                                                .small()
-                                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                                        )
-                                        .on_hover_text(&req.media_path);
-
-                                        if self.feedback_selected.as_deref() == Some(req.id.as_str()) {
-                                            ui.add_space(6.0);
-                                            ui.label(
-                                                RichText::new("Your reply to the agent:")
-                                                    .small()
-                                                    .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                                            );
-                                            ui.add(
-                                                egui::TextEdit::multiline(&mut self.feedback_draft)
-                                                    .hint_text("What looks right, what’s wrong, what to change…"),
-                                            );
-                                            ui.horizontal(|ui| {
-                                                let voice_label = if self.is_recording_voice_memo {
-                                                    RichText::new("🔴 Stop voice").color(Color32::WHITE).strong()
-                                                } else {
-                                                    RichText::new("🎙 Voice note")
-                                                        .color(Color32::from_rgb(0x5e, 0xc2, 0x6a))
-                                                        .strong()
-                                                };
-                                                if ui.button(voice_label).clicked() {
-                                                    let was_recording = self.is_recording_voice_memo;
-                                                    self.toggle_voice_memo();
-                                                    if !was_recording {
-                                                        self.feedback_voice_note =
-                                                            self.active_voice_memo_path.clone();
-                                                    }
-                                                }
-                                                if let Some(p) = &self.feedback_voice_note {
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "🎙 {}",
-                                                            p.file_name().unwrap_or_default().to_string_lossy()
-                                                        ))
-                                                        .small(),
-                                                    );
-                                                }
-                                            });
-                                            ui.horizontal(|ui| {
-                                                if ui
-                                                    .button(
-                                                        RichText::new("✅ Send to agent")
-                                                            .color(Color32::from_rgb(0x1c, 0x14, 0x08))
-                                                            .strong(),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    self.submit_feedback_response(&req.id);
-                                                }
-                                                if ui.button("Cancel").clicked() {
-                                                    self.feedback_selected = None;
-                                                }
-                                            });
-                                        }
-                                    });
-                                    ui.add_space(4.0);
-                                }
-                            }
-
-                            if !answered.is_empty() {
-                                ui.add_space(8.0);
-                                egui::CollapsingHeader::new(
-                                    RichText::new(format!("Already answered ({})", answered.len()))
-                                        .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                                )
-                                .default_open(false)
-                                .show(ui, |ui| {
-                                    for req in &answered {
-                                        ui.group(|ui| {
-                                            ui.label(
-                                                RichText::new(format!("✅ {}", req.question))
-                                                    .color(Color32::from_rgb(0xec, 0xe5, 0xd6)),
-                                            );
-                                            if !self.feedback_reply_cache.contains_key(&req.id) {
-                                                if let Ok(s) = std::fs::read_to_string(
-                                                    feedback_responses_dir()
-                                                        .join(format!("{}.json", req.id)),
-                                                ) {
-                                                    if let Ok(resp) =
-                                                        serde_json::from_str::<FeedbackResponse>(&s)
-                                                    {
-                                                        let mut txt = resp.feedback_text.clone();
-                                                        if !resp.annotated_media_path.is_empty() {
-                                                            txt.push_str(&format!(
-                                                                "\n🎨 {}",
-                                                                resp.annotated_media_path
-                                                            ));
-                                                        }
-                                                        if !resp.voice_note_path.is_empty() {
-                                                            txt.push_str(&format!(
-                                                                "\n🎙 {}",
-                                                                resp.voice_note_path
-                                                            ));
-                                                        }
-                                                        self.feedback_reply_cache
-                                                            .insert(req.id.clone(), txt);
-                                                    }
-                                                }
-                                            }
-                                            if let Some(reply) =
-                                                self.feedback_reply_cache.get(&req.id).cloned()
-                                            {
-                                                ui.label(
-                                                    RichText::new(reply)
-                                                        .small()
-                                                        .color(Color32::from_rgb(0xa2, 0x95, 0x7f)),
-                                                );
-                                            }
-                                        });
-                                        ui.add_space(3.0);
-                                    }
-                                });
-                            }
-                        });
-                    }
-                }
-
-                AppTab::Settings => {
-                    ui.heading(RichText::new("Settings & Preferences").color(Color32::from_rgb(0xf5, 0x9e, 0x4b)).strong());
-                    ui.add_space(15.0);
-                    
-                    ui.group(|ui| {
-                        ui.label(RichText::new("SAVE LOCATION").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                        ui.add_space(4.0);
-                        ui.label(format!("{}", self.save_dir.display()));
-                        ui.add_space(8.0);
-                        if ui.button("📂 Change Save Directory").clicked() {
-                            if let Some(path) = FileDialog::new().pick_folder() {
-                                self.save_dir = path;
-                                self.refresh_library();
-                                self.show_toast("Directory updated!");
-                            }
-                        }
-                    });
-                    
-                    ui.add_space(15.0);
-                    ui.group(|ui| {
-                        ui.label(RichText::new("RECORDING").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                        ui.add_space(4.0);
-                        ui.label(RichText::new("Framerate").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
-                        ui.horizontal(|ui| {
-                            ui.radio_value(&mut self.fps_target, 30, "30 FPS (Balanced)");
-                            ui.radio_value(&mut self.fps_target, 60, "60 FPS (Pro High-FPS)");
-                        });
-                        ui.add_space(6.0);
-                        ui.checkbox(&mut self.capture_audio, "Include audio when recording");
-                        ui.label(
-                            RichText::new("Video-only by default. Enable audio for mic/system sound (platform-dependent).")
-                                .small()
-                                .color(Color32::from_rgb(0x6d, 0x63, 0x50)),
-                        );
-                    });
-                    
-                    ui.add_space(15.0);
-                    ui.group(|ui| {
-                        ui.label(RichText::new("SHORTCUTS & TRAY").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                        ui.add_space(4.0);
-                        ui.label("In app (window focused)");
-                        ui.label("  S  — Screenshot");
-                        ui.label("  R  — Start / stop recording");
-                        ui.add_space(4.0);
-                        ui.label("Global (works from tray / other apps)");
-                        ui.label("  Ctrl + Shift + 3  — Screenshot");
-                        ui.label("  Ctrl + Shift + 2  — Start / stop recording");
-                        ui.add_space(4.0);
-                        ui.label("Tray menu: Screenshot · Record (shows live timer) · Feedback · Quit");
-                        ui.label("Close window → hide to tray (not quit)");
-                    });
-
-                    ui.add_space(15.0);
-                    ui.group(|ui| {
-                        ui.label(RichText::new("🤖 AGENT SESSION & BUDGET").small().color(Color32::from_rgb(0x6d, 0x63, 0x50)));
-                        ui.add_space(4.0);
-                        if !self.budget_loaded {
-                            let cfg = load_budget();
-                            self.budget_frames_input = cfg.max_frames.to_string();
-                            self.budget_mb_input = format!("{:.1}", cfg.max_mb);
-                            self.budget_minutes_input = cfg.max_minutes.to_string();
-                            self.budget_tier = cfg.analysis_tier.clone();
-                            self.budget_loaded = true;
-                        }
-                        ui.label(RichText::new("Intensive frame analysis can be expensive — these caps control agent spending. Agents adjust them via their budget tool; you can override here any time. 0 = no limit. When a cap is hit, the agent's stream stops and it's told the budget is spent.").small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
-                        ui.add_space(6.0);
-                        ui.horizontal(|ui| {
-                            ui.label("Max frames:");
-                            ui.add(egui::TextEdit::singleline(&mut self.budget_frames_input).desired_width(55.0));
-                            ui.label("Max MB:");
-                            ui.add(egui::TextEdit::singleline(&mut self.budget_mb_input).desired_width(60.0));
-                            ui.label("Max minutes:");
-                            ui.add(egui::TextEdit::singleline(&mut self.budget_minutes_input).desired_width(55.0));
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Analysis tier:");
-                            ui.selectable_value(&mut self.budget_tier, "eco".to_string(), "🌱 Eco — a still every few seconds");
-                            ui.selectable_value(&mut self.budget_tier, "standard".to_string(), "⚖ Standard — short GIF ~3s");
-                            ui.selectable_value(&mut self.budget_tier, "intensive".to_string(), "🔥 Intensive — 1s, expensive");
-                        });
-                        ui.horizontal(|ui| {
-                            if ui.button("💾 Save Budget").clicked() {
-                                let frames_p = self.budget_frames_input.trim().parse::<u32>();
-                                let mb_p = self.budget_mb_input.trim().parse::<f64>();
-                                let mins_p = self.budget_minutes_input.trim().parse::<u32>();
-                                match (frames_p, mb_p, mins_p) {
-                                    (Ok(f), Ok(mb), Ok(m)) if mb.is_finite() && mb >= 0.0 => {
-                                        let cfg = BudgetConfig {
-                                            max_frames: f,
-                                            max_mb: mb,
-                                            max_minutes: m,
-                                            analysis_tier: self.budget_tier.clone(),
-                                        };
-                                        match save_budget(&cfg) {
-                                            Ok(_) => self.show_toast("💾 Budget saved — agents follow these caps."),
-                                            Err(e) => self.show_toast(&format!("❌ Could not save budget: {}", e)),
-                                        }
-                                    }
-                                    _ => self.show_toast("❌ Budget values must be non-negative whole numbers (0 = no limit) — not saved."),
-                                }
-                            }
-                            if ui.button("🔄 Reload").clicked() {
-                                self.budget_loaded = false;
-                            }
-                        });
-                        ui.add_space(6.0);
-                        let live_dir = default_live_dir().display().to_string();
-                        let (frames, mb, _) = live_usage_snapshot(&live_dir);
-                        let cfg_now = load_budget();
-                        let frames_cap = if cfg_now.max_frames == 0 { "∞".to_string() } else { cfg_now.max_frames.to_string() };
-                        let mb_cap = if cfg_now.max_mb <= 0.0 { "∞".to_string() } else { format!("{:.0}", cfg_now.max_mb) };
-                        ui.label(RichText::new(format!("Live session now: {}/{} frames · {:.1}/{} MB · tier {}", frames, frames_cap, mb, mb_cap, cfg_now.analysis_tier)).small().color(Color32::from_rgb(0xa2, 0x95, 0x7f)));
-                    });
-                }
+                AppTab::Capture => ui::capture_tab::show(self, ui, ctx),
+                AppTab::Library => ui::library_tab::show(self, ui, ctx),
+                AppTab::Clip => ui::clip_tab::show(self, ui, ctx),
+                AppTab::Still => ui::still_tab::show(self, ui, ctx),
+                AppTab::Feedback => ui::inbox_tab::show(self, ui, ctx),
+                AppTab::Settings => ui::settings_tab::show(self, ui, ctx),
             }
+
+            // ── Status strip (storage · budget · ffmpeg · inbox) ─
+            ui.add_space(theme::SP_2);
+            let snap = self.status_snapshot();
+            status_strip(ui, &snap);
         });
 
-        if let Some((msg, time)) = &self.toast_message {
+        // Capture action toast takes priority over plain toasts.
+        if let Some((path, at)) = self.capture_toast.clone() {
+            if at.elapsed() > Duration::from_secs(12) {
+                self.capture_toast = None;
+            } else if let Some(act) = show_capture_toast(ctx, &path) {
+                match act {
+                    CaptureToastAction::Annotate => {
+                        self.capture_toast = None;
+                        self.annotate_media(ctx, path);
+                    }
+                    CaptureToastAction::Copy => {
+                        self.copy_image_to_clipboard(&path);
+                        self.capture_toast = None;
+                    }
+                    CaptureToastAction::Reveal => {
+                        let _ = reveal_in_file_manager(&path);
+                        self.capture_toast = None;
+                    }
+                    CaptureToastAction::Dismiss => {
+                        self.capture_toast = None;
+                    }
+                }
+            }
+        } else if let Some((msg, time, level)) = &self.toast_message {
             if time.elapsed() < Duration::from_secs(4) {
-                let ctx = ctx.clone();
-                egui::TopBottomPanel::bottom("toast_panel")
-                    .frame(Frame::none().fill(Color32::from_rgb(0xf5, 0x9e, 0x4b)).inner_margin(6.0))
-                    .show(&ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(msg).color(Color32::from_rgb(0x1c, 0x14, 0x08)).strong());
-                        });
-                    });
-            }
-        }
-    }
-}
-
-fn get_dir_size_bytes(dir_path: &str) -> (u64, usize) {
-    let mut total_size = 0u64;
-    let mut count = 0usize;
-    if let Ok(entries) = std::fs::read_dir(dir_path) {
-        for entry in entries.flatten() {
-            if let Ok(meta) = entry.metadata() {
-                if meta.is_file() {
-                    total_size += meta.len();
-                    count += 1;
-                }
-            }
-        }
-    }
-    (total_size, count)
-}
-
-fn run_mcp_server() {
-    use std::io::BufRead;
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        if line.trim().is_empty() { continue; }
-
-        let parsed: serde_json::Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        let method = parsed.get("method").and_then(|m| m.as_str()).unwrap_or("");
-        let id = parsed.get("id").cloned();
-
-        match method {
-            "initialize" => {
-                let response = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {
-                            "tools": {}
-                        },
-                        "serverInfo": {
-                            "name": "vibecap",
-                            "version": "0.1.0"
-                        }
-                    }
-                });
-                let _ = writeln!(handle, "{}", response.to_string());
-                let _ = handle.flush();
-            }
-            "notifications/initialized" => {}
-            "ping" => {
-                let response = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {}
-                });
-                let _ = writeln!(handle, "{}", response.to_string());
-                let _ = handle.flush();
-            }
-            "tools/list" => {
-                let response = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "tools": [
-                            {
-                                "name": "vibecap_capture",
-                                "description": "Captures a full-screen screenshot to the Vibecap media folder (Videos/Vibecap or ~/Movies/Vibecap). Optionally focuses an app first. For pen/arrow/step-badge annotation, open the desktop app Annotation Studio.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "app_name": {
-                                            "type": "string",
-                                            "description": "Optional application name to focus before capture (e.g. iTerm, Google Chrome, Simulator)"
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                "name": "vibecap_record_video",
-                                "description": "Records continuous video clip of an application or screen for duration_secs and exports MP4 + motion GIF",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "app_name": {
-                                            "type": "string",
-                                            "description": "Optional application name to focus before recording (e.g. Google Chrome, iTerm, Simulator)"
-                                        },
-                                        "duration_secs": {
-                                            "type": "number",
-                                            "description": "Duration to record video in seconds (default: 5)"
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                "name": "vibecap_export_gif",
-                                "description": "Extracts high-FPS GIF around start/end timeline timestamps",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "video_path": {
-                                            "type": "string",
-                                            "description": "Path to input video file"
-                                        },
-                                        "start_time": {
-                                            "type": "string",
-                                            "description": "Start timestamp (HH:MM:SS)"
-                                        },
-                                        "end_time": {
-                                            "type": "string",
-                                            "description": "End timestamp (HH:MM:SS)"
-                                        }
-                                    },
-                                    "required": ["video_path", "start_time", "end_time"]
-                                }
-                            },
-                            {
-                                "name": "vibecap_start_live_inspection",
-                                "description": "Starts continuous background live inspection recording emitting rolling frames (gif, jpg, or mp4) every N seconds into a repo temp directory so AI agent can inspect user actions live while keeping user aware of disk storage usage.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "app_name": {
-                                            "type": "string",
-                                            "description": "Optional application name to focus before starting live stream (e.g. Google Chrome, iTerm, Simulator)"
-                                        },
-                                        "format": {
-                                            "type": "string",
-                                            "description": "Media format to emit: 'gif' (animated clip, default), 'jpg' (fast screenshot), or 'mp4' (video chunk)"
-                                        },
-                                        "interval_secs": {
-                                            "type": "number",
-                                            "description": "Frequency/interval in seconds between live frame emissions (default: 3)"
-                                        },
-                                        "output_dir": {
-                                            "type": "string",
-                                            "description": "Target output directory (default: platform media folder /live, e.g. Videos/Vibecap/live)"
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                "name": "vibecap_get_live_frame",
-                                "description": "Fetches the file path of the latest live emitted frame along with current session disk storage usage",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {}
-                                }
-                            },
-                            {
-                                "name": "vibecap_stop_live_inspection",
-                                "description": "Stops the active continuous background live inspection stream and reports final disk storage summary",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {}
-                                }
-                            },
-                            {
-                                "name": "vibecap_set_budget",
-                                "description": "Sets agent spending controls for frame/media analysis: caps on frames captured, storage MB, and session minutes, plus an analysis tier (eco/standard/intensive). Intensive frame analysis can be expensive — use eco when exploring. Live inspection auto-stops and new streams are refused once a cap is reached. Shared with the Vibecap app (Settings → Agent Session & Budget).",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "max_frames": {
-                                            "type": "number",
-                                            "description": "Maximum frames the live session may capture before auto-stop (0 = unlimited)"
-                                        },
-                                        "max_mb": {
-                                            "type": "number",
-                                            "description": "Maximum live-session storage in megabytes before auto-stop (0 = unlimited)"
-                                        },
-                                        "max_minutes": {
-                                            "type": "number",
-                                            "description": "Maximum live-session minutes before auto-stop (0 = unlimited)"
-                                        },
-                                        "analysis_tier": {
-                                            "type": "string",
-                                            "enum": ["eco", "standard", "intensive"],
-                                            "description": "eco = jpg @ >=5s intervals (cheapest), standard = gif @ ~3s (balanced), intensive = gif/mp4 @ 1s (richest, most expensive frame analysis)"
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                "name": "vibecap_get_spending",
-                                "description": "Reports current session spending: frames captured, storage MB, elapsed minutes, the active caps, analysis tier, and whether the budget is exhausted. Call before and during intensive analysis to control costs.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {}
-                                }
-                            },
-                            {
-                                "name": "vibecap_request_feedback",
-                                "description": "Requests human-in-the-loop feedback on a screenshot, GIF, or video. The request appears in the Vibecap app Feedback Inbox; the human can answer live in-session or any time after you submit. Returns a request_id to poll with vibecap_get_feedback.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "media_path": {
-                                            "type": "string",
-                                            "description": "Absolute path to the pic/gif/video the human should review"
-                                        },
-                                        "question": {
-                                            "type": "string",
-                                            "description": "The specific question for the human (e.g. 'Does this animation look right?')"
-                                        }
-                                    },
-                                    "required": ["media_path", "question"]
-                                }
-                            },
-                            {
-                                "name": "vibecap_get_feedback",
-                                "description": "Retrieves the human's feedback for a request_id previously created with vibecap_request_feedback. Returns pending status if the human has not answered yet.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "request_id": {
-                                            "type": "string",
-                                            "description": "The request_id returned by vibecap_request_feedback"
-                                        }
-                                    },
-                                    "required": ["request_id"]
-                                }
-                            }
-                        ]
-                    }
-                });
-                let _ = writeln!(handle, "{}", response.to_string());
-                let _ = handle.flush();
-            }
-            "tools/call" => {
-                let tool_name = parsed.get("params")
-                    .and_then(|p| p.get("name"))
-                    .and_then(|n| n.as_str())
-                    .unwrap_or("");
-
-                let (content_text, is_error) = match tool_name {
-                    "vibecap_capture" => {
-                        let app_name = parsed.get("params")
-                            .and_then(|p| p.get("arguments"))
-                            .and_then(|a| a.get("app_name"))
-                            .and_then(|s| s.as_str());
-
-                        if let Some(app) = app_name {
-                            let _ = focus_app(app);
-                        }
-
-                        match capture_screenshot_to_media_dir() {
-                            Ok(out) => (format!("Captured screenshot successfully to {}", out.display()), false),
-                            Err(e) => (e, true),
-                        }
-                    }
-                    "vibecap_record_video" => {
-                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
-                        let app_name = args.and_then(|a| a.get("app_name")).and_then(|s| s.as_str());
-                        let raw_duration = args.and_then(|a| a.get("duration_secs")).and_then(|v| v.as_u64()).unwrap_or(5);
-                        let duration_secs = raw_duration.min(600);
-                        let clamp_note = if raw_duration > 600 { " (clamped from your request — 600s max per clip)" } else { "" };
-
-                        let home_live = mcp_live_dir().display().to_string();
-                        if let Some(reason) = budget_exceeded_reason(&home_live) {
-                            (format!("⚠️ BUDGET EXHAUSTED — recording refused: {}. Raise caps with vibecap_set_budget or ask the human to adjust them in the Vibecap app.", reason), true)
-                        } else {
-                        if let Some(app) = app_name {
-                            let _ = focus_app(app);
-                        }
-
-                        let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-                        let media = default_media_dir();
-                        // Unique filenames so concurrent agent instances never clash.
-                        let pid = std::process::id();
-                        let out_mp4 = media.join(format!("video_{}_{}.mp4", timestamp, pid));
-                        let out_gif = media.join(format!("video_{}_{}_clip.gif", timestamp, pid));
-
-                        match record_screen_clip(&out_mp4, duration_secs) {
-                            Ok(()) => {
-                                let gif_s = out_gif.display().to_string();
-                                let mp4_s = out_mp4.display().to_string();
-                                // Companion motion GIF for the whole clip (ignore range export failures).
-                                let _ = Command::new("ffmpeg")
-                                    .args([
-                                        "-i", &mp4_s,
-                                        "-vf", "fps=15,scale=800:-1:flags=lanczos",
-                                        "-y", &gif_s,
-                                    ])
-                                    .status();
-                                (format!("Successfully recorded {}s video to {} and exported GIF to {}{}", duration_secs, mp4_s, gif_s, clamp_note), false)
-                            }
-                            Err(e) => (format!("Failed to record video: {}", e), true),
-                        }
-                        }
-                    }
-                    "vibecap_export_gif" => {
-                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
-                        let video_path = args.and_then(|a| a.get("video_path")).and_then(|s| s.as_str()).unwrap_or("");
-                        let start_time = args.and_then(|a| a.get("start_time")).and_then(|s| s.as_str()).unwrap_or("00:00:00");
-                        let end_time = args.and_then(|a| a.get("end_time")).and_then(|s| s.as_str()).unwrap_or("00:00:05");
-
-                        let gif_out = format!("{}_clip.gif", video_path.trim_end_matches(".mp4"));
-                        match export_gif_clip(video_path, start_time, end_time, &gif_out) {
-                            Ok(()) => (format!("Exported timeline GIF to {}", gif_out), false),
-                            Err(e) => (format!("Failed to export GIF snippet: {}", e), true),
-                        }
-                    }
-                    "vibecap_start_live_inspection" => {
-                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
-                        let app_name = args.and_then(|a| a.get("app_name")).and_then(|s| s.as_str()).map(|s| s.to_string());
-                        // When format/interval are omitted, the analysis tier drives the defaults —
-                        // this makes eco/standard/intensive mechanically real, not just advisory.
-                        let budget_now = load_budget();
-                        let format_choice = args.and_then(|a| a.get("format")).and_then(|s| s.as_str()).map(|s| s.to_lowercase())
-                            .unwrap_or_else(|| if budget_now.analysis_tier == "eco" { "jpg".to_string() } else { "gif".to_string() });
-                        let interval_secs = args.and_then(|a| a.get("interval_secs")).and_then(|v| v.as_u64())
-                            .unwrap_or_else(|| match budget_now.analysis_tier.as_str() { "eco" => 5, "intensive" => 1, _ => 3 });
-                        
-                        // Per-process session dir so several MCP servers can stream at once.
-                        let default_dir = mcp_live_dir().display().to_string();
-                        let live_dir = args.and_then(|a| a.get("output_dir")).and_then(|s| s.as_str()).unwrap_or(&default_dir).to_string();
-
-                        if LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst) {
-                            ("Live inspection is already running in this MCP process! Call vibecap_get_live_frame, or vibecap_stop_live_inspection. Other agent instances may run their own streams in parallel.".to_string(), false)
-                        } else if let Some(reason) = budget_exceeded_reason(&live_dir) {
-                            (format!("⚠️ BUDGET EXHAUSTED — live inspection refused: {}. Raise the caps with vibecap_set_budget, ask the human to adjust them in the Vibecap app (Settings → Agent Session & Budget), or clean up {}.", reason, live_dir), true)
-                        } else {
-                            LIVE_INSPECTION_RUNNING.store(true, Ordering::SeqCst);
-                            if let Ok(mut l) = get_live_started_mutex().lock() { *l = Some(Instant::now()); }
-                            if let Ok(mut n) = get_budget_note_mutex().lock() { n.clear(); }
-                            let _ = std::fs::create_dir_all(&live_dir);
-
-                            if let Some(app) = &app_name {
-                                let _ = focus_app(app);
-                            }
-
-                            let dir_clone = live_dir.clone();
-                            let fmt_clone = format_choice.clone();
-                            std::thread::spawn(move || {
-                                let live_fmt = LiveFormat::from_str_loose(&fmt_clone);
-                                while LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst) {
-                                    // Budget enforcement: auto-stop the stream when any cap is reached.
-                                    if let Some(reason) = budget_exceeded_reason(&dir_clone) {
-                                        LIVE_INSPECTION_RUNNING.store(false, Ordering::SeqCst);
-                                        if let Ok(mut l) = get_live_started_mutex().lock() { *l = None; }
-                                        if let Ok(mut n) = get_budget_note_mutex().lock() {
-                                            *n = format!("BUDGET_EXHAUSTED — auto-stopped: {}", reason);
-                                        }
-                                        break;
-                                    }
-
-                                    let (latest_frame, timestamped_frame) =
-                                        match capture_live_frame(&dir_clone, live_fmt, interval_secs) {
-                                            Ok(pair) => pair,
-                                            Err(_) => (String::new(), String::new()),
-                                        };
-
-                                    if !timestamped_frame.is_empty() {
-                                        if let Ok(mut lock) = get_latest_live_gif_mutex().lock() {
-                                            *lock = format!("{}|{}|{}", fmt_clone, latest_frame, timestamped_frame);
-                                        }
-                                    }
-
-                                    if live_fmt == LiveFormat::Jpg {
-                                        std::thread::sleep(Duration::from_secs(interval_secs));
-                                    }
-                                }
-                            });
-
-                            (format!("Started live inspection (format: {}, frequency: {}s, output_dir: {}).\n⚠️ STORAGE AWARENESS: Live frames are being stored in {}. Remember to inform the user about storage usage and call vibecap_stop_live_inspection when done.\n{}", format_choice, interval_secs, live_dir, live_dir, budget_status_line(&live_dir)), false)
-                        }
-                    }
-                    "vibecap_get_live_frame" => {
-                        let is_running = LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst);
-                        let state = get_latest_live_gif_mutex().lock().map(|l| l.clone()).unwrap_or_default();
-                        
-                        let parts: Vec<&str> = state.split('|').collect();
-                        let (fmt, latest_frame, ts_frame) = if parts.len() == 3 {
-                            (parts[0], parts[1], parts[2])
-                        } else {
-                            ("unknown", "", "")
-                        };
-
-                        let default_dir = mcp_live_dir().display().to_string();
-                        let target_dir = if !ts_frame.is_empty() {
-                            std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
-                        } else {
-                            &default_dir
-                        };
-
-                        let (bytes, count) = get_dir_size_bytes(target_dir);
-                        let mb = (bytes as f64) / (1024.0 * 1024.0);
-
-                        if !is_running && ts_frame.is_empty() {
-                            ("Live inspection is not running in this MCP process. Call vibecap_start_live_inspection first.".to_string(), true)
-                        } else {
-                            (format!("Status: live_running={}, format={}, latest_frame={}, timestamped_frame={}\n📊 STORAGE AWARENESS: Total session storage used: {:.2} MB across {} frame files in {}\n{}", is_running, fmt, latest_frame, ts_frame, mb, count, target_dir, budget_status_line(target_dir)), false)
-                        }
-                    }
-                    "vibecap_stop_live_inspection" => {
-                        LIVE_INSPECTION_RUNNING.store(false, Ordering::SeqCst);
-                        if let Ok(mut l) = get_live_started_mutex().lock() { *l = None; }
-                        let state = get_latest_live_gif_mutex().lock().map(|l| l.clone()).unwrap_or_default();
-                        let parts: Vec<&str> = state.split('|').collect();
-                        let ts_frame = if parts.len() == 3 { parts[2] } else { "" };
-                        
-                        let default_dir = mcp_live_dir().display().to_string();
-                        let target_dir = if !ts_frame.is_empty() {
-                            std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
-                        } else {
-                            &default_dir
-                        };
-
-                        let (bytes, count) = get_dir_size_bytes(target_dir);
-                        let mb = (bytes as f64) / (1024.0 * 1024.0);
-
-                        (format!("Stopped live inspection stream.\n📊 FINAL STORAGE SUMMARY: Captured {} frames occupying {:.2} MB in {}. Inform the user so they can review or clean up temporary storage if desired.\n{}", count, mb, target_dir, budget_status_line(target_dir)), false)
-                    }
-                    "vibecap_set_budget" => {
-                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
-                        let mut cfg = load_budget();
-                        let mut notes: Vec<String> = Vec::new();
-                        let mut invalid = false;
-                        if let Some(a) = args {
-                            if let Some(v) = a.get("max_frames") {
-                                match v.as_u64() {
-                                    Some(n) => cfg.max_frames = u32::try_from(n).unwrap_or_else(|_| { notes.push("max_frames clamped to u32::MAX".to_string()); u32::MAX }),
-                                    None => invalid = true,
-                                }
-                            }
-                            if let Some(v) = a.get("max_mb") {
-                                match v.as_f64() {
-                                    Some(n) if n.is_finite() && n >= 0.0 => cfg.max_mb = n,
-                                    _ => invalid = true,
-                                }
-                            }
-                            if let Some(v) = a.get("max_minutes") {
-                                match v.as_u64() {
-                                    Some(n) => cfg.max_minutes = u32::try_from(n).unwrap_or_else(|_| { notes.push("max_minutes clamped to u32::MAX".to_string()); u32::MAX }),
-                                    None => invalid = true,
-                                }
-                            }
-                            if let Some(v) = a.get("analysis_tier") {
-                                match v.as_str() {
-                                    Some(t) => {
-                                        let t = t.to_lowercase();
-                                        if t == "eco" || t == "standard" || t == "intensive" { cfg.analysis_tier = t; } else { invalid = true; }
-                                    }
-                                    None => invalid = true,
-                                }
-                            }
-                        }
-                        if invalid {
-                            ("Invalid budget arguments: analysis_tier must be eco|standard|intensive and caps must be non-negative numbers. Nothing was saved.".to_string(), true)
-                        } else if let Err(e) = save_budget(&cfg) {
-                            (format!("Failed to save budget: {}", e), true)
-                        } else {
-                            let tier_guidance = match cfg.analysis_tier.as_str() {
-                                "eco" => "eco: defaults to format='jpg' at 5s intervals — fewest frames, cheapest analysis.",
-                                "intensive" => "intensive: defaults to 1s gif/mp4 — richest motion detail, but frame analysis is EXPENSIVE. Poll vibecap_get_spending and downshift when exploring.",
-                                _ => "standard: defaults to gif at ~3s intervals — balanced detail vs cost.",
-                            };
-                            let notes_txt = if notes.is_empty() { String::new() } else { format!("\n⚠️ {}", notes.join("; ")) };
-                            (format!("Budget updated: max_frames={} (0=unlimited), max_mb={:.1} (0=unlimited), max_minutes={} (0=unlimited), analysis_tier={}.\n💡 TIER GUIDANCE: {}\nCaps are enforced live: the stream auto-stops and new streams are refused once a cap is hit. The same budget is visible to the human in the Vibecap app (Settings → Agent Session & Budget).{}", cfg.max_frames, cfg.max_mb, cfg.max_minutes, cfg.analysis_tier, tier_guidance, notes_txt), false)
-                        }
-                    }
-                    "vibecap_get_spending" => {
-                        let state = get_latest_live_gif_mutex().lock().map(|l| l.clone()).unwrap_or_default();
-                        let parts: Vec<&str> = state.split('|').collect();
-                        let ts_frame = if parts.len() == 3 { parts[2] } else { "" };
-                        let default_dir = mcp_live_dir().display().to_string();
-                        let target_dir = if !ts_frame.is_empty() {
-                            std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)
-                        } else {
-                            &default_dir
-                        };
-                        let (frames, mb, minutes) = live_usage_snapshot(target_dir);
-                        let cfg = load_budget();
-                        let frames_cap = if cfg.max_frames == 0 { "unlimited".to_string() } else { cfg.max_frames.to_string() };
-                        let mb_cap = if cfg.max_mb <= 0.0 { "unlimited".to_string() } else { format!("{:.1}", cfg.max_mb) };
-                        let min_cap = if cfg.max_minutes == 0 { "unlimited".to_string() } else { cfg.max_minutes.to_string() };
-                        let status = match budget_exceeded_reason(target_dir) {
-                            Some(r) => format!("⚠️ BUDGET EXHAUSTED: {}", r),
-                            None => "within budget".to_string(),
-                        };
-                        let tier_note = if cfg.analysis_tier == "intensive" { " — frame analysis at this tier is expensive; downshift to eco when just exploring" } else { "" };
-                        (format!("📊 SESSION SPENDING\nFrames captured: {} (cap: {})\nStorage: {:.2} MB (cap: {})\nElapsed: {:.1} min (cap: {})\nAnalysis tier: {}{}\nStatus: {}", frames, frames_cap, mb, mb_cap, minutes, min_cap, cfg.analysis_tier, tier_note, status), false)
-                    }
-                    "vibecap_request_feedback" => {
-                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
-                        let media_path = args.and_then(|a| a.get("media_path")).and_then(|s| s.as_str()).unwrap_or("");
-                        let question = args.and_then(|a| a.get("question")).and_then(|s| s.as_str()).unwrap_or("");
-                        if media_path.is_empty() || question.is_empty() {
-                            ("Missing required arguments: media_path and question".to_string(), true)
-                        } else if !std::path::Path::new(media_path).exists() {
-                            (format!("media_path does not exist: {}", media_path), true)
-                        } else {
-                            let id = format!("fb_{}", Local::now().format("%Y%m%d_%H%M%S%3f"));
-                            let req = FeedbackRequest {
-                                id: id.clone(),
-                                media_path: media_path.to_string(),
-                                question: question.to_string(),
-                                created_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                                status: "pending".to_string(),
-                            };
-                            let req_path = feedback_requests_dir().join(format!("{}.json", id));
-                            match serde_json::to_string_pretty(&req).map_err(|e| e.to_string())
-                                .and_then(|s| write_json_atomic(&req_path, &s)) {
-                                Ok(_) => (format!("Feedback request '{}' submitted for {}.\n🧑 HUMAN-IN-THE-LOOP: The human can answer in the Vibecap app → 💬 Feedback Inbox — live in-session, or any time after you submit. Poll vibecap_get_feedback with request_id='{}' to pick up their answer.", id, media_path, id), false),
-                                Err(e) => (format!("Failed to persist feedback request: {}", e), true),
-                            }
-                        }
-                    }
-                    "vibecap_get_feedback" => {
-                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
-                        let request_id = args.and_then(|a| a.get("request_id")).and_then(|s| s.as_str()).unwrap_or("");
-                        if request_id.is_empty() || !request_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-                            ("Invalid request_id (allowed: letters, digits, _ and -)".to_string(), true)
-                        } else {
-                            let resp_path = feedback_responses_dir().join(format!("{}.json", request_id));
-                            if let Ok(s) = std::fs::read_to_string(&resp_path) {
-                                match serde_json::from_str::<FeedbackResponse>(&s) {
-                                    Ok(resp) => {
-                                        let mut extra = String::new();
-                                        if !resp.annotated_media_path.is_empty() { extra.push_str(&format!("\n🎨 Annotated image: {}", resp.annotated_media_path)); }
-                                        if !resp.voice_note_path.is_empty() { extra.push_str(&format!("\n🎙 Voice note: {}", resp.voice_note_path)); }
-                                        (format!("✅ Human feedback for {}:\n\"{}\"{}", request_id, resp.feedback_text, extra), false)
-                                    }
-                                    Err(_) => ("Corrupt feedback response file".to_string(), true),
-                                }
-                            } else {
-                                let req_path = feedback_requests_dir().join(format!("{}.json", request_id));
-                                if req_path.exists() {
-                                    (format!("⏳ Feedback request '{}' is still pending — the human has not answered yet. They can answer in-session or later via the Vibecap app Feedback Inbox; poll again shortly.", request_id), false)
-                                } else {
-                                    (format!("Unknown request_id: {}", request_id), true)
-                                }
-                            }
-                        }
-                    }
-                    _ => (format!("Unknown tool: {}", tool_name), true),
-                };
-
-                let response = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": content_text
-                            }
-                        ],
-                        "isError": is_error
-                    }
-                });
-                let _ = writeln!(handle, "{}", response.to_string());
-                let _ = handle.flush();
-            }
-            _ => {
-                if let Some(id_val) = id {
-                    let response = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": id_val,
-                        "error": {
-                            "code": -32601,
-                            "message": "Method not found"
-                        }
-                    });
-                    let _ = writeln!(handle, "{}", response.to_string());
-                    let _ = handle.flush();
-                }
+                show_toast_card(ctx, msg, *level);
+            } else {
+                self.toast_message = None;
             }
         }
     }
@@ -3262,7 +2306,7 @@ fn main() -> eframe::Result<()> {
         println!("Docs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md");
         println!("MCP tools: vibecap_capture | record_video | export_gif |");
         println!("           start/get/stop_live_inspection | set_budget | get_spending |");
-        println!("           request_feedback | get_feedback");
+        println!("           request_feedback | get_feedback | list_feedback | cancel_feedback");
         return Ok(());
     }
 
@@ -3294,12 +2338,17 @@ fn main() -> eframe::Result<()> {
     let start_hidden = args.iter().any(|a| a == "--hidden");
     let enable_tray = !no_tray || start_hidden;
 
+    // Brand dock / taskbar icon. Without this, eframe uses the default white "e".
+    let app_icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/app_icon.png"))
+        .unwrap_or_default();
+
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_decorations(true)
             .with_transparent(false)
             .with_inner_size([760.0, 640.0])
             .with_min_inner_size([640.0, 560.0])
+            .with_icon(app_icon)
             // Multiple GUI instances are allowed (human + optional second window).
             .with_title(format!("Vibecap Studio · {}", std::process::id())),
         ..Default::default()
@@ -3312,7 +2361,7 @@ fn main() -> eframe::Result<()> {
             let mut app = VibecapApp::new(cc);
             app.start_hidden = start_hidden;
             if enable_tray {
-                match TrayController::try_new("Vibecap Studio — click to show") {
+                match TrayController::try_new("Vibecap — click to show") {
                     Ok(tray) => {
                         app.tray = Some(tray);
                         app.allow_exit = false;

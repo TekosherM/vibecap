@@ -43,19 +43,22 @@ pub fn capture_screenshot(out: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let mut cmd = Command::new("screencapture");
+        // -x silent, -t jpg. Without Screen Recording permission, macOS often
+        // still exits 0 but only captures wallpaper / no app windows.
         cmd.args(["-x", "-t", "jpg", out_s]);
-        return run_status(cmd, "screencapture").map_err(|e| {
+        run_status(cmd, "screencapture").map_err(|e| {
             format!(
-                "{} — grant Screen Recording permission in System Settings",
+                "{} — grant Screen Recording to Vibecap in System Settings → Privacy & Security → Screen Recording, then quit & reopen the app",
                 e
             )
-        });
+        })?;
+        return validate_capture_file(out);
     }
 
     #[cfg(target_os = "windows")]
     {
         // gdigrab single frame
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = super::ffmpeg::ffmpeg_command()?;
         cmd.args([
             "-y",
             "-f",
@@ -93,7 +96,7 @@ pub fn capture_screenshot(out: &Path) -> Result<(), String> {
             return Ok(());
         }
         let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0.0".into());
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = super::ffmpeg::ffmpeg_command()?;
         cmd.args([
             "-y",
             "-f",
@@ -130,12 +133,17 @@ pub fn capture_screenshot_interactive(out: &Path, interactive: bool) -> Result<(
             cmd.arg("-i");
         }
         cmd.arg(out_s);
-        return run_status(cmd, "screencapture").map_err(|e| {
+        run_status(cmd, "screencapture").map_err(|e| {
             format!(
-                "{} — grant Screen Recording permission in System Settings",
+                "{} — grant Screen Recording to Vibecap in System Settings → Privacy & Security → Screen Recording, then quit & reopen",
                 e
             )
-        });
+        })?;
+        // Interactive cancel can leave no/empty file
+        if !out.exists() {
+            return Err("Capture cancelled or failed — no file written".into());
+        }
+        return validate_capture_file(out);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -143,6 +151,21 @@ pub fn capture_screenshot_interactive(out: &Path, interactive: bool) -> Result<(
         let _ = interactive;
         capture_screenshot(out)
     }
+}
+
+/// Reject tiny / missing captures (common when Screen Recording is denied).
+fn validate_capture_file(out: &Path) -> Result<(), String> {
+    let meta = std::fs::metadata(out).map_err(|e| format!("capture file missing: {e}"))?;
+    let len = meta.len();
+    // A real multi-display JPG is usually >> 50 KB; TCC-denied shots can be tiny or wallpaper-only.
+    if len < 8_000 {
+        let _ = std::fs::remove_file(out);
+        return Err(
+            "Capture looks empty ({} bytes). On macOS: System Settings → Privacy & Security → Screen Recording → enable Vibecap (and restart the app). CLI captures need Terminal/iTerm allowed too."
+                .replace("{}", &len.to_string()),
+        );
+    }
+    Ok(())
 }
 
 /// Record a fixed-duration screen clip to `out_mp4`.
@@ -159,7 +182,7 @@ pub fn record_screen_clip(out_mp4: &Path, duration_secs: u64) -> Result<(), Stri
 
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = super::ffmpeg::ffmpeg_command()?;
         cmd.args([
             "-y",
             "-f",
@@ -182,7 +205,7 @@ pub fn record_screen_clip(out_mp4: &Path, duration_secs: u64) -> Result<(), Stri
     #[cfg(target_os = "linux")]
     {
         let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0.0".into());
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = super::ffmpeg::ffmpeg_command()?;
         cmd.args([
             "-y",
             "-f",
@@ -218,7 +241,7 @@ pub fn export_gif_clip(
     end_time: &str,
     gif_out: &str,
 ) -> Result<(), String> {
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = super::ffmpeg::ffmpeg_command()?;
     cmd.args([
         "-ss",
         start_time,
@@ -236,7 +259,7 @@ pub fn export_gif_clip(
 
 /// Convert a short MP4 chunk to a GIF (live inspection).
 pub fn mp4_to_gif(mp4: &Path, gif: &Path) -> Result<(), String> {
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = super::ffmpeg::ffmpeg_command()?;
     cmd.args([
         "-i",
         path_str(mp4)?,
@@ -307,7 +330,7 @@ pub fn spawn_screen_recorder(
     crop: Option<(i32, i32, i32, i32)>, // w,h,x,y
 ) -> Result<Child, String> {
     let out_s = path_str(out_mp4)?;
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = super::ffmpeg::ffmpeg_command()?;
     cmd.arg("-y");
 
     #[cfg(target_os = "macos")]
@@ -351,14 +374,21 @@ pub fn spawn_screen_recorder(
     cmd.arg(out_s);
     cmd.stdin(Stdio::piped());
 
-    cmd.spawn()
-        .map_err(|e| format!("could not start ffmpeg recorder: {}", e))
+    cmd.spawn().map_err(|e| {
+        format!(
+            "could not start ffmpeg recorder ({}): {}",
+            super::ffmpeg::ffmpeg_path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "unknown path".into()),
+            e
+        )
+    })
 }
 
 /// Spawn voice-memo recorder writing AAC/m4a (or wav fallback on non-macOS).
 pub fn spawn_voice_memo(out_audio: &Path) -> Result<Child, String> {
     let out_s = path_str(out_audio)?;
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = super::ffmpeg::ffmpeg_command()?;
     cmd.arg("-y");
 
     #[cfg(target_os = "macos")]
@@ -395,8 +425,15 @@ pub fn spawn_voice_memo(out_audio: &Path) -> Result<Child, String> {
     }
 
     cmd.stdin(Stdio::piped());
-    cmd.spawn()
-        .map_err(|e| format!("could not start ffmpeg audio: {}", e))
+    cmd.spawn().map_err(|e| {
+        format!(
+            "could not start ffmpeg audio ({}): {}",
+            super::ffmpeg::ffmpeg_path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "unknown path".into()),
+            e
+        )
+    })
 }
 
 #[cfg(target_os = "linux")]

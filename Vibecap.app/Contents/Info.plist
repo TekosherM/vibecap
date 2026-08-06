@@ -2,17 +2,37 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
     <key>CFBundleExecutable</key>
     <string>vibecap</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>app.vibecap.studio</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleName</key>
     <string>Vibecap</string>
+    <key>CFBundleDisplayName</key>
+    <string>Vibecap</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>2.0.0</string>
+    <string>0.1.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.0.0</string>
+    <string>0.1.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Vibecap needs screen recording permission to capture your screen.</string>
+    <string>Vibecap needs screen recording permission to capture your screen for screenshots, recordings, and agent feedback.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Vibecap can optionally record microphone audio with screen recordings and voice notes.</string>
 </dict>
 </plist>

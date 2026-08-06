@@ -2,6 +2,170 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+/// Best-effort list of running application names for the window picker / MCP.
+/// Sorted, de-duplicated, system helpers filtered out where practical.
+pub fn list_running_apps() -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"
+tell application "System Events"
+  set names to name of every process whose background only is false
+end tell
+set AppleScript's text item delimiters to linefeed
+return names as text
+"#;
+        let out = Command::new("osascript").args(["-e", script]).output();
+        if let Ok(o) = out {
+            if o.status.success() {
+                return parse_app_lines(&String::from_utf8_lossy(&o.stdout));
+            }
+        }
+        Vec::new()
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // tasklist CSV: "Image Name","PID",...
+        let out = Command::new("tasklist")
+            .args(["/FO", "CSV", "/NH"])
+            .output();
+        if let Ok(o) = out {
+            if o.status.success() {
+                let mut names = Vec::new();
+                for line in String::from_utf8_lossy(&o.stdout).lines() {
+                    // "chrome.exe","1234",...
+                    if let Some(rest) = line.strip_prefix('"') {
+                        if let Some(end) = rest.find('"') {
+                            let exe = &rest[..end];
+                            let label = exe.trim_end_matches(".exe").trim_end_matches(".EXE");
+                            if !label.is_empty()
+                                && !matches!(
+                                    label.to_ascii_lowercase().as_str(),
+                                    "system" | "svchost" | "explorer" | "tasklist" | "conhost"
+                                )
+                            {
+                                names.push(label.to_string());
+                            }
+                        }
+                    }
+                }
+                names.sort();
+                names.dedup();
+                return names;
+            }
+        }
+        Vec::new()
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Prefer wmctrl -l  → 0x…  desktop  host  Window Title
+        if let Ok(o) = Command::new("wmctrl").args(["-l"]).output() {
+            if o.status.success() {
+                let mut names = Vec::new();
+                for line in String::from_utf8_lossy(&o.stdout).lines() {
+                    let parts: Vec<_> = line.splitn(4, ' ').collect();
+                    if parts.len() >= 4 {
+                        let title = parts[3].trim();
+                        if !title.is_empty() {
+                            // Use last token-ish app-ish chunk
+                            names.push(title.to_string());
+                        }
+                    }
+                }
+                names.sort();
+                names.dedup();
+                if !names.is_empty() {
+                    return names;
+                }
+            }
+        }
+        Vec::new()
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Vec::new()
+    }
+}
+
+fn parse_app_lines(s: &str) -> Vec<String> {
+    let skip = [
+        "loginwindow",
+        "WindowServer",
+        "SystemUIServer",
+        "Dock",
+        "ControlCenter",
+        "NotificationCenter",
+        "Spotlight",
+        "universalaccessd",
+        "AirPlayUIAgent",
+        "Vibecap",
+        "vibecap",
+    ];
+    let mut names: Vec<String> = s
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .filter(|l| !skip.iter().any(|s| l.eq_ignore_ascii_case(s)))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Name of the frontmost GUI app (best-effort). Empty if unknown.
+pub fn frontmost_app_name() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"
+tell application "System Events"
+  set n to name of first application process whose frontmost is true
+end tell
+return n
+"#;
+        let out = Command::new("osascript").args(["-e", script]).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // No reliable lightweight frontmost query without extra crates.
+        None
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // xdotool getactivewindow getwindowname
+        let out = Command::new("xdotool")
+            .args(["getactivewindow", "getwindowname"])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        None
+    }
+}
+
 /// Bring an application to the foreground by name when the OS supports it.
 pub fn focus_app(app_name: &str) -> Result<(), String> {
     if app_name.trim().is_empty() {
@@ -63,6 +227,33 @@ pub fn focus_app(app_name: &str) -> Result<(), String> {
 /// Open a file or directory with the default handler.
 pub fn open_path(path: &Path) -> Result<(), String> {
     open::that(path).map_err(|e| format!("open failed: {}", e))
+}
+
+/// Open macOS System Settings → Privacy → Screen Recording (best-effort).
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Ventura+ deep link, then older pref pane.
+        let urls = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+        ];
+        for u in urls {
+            if Command::new("open").arg(u).status().map(|s| s.success()).unwrap_or(false) {
+                return Ok(());
+            }
+        }
+        // Fallback: open Privacy & Security root
+        Command::new("open")
+            .arg("/System/Library/PreferencePanes/Security.prefPane")
+            .status()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Screen Recording settings are only relevant on macOS".into())
+    }
 }
 
 /// Reveal a file in the system file manager (Finder / Explorer / file manager).
