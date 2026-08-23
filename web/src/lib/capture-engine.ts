@@ -1,4 +1,5 @@
 export type EngineSource = "demo" | "screen" | "camera" | "idle";
+export type DemoPhase = "ready" | "paying" | "declined";
 
 export type EngineSnapshot = {
   source: EngineSource;
@@ -8,6 +9,7 @@ export type EngineSnapshot = {
   lastError: string | null;
   live: boolean;
   inspecting: boolean;
+  demoPhase: DemoPhase;
   version: number;
 };
 
@@ -21,6 +23,7 @@ const IDLE_SNAPSHOT: EngineSnapshot = {
   lastError: null,
   live: false,
   inspecting: false,
+  demoPhase: "ready",
   version: 0,
 };
 
@@ -42,7 +45,13 @@ function roundRect(
   ctx.closePath();
 }
 
-function paintDemo(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
+function paintDemo(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  phase: DemoPhase,
+) {
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#ece7df";
   ctx.fillRect(0, 0, w, h);
@@ -181,7 +190,7 @@ function paintDemo(ctx: CanvasRenderingContext2D, w: number, h: number, t: numbe
   ctx.font = "600 28px system-ui, sans-serif";
   ctx.fillText("$41.00", px + 20, listY + 276);
 
-  ctx.fillStyle = "#1c1e24";
+  ctx.fillStyle = phase === "declined" ? "#7a2424" : "#1c1e24";
   roundRect(ctx, px + 20, listY + 292, pw - 52, 36, 10);
   ctx.fill();
   ctx.fillStyle = "#fbf8f3";
@@ -191,25 +200,35 @@ function paintDemo(ctx: CanvasRenderingContext2D, w: number, h: number, t: numbe
   ctx.rect(px + 20, listY + 292, pw - 52, 36);
   ctx.clip();
   const pulse = 0.5 + Math.sin(t / 400) * 0.5;
-  ctx.globalAlpha = 0.85 + pulse * 0.15;
-  ctx.fillText("Pay now — encrypted checkout · processing", px + 36, listY + 315);
+  ctx.globalAlpha = phase === "paying" ? 0.7 : 0.85 + pulse * 0.15;
+  const cta =
+    phase === "paying"
+      ? "Processing payment…"
+      : phase === "declined"
+        ? "Card declined · 402"
+        : "Pay now — encrypted checkout · processing";
+  ctx.fillText(cta, px + 36, listY + 315);
   ctx.restore();
 
-  const toastY = h - 118 + Math.sin(t / 700) * 2;
-  ctx.fillStyle = "#2a1616";
-  roundRect(ctx, 28, toastY, w - 56, 44, 10);
-  ctx.fill();
-  ctx.fillStyle = "#e05555";
-  ctx.beginPath();
-  ctx.arc(48, toastY + 22, 5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#f4d2d2";
-  ctx.font = "12px ui-monospace, monospace";
-  ctx.fillText(
-    "POST /api/checkout  402  card_declined   ·   tax helper threw at pricing.ts:88",
-    64,
-    toastY + 26,
-  );
+  if (phase !== "ready") {
+    const toastY = h - 118 + Math.sin(t / 700) * 2;
+    ctx.fillStyle = "#2a1616";
+    roundRect(ctx, 28, toastY, w - 56, 44, 10);
+    ctx.fill();
+    ctx.fillStyle = "#e05555";
+    ctx.beginPath();
+    ctx.arc(48, toastY + 22, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f4d2d2";
+    ctx.font = "12px ui-monospace, monospace";
+    ctx.fillText(
+      phase === "paying"
+        ? "POST /api/checkout  …  tax helper running"
+        : "POST /api/checkout  402  card_declined   ·   tax helper threw at pricing.ts:88",
+      64,
+      toastY + 26,
+    );
+  }
 
   const cx = px + 90 + Math.sin(t / 900) * 18;
   const cy = listY + 310;
@@ -235,6 +254,7 @@ class CaptureEngine {
   chunks: Blob[] = [];
   lastStill: string | null = null;
   lastError: string | null = null;
+  demoPhase: DemoPhase = "ready";
   demoCanvas: HTMLCanvasElement | null = null;
   videoEl: HTMLVideoElement | null = null;
   version = 0;
@@ -264,6 +284,7 @@ class CaptureEngine {
       lastError: this.lastError,
       live: Boolean(this.stream) || this.source === "demo",
       inspecting: this.inspecting,
+      demoPhase: this.demoPhase,
       version: this.version,
     };
     this.listeners.forEach((fn) => fn());
@@ -292,7 +313,7 @@ class CaptureEngine {
     if (!ctx) return;
     if (this.raf) cancelAnimationFrame(this.raf);
     const loop = (t: number) => {
-      paintDemo(ctx, canvas.width, canvas.height, t);
+      paintDemo(ctx, canvas.width, canvas.height, t, this.demoPhase);
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -300,11 +321,12 @@ class CaptureEngine {
 
   async useDemo() {
     this.stopTracks(false);
+    this.demoPhase = "ready";
     const canvas = this.ensureDemoCanvas();
     if (canvas) {
       const ctx = canvas.getContext("2d");
       if (ctx) {
-        paintDemo(ctx, canvas.width, canvas.height, 0);
+        paintDemo(ctx, canvas.width, canvas.height, 0, this.demoPhase);
         this.lastStill = canvas.toDataURL("image/jpeg", 0.88);
         if (this.videoEl) this.videoEl.poster = this.lastStill;
       }
@@ -320,6 +342,11 @@ class CaptureEngine {
     this.source = "demo";
     this.lastError = null;
     if (this.videoEl) this.videoEl.srcObject = stream;
+    this.emit();
+  }
+
+  setDemoPhase(phase: DemoPhase) {
+    this.demoPhase = phase;
     this.emit();
   }
 

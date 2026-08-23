@@ -205,6 +205,42 @@ export const addLog = createServerFn({ method: "POST" })
     return rows[0];
   });
 
+export const subjectPay = createServerFn({ method: "POST" })
+  .validator(z.object({ sessionId: z.string() }))
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    await ensureSeed(sql);
+    const items = await sql<CatalogItem>`
+      select id, sku, name, price_cents, stock from catalog_items order by id
+    `;
+    const itemsSum = items.reduce((n, i) => n + i.price_cents, 0);
+    const payload = {
+      ok: false,
+      status: 402,
+      error: "card_declined",
+      code: "generic_decline",
+      ui_total_cents: 4100,
+      items_sum_cents: itemsSum,
+      tax: null as number | null,
+      stock_zero: items.filter((i) => i.stock === 0).map((i) => i.sku),
+      at: new Date().toISOString(),
+    };
+    const lines: Array<[string, string, string, string]> = [
+      ["frontend", "error", "Uncaught TypeError: Cannot read properties of undefined (reading 'tax')", "checkout.js:214"],
+      ["backend", "error", "GET /api/tax?zip=94107 500 tax is undefined", "pricing.ts:88"],
+      ["backend", "error", "POST /api/checkout 402 card_declined", "routes/checkout.ts:41"],
+      ["frontend", "error", "PaymentIntent failed: card_declined (generic_decline)", "stripe.js"],
+      ["database", "warn", "LM-15 Graphite notebook stock 0 still in cart", "catalog_items"],
+    ];
+    for (const [stream, level, message, meta] of lines) {
+      await sql`
+        insert into logs (session_id, stream, level, message, meta)
+        values (${data.sessionId}, ${stream}, ${level}, ${message}, ${meta})
+      `;
+    }
+    return payload;
+  });
+
 export const ingestFrontend = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -214,8 +250,24 @@ export const ingestFrontend = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const liveConsole = await sql<LogRow>`
+      select * from logs
+      where session_id = ${data.sessionId} and stream = ${"frontend"}
+      order by created_at desc
+      limit 24
+    `;
     const body = JSON.stringify(
-      { console: DEMO_CONSOLE, dom: DEMO_FRONTEND_DOM, collectedAt: new Date().toISOString() },
+      {
+        console: DEMO_CONSOLE,
+        live_console: liveConsole.map((l) => ({
+          level: l.level,
+          message: l.message,
+          meta: l.meta,
+          at: l.created_at,
+        })),
+        dom: DEMO_FRONTEND_DOM,
+        collectedAt: new Date().toISOString(),
+      },
       null,
       2,
     );
@@ -252,10 +304,22 @@ export const ingestBackend = createServerFn({ method: "POST" })
   .validator(z.object({ sessionId: z.string() }))
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const liveHttp = await sql<LogRow>`
+      select * from logs
+      where session_id = ${data.sessionId} and stream = ${"backend"}
+      order by created_at desc
+      limit 24
+    `;
     const body = JSON.stringify(
       {
         terminal: DEMO_TERMINAL,
         http: DEMO_HTTP,
+        live_http: liveHttp.map((l) => ({
+          level: l.level,
+          message: l.message,
+          meta: l.meta,
+          at: l.created_at,
+        })),
         runtime: "node 22 / compose checkout-1",
         cloud: { provider: "neon+compose", region: "preview", status: "degraded" },
         collectedAt: new Date().toISOString(),

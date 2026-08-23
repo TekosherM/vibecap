@@ -113,11 +113,15 @@ export type StudioStatusRow = {
   attached_at: string;
 };
 
-/** The four tools most agent jobs actually need. Inbox is optional. */
+/** Capture-only recipe. Inbox is optional. */
 export const CAPTURE_ONLY_TOOLS = [
   {
     name: "vibecap_record_start",
     summary: "Start recording. No duration. Keep the camera on until the UI settles.",
+  },
+  {
+    name: "vibecap_subject_pay",
+    summary: "Walk Lumen Cart checkout. Hits tax throw + Stripe 402. Does not stop REC.",
   },
   {
     name: "vibecap_snapshot",
@@ -140,9 +144,10 @@ POST /api/agent/call   GET /api/agent/help   GET /api/agent/hooks   GET /api/age
 
 0. GET /api/agent/hooks              # what's live, which medium, what to call next
 1. vibecap_record_start              # no duration — keep rolling
-2. vibecap_snapshot                  # as often as you want; video stays up
-3. vibecap_record_stop               # when results settle
-4. vibecap_bug_pack                  # one JSON: stills + frontend + backend + db + logs
+2. vibecap_subject_pay               # walk checkout — tax throw + Stripe 402
+3. vibecap_snapshot                  # failure frame; video stays up
+4. vibecap_record_stop               # when results settle
+5. vibecap_bug_pack                  # one JSON: stills + frontend + backend + db + logs
 
 When to hook
   Pixels / layout / wrong UI copy     still or video (JPEG / WebM)
