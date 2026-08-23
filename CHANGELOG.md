@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Native desktop work on `master` not yet cut as a binary. Desktop assets remain [v0.1.0](https://github.com/TekosherM/vibecap/releases/tag/v0.1.0).
 
 ### Added
+- Web studio: **Pay now** / `vibecap_subject_pay` walks Lumen Cart (tax throw + Stripe 402) while REC stays on
 - Feedback loop coverage for 30 agent/human scenarios (`docs/FEEDBACK_USE_CASES.md`)
 - MCP: `vibecap_list_feedback`, `vibecap_cancel_feedback` (12 tools total)
 - `request_feedback`: optional `media_path`, `options`, `priority`, `agent_label`, `preferred_reply`, `context`

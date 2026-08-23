@@ -18,6 +18,7 @@ import {
   Square,
   Terminal,
   ScrollText,
+  CreditCard,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ import {
   requestFeedback,
   saveCapture,
   setBudget,
+  subjectPay,
   touchStudio,
 } from "@/lib/server/evidence";
 import type {
@@ -380,6 +382,19 @@ export function Studio() {
     if (tool === "open_studio") {
       return { ok: true, attached: captureEngine.getSnapshot().live };
     }
+    if (tool === "vibecap_subject_pay") {
+      captureEngine.setDemoPhase("paying");
+      try {
+        const result = await subjectPay({ data: { sessionId: sid } });
+        captureEngine.setDemoPhase("declined");
+        await refresh();
+        toast.message("Checkout 402 — tax helper threw, card declined");
+        return result;
+      } catch (err) {
+        captureEngine.setDemoPhase("ready");
+        throw err;
+      }
+    }
     if (tool === "vibecap_ingest_frontend") {
       const snap = await persistStill("snapshot", "Frontend still");
       const ev = await ingestFrontend({ data: { sessionId: sid, captureId: snap?.id } });
@@ -482,6 +497,7 @@ export function Studio() {
         { label: "Screenshot", hint: "S", run: () => void onStill() },
         { label: "Start / stop recording", hint: "R", run: () => void onRecordToggle() },
         { label: "Agent snap while live", hint: "during rec", run: () => void onSnap() },
+        { label: "Pay now (walk checkout)", hint: "402", run: () => void runTool("vibecap_subject_pay") },
         ...STAGES.map((s) => ({
           label: `Go to ${s.label}`,
           hint: s.hint,
@@ -744,8 +760,21 @@ export function Studio() {
             <ImageIcon className="size-4" />
             Snap
           </Button>
+          <Button
+            size="sm"
+            variant={engine.demoPhase === "declined" ? "danger" : "subtle"}
+            onClick={() => void runTool("vibecap_subject_pay")}
+            disabled={busy === "vibecap_subject_pay" || engine.demoPhase === "paying"}
+          >
+            <CreditCard className="size-4" />
+            {engine.demoPhase === "paying"
+              ? "Paying…"
+              : engine.demoPhase === "declined"
+                ? "Declined"
+                : "Pay now"}
+          </Button>
           <div className="hidden text-[11px] text-dim sm:block">
-            Record has no duration. Snap while it rolls — Stop when the UI settles.
+            Record, Pay (walks 402), Snap the failure, Stop.
           </div>
         </div>
         <div className="flex gap-1 overflow-x-auto px-3 pb-2 md:hidden">
@@ -866,7 +895,7 @@ function ShutterStage({
         <span className="text-[12px] text-muted">Firing now — Sources says which medium to use.</span>
       </div>
       <p className="text-[12px] text-muted">
-        Record is start/stop — no duration. Walk the flow, Snap while REC is on, Stop when it settles. Agents get the JPEG in the tool result, not a path under Movies.
+        Record, then Pay now to walk checkout. Snap the 402 frame while REC is on. Stop when it settles.
       </p>
     </div>
   );
@@ -1472,7 +1501,7 @@ function AgentStage({
           {engine.inspecting && <Badge tone="accent">Inspect</Badge>}
         </div>
         <p className="mt-1 text-sm text-muted">
-          Start → walk the signed-in flow → Snap until results settle → Stop. Inbox is optional.
+          Start rec → Pay now → Snap the 402 → Stop. Inbox is optional.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" variant="subtle" onClick={onStill}>
@@ -1482,6 +1511,10 @@ function AgentStage({
           <Button size="sm" variant={engine.recording ? "danger" : "accent"} onClick={onRecord}>
             {engine.recording ? <Square className="size-3.5 fill-current" /> : <Radio className="size-4" />}
             {engine.recording ? "Stop" : "Start rec"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onRun("vibecap_subject_pay")}>
+            <CreditCard className="size-4" />
+            Pay now
           </Button>
           <Button size="sm" variant="outline" onClick={onSnap}>
             <ImageIcon className="size-4" />

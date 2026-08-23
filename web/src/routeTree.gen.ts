@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiCheckoutRouteImport } from './routes/api/checkout'
 import { Route as ApiAgentSplatRouteImport } from './routes/api/agent/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCheckoutRoute = ApiCheckoutRouteImport.update({
+  id: '/api/checkout',
+  path: '/api/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAgentSplatRoute = ApiAgentSplatRouteImport.update({
@@ -25,27 +31,31 @@ const ApiAgentSplatRoute = ApiAgentSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/checkout': typeof ApiCheckoutRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/checkout': typeof ApiCheckoutRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/checkout': typeof ApiCheckoutRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/agent/$'
+  fullPaths: '/' | '/api/checkout' | '/api/agent/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/agent/$'
-  id: '__root__' | '/' | '/api/agent/$'
+  to: '/' | '/api/checkout' | '/api/agent/$'
+  id: '__root__' | '/' | '/api/checkout' | '/api/agent/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiCheckoutRoute: typeof ApiCheckoutRoute
   ApiAgentSplatRoute: typeof ApiAgentSplatRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/checkout': {
+      id: '/api/checkout'
+      path: '/api/checkout'
+      fullPath: '/api/checkout'
+      preLoaderRoute: typeof ApiCheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agent/$': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiCheckoutRoute: ApiCheckoutRoute,
   ApiAgentSplatRoute: ApiAgentSplatRoute,
 }
 export const routeTree = rootRouteImport

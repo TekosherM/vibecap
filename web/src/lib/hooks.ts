@@ -317,6 +317,10 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
     });
   } else {
     next.push({
+      tool: "vibecap_subject_pay",
+      why: "Walk checkout — tax throw + Stripe 402. REC stays on.",
+    });
+    next.push({
       tool: "vibecap_snapshot",
       why: "Grab the failure frame. Does not stop REC.",
     });

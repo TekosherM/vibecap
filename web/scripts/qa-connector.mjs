@@ -42,6 +42,7 @@ async function call(tool, args = {}) {
 }
 
 const start = await call("vibecap_record_start");
+const pay = await call("vibecap_subject_pay");
 const snap = await call("vibecap_snapshot");
 const parsed = snap.parsed;
 
@@ -91,6 +92,13 @@ console.log(JSON.stringify({
     rule: hooks.rule,
   },
   start: { status: start.pending?.status, resultStatus: start.result?.status, result: start.parsed ?? start.result?.result },
+  pay: {
+    status: pay.pending?.status,
+    resultStatus: pay.result?.status,
+    http: pay.parsed?.status ?? pay.result?.result?.status,
+    error: pay.parsed?.error ?? pay.result?.result?.error,
+    ui_total_cents: pay.parsed?.ui_total_cents ?? pay.result?.result?.ui_total_cents,
+  },
   snap: {
     status: snap.pending?.status,
     resultStatus: snap.result?.status,
