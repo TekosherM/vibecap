@@ -1,8 +1,10 @@
 # Web Studio (HTTP connector)
 
-The native app speaks **stdio MCP** (`vibecap --mcp`). The web studio speaks **HTTP**. Agents that cannot attach a local MCP process should use this.
+The native app speaks **stdio MCP** (`vibecap --mcp`) and a **CLI** that does not need MCP. The web studio speaks **HTTP**.
 
-**This running studio tab is the connector.** Do not look for `vibecap --mcp`, `~/Movies/Vibecap`, or `~/Vibecap`.
+For a **signed-in Chrome / desktop flow**, prefer the CLI ([AGENTS.md](AGENTS.md)). If you stay on HTTP, pass `display` / `window` / `output_dir` so the server uses the **same ffmpeg x11grab capturer** — not the demo shutter.
+
+**Without those args, snapshot/capture is the shutter.** Demo source is Lumen Cart pay, not the QuestOS (or any other) Chrome window.
 
 ## Surfaces
 
@@ -29,7 +31,7 @@ The native app speaks **stdio MCP** (`vibecap --mcp`). The web studio speaks **H
 | GET | `/api/agent/media` | Stills with `file` + `data_url` |
 | GET | `/api/agent/still/{id}.jpg` | Raw JPEG |
 
-Capture tools (`record_start`, `snapshot`, `record_stop`, `capture`) enqueue until the studio tab executes them. Status `studio.attached` is true while the tab is heartbeating.
+Capture tools (`record_start`, `snapshot`, `record_stop`, `capture`) enqueue until the studio tab executes them **unless** `args.display`, `args.window`, or `args.output_dir` is set — then they run immediately via the native CLI (real display). Status `studio.attached` is true while the tab is heartbeating.
 
 JSON tools (`hooks`, `ingest_*`, `bug_pack`, budget, inbox) run immediately on the server.
 

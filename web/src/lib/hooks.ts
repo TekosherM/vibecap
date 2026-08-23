@@ -105,7 +105,7 @@ export const HOOK_CATALOG: HookDef[] = [
     title: "Still",
     medium: "jpeg",
     tool: "vibecap_snapshot",
-    bind: "Live shutter (demo, screen, or camera). Studio tab must stay open.",
+    bind: "Native display when display/window/output_dir is set. Else live shutter (tab must stay open).",
     hook_when: [
       "Need the pixels as they are right now",
       "During recording, at a failure frame",

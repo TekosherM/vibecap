@@ -2,7 +2,6 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -20,9 +19,13 @@ use crate::app::live::{
     get_budget_note_mutex, get_latest_live_gif_mutex, get_live_started_mutex, LIVE_INSPECTION_RUNNING,
 };
 use crate::app::retro::{dump_retro_disk_gif, retro_runtime_note, set_retro_enabled};
+use crate::app::agent_record::{
+    record_status_line, start_agent_record, stop_agent_record,
+};
 use crate::platform::{
-    capture_live_frame, capture_to_media_dir, export_gif_clip, focus_app, list_running_apps,
-    live_session_dir, media_dir, record_screen_clip, LiveFormat,
+    capture_live_frame, capture_to_dir, export_gif_clip, focus_app, list_running_apps,
+    live_session_dir, media_dir, record_screen_clip_opts, resolve_output_dir, CaptureOpts,
+    LiveFormat,
 };
 
 fn mcp_live_dir() -> PathBuf {
@@ -33,8 +36,20 @@ fn default_media_dir() -> PathBuf {
     media_dir()
 }
 
-fn capture_screenshot_to_media_dir() -> Result<PathBuf, String> {
-    capture_to_media_dir()
+fn json_str<'a>(args: Option<&'a serde_json::Value>, key: &str) -> Option<&'a str> {
+    args.and_then(|a| a.get(key)).and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty())
+}
+
+fn capture_opts_from(args: Option<&serde_json::Value>) -> CaptureOpts {
+    let display = json_str(args, "display").map(|s| s.to_string());
+    let window = json_str(args, "window")
+        .or_else(|| json_str(args, "app_name"))
+        .map(|s| s.to_string());
+    CaptureOpts::from_parts(display, window)
+}
+
+fn output_dir_from(args: Option<&serde_json::Value>) -> PathBuf {
+    resolve_output_dir(json_str(args, "output_dir").map(PathBuf::from).as_deref())
 }
 
 fn get_dir_size_bytes(dir_path: &str) -> (u64, usize) {
@@ -76,6 +91,7 @@ pub fn run_mcp_server() {
 
         match method {
             "initialize" => {
+                let version = env!("CARGO_PKG_VERSION");
                 let response = serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -86,7 +102,7 @@ pub fn run_mcp_server() {
                         },
                         "serverInfo": {
                             "name": "vibecap",
-                            "version": "0.1.0"
+                            "version": version
                         }
                     }
                 });
@@ -111,31 +127,76 @@ pub fn run_mcp_server() {
                         "tools": [
                             {
                                 "name": "vibecap_capture",
-                                "description": "Captures a full-screen screenshot to the Vibecap media folder (Videos/Vibecap or ~/Movies/Vibecap). Optionally focuses an app first. For pen/arrow/step-badge annotation, open the desktop app Annotation Studio.",
+                                "description": "Still of the target display or focused window (Linux: ffmpeg x11grab — the real screen, not the web studio shutter). Writes JPEG to output_dir or the default media dir. Prints the path.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
                                         "app_name": {
                                             "type": "string",
-                                            "description": "Optional application name to focus before capture (e.g. iTerm, Google Chrome, Simulator)"
+                                            "description": "Focus this app first (alias of window)"
+                                        },
+                                        "window": {
+                                            "type": "string",
+                                            "description": "Window title to focus and, on Linux, crop to"
+                                        },
+                                        "display": {
+                                            "type": "string",
+                                            "description": "X11 DISPLAY to grab (e.g. :0 or :1). Defaults to $DISPLAY"
+                                        },
+                                        "output_dir": {
+                                            "type": "string",
+                                            "description": "Directory for the JPEG. Default: platform Videos/Vibecap (see vibecap --paths)"
                                         }
                                     }
                                 }
                             },
                             {
+                                "name": "vibecap_record_start",
+                                "description": "Start unbounded MP4 recording of the target display/window. Drive the flow, then call vibecap_record_stop. Linux backend is ffmpeg x11grab.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "app_name": { "type": "string", "description": "Focus this app first" },
+                                        "window": { "type": "string", "description": "Window title to crop to (Linux)" },
+                                        "display": { "type": "string", "description": "X11 DISPLAY (e.g. :0)" },
+                                        "output_dir": { "type": "string", "description": "Directory for the MP4" },
+                                        "gif": { "type": "boolean", "description": "Also write a companion GIF on stop" }
+                                    }
+                                }
+                            },
+                            {
+                                "name": "vibecap_record_stop",
+                                "description": "Stop the unbounded recording started by vibecap_record_start (or record_video with no duration). Writes MP4 to the caller output_dir. Optional GIF.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "gif": { "type": "boolean", "description": "Export a companion GIF of the whole clip" }
+                                    }
+                                }
+                            },
+                            {
+                                "name": "vibecap_record_status",
+                                "description": "Whether an unbounded agent recording is live, plus pid and MP4 path.",
+                                "inputSchema": { "type": "object", "properties": {} }
+                            },
+                            {
                                 "name": "vibecap_record_video",
-                                "description": "Records continuous video clip of an application or screen for duration_secs and exports MP4 + motion GIF",
+                                "description": "Short clip when duration_secs is set (max 600, companion GIF). Omit duration_secs to start unbounded recording — then vibecap_record_stop. Prefer start/stop for long signed-in flows.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
                                         "app_name": {
                                             "type": "string",
-                                            "description": "Optional application name to focus before recording (e.g. Google Chrome, iTerm, Simulator)"
+                                            "description": "Optional application name to focus before recording"
                                         },
+                                        "window": { "type": "string", "description": "Window title (Linux crop)" },
+                                        "display": { "type": "string", "description": "X11 DISPLAY" },
+                                        "output_dir": { "type": "string", "description": "Directory for MP4/GIF" },
                                         "duration_secs": {
                                             "type": "number",
-                                            "description": "Duration to record video in seconds (default: 5)"
-                                        }
+                                            "description": "If set, record this many seconds (max 600) then stop. Omit to start unbounded."
+                                        },
+                                        "gif": { "type": "boolean", "description": "Companion GIF (default true for timed clips)" }
                                     }
                                 }
                             },
@@ -376,60 +437,109 @@ pub fn run_mcp_server() {
 
                 let (content_text, is_error) = match tool_name {
                     "vibecap_capture" => {
-                        let app_name = parsed.get("params")
-                            .and_then(|p| p.get("arguments"))
-                            .and_then(|a| a.get("app_name"))
-                            .and_then(|s| s.as_str());
-
-                        if let Some(app) = app_name {
+                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
+                        let opts = capture_opts_from(args);
+                        let dir = output_dir_from(args);
+                        if let Some(app) = opts.window.as_deref() {
                             let _ = focus_app(app);
                         }
-
-                        match capture_screenshot_to_media_dir() {
+                        match capture_to_dir(&dir, &opts) {
                             Ok(out) => (format!("Captured screenshot successfully to {}", out.display()), false),
                             Err(e) => (e, true),
                         }
                     }
+                    "vibecap_record_start" => {
+                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
+                        let opts = capture_opts_from(args);
+                        let dir = output_dir_from(args);
+                        let gif = args.and_then(|a| a.get("gif")).and_then(|v| v.as_bool()).unwrap_or(false);
+                        let home_live = mcp_live_dir().display().to_string();
+                        if let Some(reason) = budget_exceeded_reason(&home_live) {
+                            (format!("⚠️ BUDGET EXHAUSTED — recording refused: {reason}"), true)
+                        } else {
+                            match start_agent_record(Some(&dir), &opts, gif) {
+                                Ok(s) => (
+                                    format!(
+                                        "Recording started (unbounded). pid={} mp4={}\nCall vibecap_record_stop when the flow ends. Display={} window={}",
+                                        s.pid,
+                                        s.mp4,
+                                        s.display.as_deref().unwrap_or("-"),
+                                        s.window.as_deref().unwrap_or("-")
+                                    ),
+                                    false,
+                                ),
+                                Err(e) => (e, true),
+                            }
+                        }
+                    }
+                    "vibecap_record_stop" => {
+                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
+                        let gif = args.and_then(|a| a.get("gif")).and_then(|v| v.as_bool()).unwrap_or(false);
+                        match stop_agent_record(gif) {
+                            Ok((s, gif_path)) => {
+                                let bytes = std::fs::metadata(s.mp4_path()).map(|m| m.len()).unwrap_or(0);
+                                let gif_note = gif_path
+                                    .map(|p| format!(" gif={}", p.display()))
+                                    .unwrap_or_default();
+                                (
+                                    format!(
+                                        "Recording stopped. mp4={} bytes={}{}",
+                                        s.mp4, bytes, gif_note
+                                    ),
+                                    false,
+                                )
+                            }
+                            Err(e) => (e, true),
+                        }
+                    }
+                    "vibecap_record_status" => (record_status_line(), false),
                     "vibecap_record_video" => {
                         let args = parsed.get("params").and_then(|p| p.get("arguments"));
-                        let app_name = args.and_then(|a| a.get("app_name")).and_then(|s| s.as_str());
-                        let raw_duration = args.and_then(|a| a.get("duration_secs")).and_then(|v| v.as_u64()).unwrap_or(5);
-                        let duration_secs = raw_duration.min(600);
-                        let clamp_note = if raw_duration > 600 { " (clamped from your request — 600s max per clip)" } else { "" };
-
+                        let opts = capture_opts_from(args);
+                        let dir = output_dir_from(args);
+                        let duration_given = args.and_then(|a| a.get("duration_secs")).and_then(|v| v.as_u64());
                         let home_live = mcp_live_dir().display().to_string();
                         if let Some(reason) = budget_exceeded_reason(&home_live) {
                             (format!("⚠️ BUDGET EXHAUSTED — recording refused: {}. Raise caps with vibecap_set_budget or ask the human to adjust them in the Vibecap app.", reason), true)
+                        } else if duration_given.is_none() || duration_given == Some(0) {
+                            let gif = args.and_then(|a| a.get("gif")).and_then(|v| v.as_bool()).unwrap_or(false);
+                            match start_agent_record(Some(&dir), &opts, gif) {
+                                Ok(s) => (
+                                    format!(
+                                        "No duration_secs — started unbounded recording pid={} mp4={}. Call vibecap_record_stop when done.",
+                                        s.pid, s.mp4
+                                    ),
+                                    false,
+                                ),
+                                Err(e) => (e, true),
+                            }
                         } else {
-                        if let Some(app) = app_name {
+                        let raw_duration = duration_given.unwrap_or(5);
+                        let duration_secs = raw_duration.min(600);
+                        let clamp_note = if raw_duration > 600 { " (clamped from your request — 600s max per clip)" } else { "" };
+                        if let Some(app) = opts.window.as_deref() {
                             let _ = focus_app(app);
                         }
 
                         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-                        let media = default_media_dir();
-                        // Unique filenames so concurrent agent instances never clash.
                         let pid = std::process::id();
-                        let out_mp4 = media.join(format!("video_{}_{}.mp4", timestamp, pid));
-                        let out_gif = media.join(format!("video_{}_{}_clip.gif", timestamp, pid));
+                        let out_mp4 = dir.join(format!("video_{}_{}.mp4", timestamp, pid));
+                        let out_gif = dir.join(format!("video_{}_{}_clip.gif", timestamp, pid));
+                        let want_gif = args.and_then(|a| a.get("gif")).and_then(|v| v.as_bool()).unwrap_or(true);
 
-                        match record_screen_clip(&out_mp4, duration_secs) {
+                        match record_screen_clip_opts(&out_mp4, duration_secs, &opts) {
                             Ok(()) => {
                                 let gif_s = out_gif.display().to_string();
                                 let mp4_s = out_mp4.display().to_string();
-                                // Companion motion GIF for the whole clip (ignore range export failures).
-                                if let Ok(mut cmd) = crate::platform::ffmpeg_command() {
-                                    let _ = cmd
-                                        .args([
-                                            "-i",
-                                            &mp4_s,
-                                            "-vf",
-                                            "fps=15,scale=800:-1:flags=lanczos",
-                                            "-y",
-                                            &gif_s,
-                                        ])
-                                        .status();
+                                if want_gif {
+                                    let _ = export_gif_clip(&mp4_s, "00:00:00", "99:00:00", &gif_s);
                                 }
-                                (format!("Successfully recorded {}s video to {} and exported GIF to {}{}", duration_secs, mp4_s, gif_s, clamp_note), false)
+                                let gif_note = if want_gif {
+                                    format!(" and exported GIF to {}", gif_s)
+                                } else {
+                                    String::new()
+                                };
+                                (format!("Successfully recorded {}s video to {}{}{}", duration_secs, mp4_s, gif_note, clamp_note), false)
                             }
                             Err(e) => (format!("Failed to record video: {}", e), true),
                         }
@@ -1014,20 +1124,18 @@ pub fn run_mcp_server() {
                         Err(e) => (format!("{e}\n{}", retro_runtime_note()), true),
                     },
                     "vibecap_bug_report" => {
-                        let app_name = parsed
-                            .get("params")
-                            .and_then(|p| p.get("arguments"))
-                            .and_then(|a| a.get("app_name"))
-                            .and_then(|s| s.as_str());
-                        if let Some(app) = app_name {
+                        let args = parsed.get("params").and_then(|p| p.get("arguments"));
+                        let opts = capture_opts_from(args);
+                        let dir = output_dir_from(args);
+                        if let Some(app) = opts.window.as_deref() {
                             let _ = focus_app(app);
                         }
-                        match capture_screenshot_to_media_dir() {
+                        match capture_to_dir(&dir, &opts) {
                             Err(e) => (format!("Bug report still failed: {e}"), true),
                             Ok(shot) => {
                                 let mut parts =
                                     vec![format!("still={}", shot.display())];
-                                match dump_retro_disk_gif(&default_media_dir()) {
+                                match dump_retro_disk_gif(&dir) {
                                     Ok(gif) => {
                                         parts.push(format!("retro_gif={}", gif.display()))
                                     }

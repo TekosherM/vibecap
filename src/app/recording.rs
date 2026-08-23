@@ -97,3 +97,14 @@ pub fn even_crop(w: i32, h: i32, x: i32, y: i32) -> (i32, i32, i32, i32) {
     let h = (h.abs().max(2) / 2) * 2;
     (w.max(2), h.max(2), x.max(0), y.max(0))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn even_crop_forces_even_positive() {
+        assert_eq!(even_crop(801, 601, -4, 3), (800, 600, 0, 3));
+        assert_eq!(even_crop(2, 2, 0, 0), (2, 2, 0, 0));
+    }
+}

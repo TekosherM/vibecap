@@ -2,13 +2,13 @@
 
 Two ways in. Pick one.
 
-| | Native desktop | Web studio |
+| | Native CLI / MCP | Web studio |
 | :--- | :--- | :--- |
-| Attach | Leave `vibecap` in the tray, then `vibecap --mcp` | Leave the studio tab open. **That is the connector.** |
-| Output | `{Videos}/Vibecap` (often `~/Movies/Vibecap`) | Pack + Media downloads. **Not** a home folder. |
-| Docs | this file · [MCP.md](MCP.md) | [WEB.md](WEB.md) · [HOOKS.md](HOOKS.md) |
+| Attach | CLI (`record start` / `--screenshot` / `record stop`) or `vibecap --mcp` | Tab for Lumen Cart; HTTP + `display`/`output_dir` for the real screen |
+| Output | `--output-dir` or `vibecap --paths` | Pack / Media, or caller `output_dir` for native stills |
+| Docs | this file · [AGENTS.md](AGENTS.md) · [MCP.md](MCP.md) | [WEB.md](WEB.md) · [HOOKS.md](HOOKS.md) |
 
-Web capture-only: `hooks` → `record_start` (no duration) → `snapshot` → `record_stop` → `bug_pack`. Inbox is optional.
+Capture-only agent: [AGENTS.md](AGENTS.md). Inbox is optional.
 
 ---
 
@@ -53,7 +53,10 @@ cargo run --release -- [FLAGS]
 | :--- | :--- |
 | `vibecap` | Launch the desktop UI (system tray / menu bar icon) |
 | `vibecap --mcp` | Stdio MCP server for AI agents (multiple processes OK) |
-| `vibecap --screenshot` | Headless full-screen capture; prints output path |
+| `vibecap --screenshot` | Headless still of `--display` / `--window`; prints path |
+| `vibecap record start` / `stop` / `status` | Unbounded MP4 (also `--record-start` …) |
+| `--output-dir`, `--display`, `--window`, `--gif` | Agent targeting + output |
+| `vibecap --paths` | Default media dir + backend |
 | `vibecap --hidden` | Start GUI hidden in the tray |
 | `vibecap --no-tray` | No tray; window close quits the app |
 | `vibecap --version` | Print version |
@@ -84,7 +87,7 @@ OUT=$(vibecap --screenshot)
 echo "Saved: $OUT"
 ```
 
-Default save root: platform Videos folder `/Vibecap` (often `~/Movies/Vibecap` on macOS).
+Default save root: `vibecap --paths` (Videos/Vibecap, else ~/Movies/Vibecap on macOS, else ~/Vibecap). Agents should pass `--output-dir`.
 
 ## Desktop app
 
@@ -172,24 +175,18 @@ From **Media**: open video/GIF with **Clip**, screenshots with **Still**.
 
 ## Agent workflows
 
-### 0. Web HTTP (when MCP never attaches)
+### 0. CLI (when MCP never attaches)
 
 ```bash
-cd web && npm install && npm run dev
+vibecap record start --output-dir ./frames --display "$DISPLAY"
+vibecap --screenshot --output-dir ./frames
+vibecap record stop
 ```
 
-Leave the tab open.
+See [AGENTS.md](AGENTS.md). Linux = ffmpeg x11grab.
 
-```
-GET  /api/agent/hooks
-POST /api/agent/call  {"tool":"vibecap_record_start"}
-POST /api/agent/call  {"tool":"vibecap_snapshot"}
-POST /api/agent/call  {"tool":"vibecap_record_stop"}
-POST /api/agent/call  {"tool":"vibecap_bug_pack"}
-GET  /api/agent/still/{id}.jpg
-```
-
-JPEG is inline on snapshot/stop. Do not look in `~/Movies/Vibecap`. See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md).
+Web HTTP native (same capturer): pass `display` / `output_dir` on `vibecap_capture` / `record_start`.
+Lumen Cart pack: `vibecap_job` with the studio tab open ([WEB.md](WEB.md)).
 
 ### A. One-shot screenshot for vision
 
@@ -232,7 +229,7 @@ See [MCP.md](MCP.md) for full tool schemas.
 
 | Path | Role |
 | :--- | :--- |
-| `{Videos}/Vibecap/` | Screenshots, videos, GIFs |
+| `--output-dir` or `{Videos}/Vibecap/` | Screenshots, videos, GIFs (`vibecap --paths`) |
 | `{media}/live/` | Live-inspection stream frames |
 | `{config}/vibecap/budget.json` | Agent budget caps |
 | `{config}/vibecap/feedback/` | Request / response inbox |

@@ -117,36 +117,46 @@ export type StudioStatusRow = {
 /** Capture-only recipe. Inbox is optional. */
 export const CAPTURE_ONLY_TOOLS = [
   {
+    name: "vibecap_record_start",
+    summary: "Start unbounded record. Pass display/output_dir for the real screen (x11grab), not the demo shutter.",
+  },
+  {
+    name: "vibecap_capture",
+    summary: "Still. Pass display/window/output_dir to grab the target screen. Else shutter JPEG.",
+  },
+  {
+    name: "vibecap_record_stop",
+    summary: "Stop unbounded record. Native MP4 lands in output_dir; shutter path writes WebM to Media.",
+  },
+  {
     name: "vibecap_job",
-    summary: "Record, walk checkout (3 stills), ingest FE/BE/DB/logs, stop, pack. One call.",
+    summary: "Lumen Cart evidence: record, walk checkout (3 stills), ingest FE/BE/DB/logs, stop, pack.",
   },
 ] as const;
 
-export const AGENT_HELP = `Vibecap — capture-only (most jobs)
+export const AGENT_HELP = `Vibecap — capture-only
 
-This running studio IS the connector. There is no vibecap --mcp to attach.
-POST /api/agent/call   GET /api/agent/help   GET /api/agent/hooks   GET /api/agent/media
+A. Signed-in desktop / Chrome flow (QuestOS, any site) — use the native capturer.
+   CLI (works when MCP never attaches — Cursor / Grok Bot dynamic tools):
+     vibecap record start --output-dir ./frames --display "$DISPLAY"
+     vibecap --screenshot --output-dir ./frames
+     vibecap record stop
+   Same capturer over HTTP (no studio tab, no demo shutter):
+     POST /api/agent/call {"tool":"vibecap_record_start","args":{"display":":0","output_dir":"./frames"}}
+     POST /api/agent/call {"tool":"vibecap_capture","args":{"display":":0","output_dir":"./frames"}}
+     POST /api/agent/call {"tool":"vibecap_record_stop"}
+   Files land in output_dir. Default media dir: vibecap --paths
 
-0. GET /api/agent/hooks              # what's live, which medium, what to call next
-1. vibecap_job                       # record → walk (3 stills) → ingest → stop → pack
+B. Lumen Cart evidence pack (this studio's demo subject):
+     GET /api/agent/hooks
+     POST /api/agent/call {"tool":"vibecap_job"}
+     GET /api/agent/still/{id}.jpg
+   Without display/window/output_dir, snapshot/capture is the shutter (demo pay screen).
 
-When to hook
-  Pixels / layout / wrong UI copy     still or video (JPEG / WebM)
-  Uncaught / console.warn             ingest_frontend  → JSON (console + DOM)
-  4xx/5xx / stack / compose           ingest_backend   → JSON (HTTP + shell)
-  Wrong stock / price / row           ingest_database  → JSON
-  Timeline of the session             ingest_logs      → JSON
-  Don't want to choose                bug_pack
+Linux backend: ffmpeg x11grab. Need ffmpeg + DISPLAY. Window title via --window.
+MCP: vibecap --mcp or ./scripts/vibecap-mcp.sh (see .cursor/mcp.json). If tools never appear, use A.
 
-JSON hooks bind to Lumen Cart even if the shutter is screen/camera.
-Screen / camera only change JPEG / WebM pixels.
-
-Output lives in the pack (Download JSON / stills / clip) and Media.
-JPEG: GET /api/agent/still/{id}.jpg
-WebM: GET /api/agent/clip/{id}.webm  (survives reload)
-Do not look in ~/Movies/Vibecap or ~/Vibecap.
-
-Inbox / annotate / poll loops are optional. Skip them unless you need a human.
+Inbox is optional.
 `;
 
 export const AGENT_TOOLS = [
@@ -157,15 +167,11 @@ export const AGENT_TOOLS = [
   ...CAPTURE_ONLY_TOOLS,
   {
     name: "vibecap_snapshot",
-    summary: "Still while video is rolling. Does not stop the recorder. Returns the JPEG.",
-  },
-  {
-    name: "vibecap_capture",
-    summary: "One still if you do not need motion. Returns the JPEG in the tool result.",
+    summary: "Still while video is rolling. Native if display/output_dir is set; else shutter JPEG.",
   },
   {
     name: "vibecap_record_video",
-    summary: "Record. duration_secs optional — omit it to start unbounded, then record_stop.",
+    summary: "Omit duration_secs to start unbounded (then record_stop). Set it for a short clip.",
   },
   {
     name: "vibecap_get_live_frame",

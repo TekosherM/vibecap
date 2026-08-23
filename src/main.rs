@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use platform::{
     capture_screenshot, capture_screenshot_interactive, cont_process, focus_app,
-    frontmost_app_name, list_running_apps, media_dir_display, notify_agent_question, open_path,
+    frontmost_app_name, list_running_apps, notify_agent_question, open_path,
     reveal_in_file_manager, spawn_screen_recorder, spawn_voice_memo, stop_process,
 };
 use tray_ui::{TrayAction, TrayController, TrayLiveState};
@@ -34,12 +34,12 @@ use ui::icons::Icon;
 use ui::theme;
 
 use app::{
-    capture_screenshot_to_media_dir, default_live_dir, default_media_dir, even_crop,
-    extract_filmstrip_thumbs, feedback_requests_dir, feedback_responses_dir, filter_items,
-    finalize_recorder, format_feedback_answer, get_dir_size_bytes, kill_recorder,
-    live_usage_snapshot, load_budget, mcp_live_dir, run_mcp_server, save_budget, scan_media_dir,
-    write_json_atomic, BudgetConfig, FeedbackRequest, FeedbackResponse, MediaCategory, MediaItem,
-    LIBRARY_PAGE_SIZE,
+    default_live_dir, default_media_dir, even_crop, extract_filmstrip_thumbs,
+    feedback_requests_dir, feedback_responses_dir, filter_items, finalize_recorder,
+    format_feedback_answer, get_dir_size_bytes, kill_recorder, live_usage_snapshot, load_budget,
+    mcp_live_dir, parse_args, run_headless, run_mcp_server, save_budget, scan_media_dir,
+    write_json_atomic, BudgetConfig, CliAction, FeedbackRequest, FeedbackResponse, MediaCategory,
+    MediaItem, LIBRARY_PAGE_SIZE,
 };
 use app::io::vibecap_config_dir;
 use app::session::{
@@ -2278,55 +2278,17 @@ impl eframe::App for VibecapApp {
 }
 
 fn main() -> eframe::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    
-    if args.iter().any(|a| a == "--version" || a == "-v" || a == "version") {
-        println!("vibecap {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    let cli = parse_args(&raw);
 
-    if args.iter().any(|a| a == "--help" || a == "-h" || a == "help") {
-        println!("Vibecap Studio {}", env!("CARGO_PKG_VERSION"));
-        println!("Native screen capture, annotation studio, and MCP sidecar for AI agents.");
-        println!("\nUsage: vibecap [FLAGS]");
-        println!("\nFlags:");
-        println!("  (none)         Launch the desktop UI (system tray enabled)");
-        println!("  --mcp          Run as Model Context Protocol (MCP) stdio server");
-        println!("                 Leave the GUI running, then start --mcp from the agent.");
-        println!("                 If MCP never attaches, use the web HTTP studio instead:");
-        println!("                 cd web && npm run dev  →  POST /api/agent/call {{\"tool\":\"vibecap_job\"}}");
-        println!("                 The open studio tab IS the connector. See docs/WEB.md.");
-        println!("  --screenshot   Headless full-screen capture → {}", media_dir_display());
-        println!("  --no-tray      Disable system tray (window close quits the app)");
-        println!("  --hidden       Start hidden in the tray (implies tray)");
-        println!("  --version, -v  Print version");
-        println!("  --help, -h     Print this help");
-        println!("\nMulti-instance:");
-        println!("  · GUI + one or more `vibecap --mcp` processes can run together.");
-        println!("  · Each MCP process has its own live-inspection session dir.");
-        println!("  · Budget + feedback inbox are shared via config files.");
-        println!("\nCapture backend: {}", platform::capture_backend_label());
-        println!("Docs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md  ·  docs/WEB.md");
-        println!("MCP tools: vibecap_capture | record_video | export_gif |");
-        println!("           start/get/stop_live_inspection | set_budget | get_spending |");
-        println!("           request_feedback | get_feedback | list_feedback | cancel_feedback");
-        return Ok(());
-    }
-
-    if args.iter().any(|a| a == "--screenshot" || a == "screenshot") {
-        match capture_screenshot_to_media_dir() {
-            Ok(path) => {
-                println!("{}", path.display());
-                return Ok(());
-            }
-            Err(e) => {
-                eprintln!("error: {}", e);
-                std::process::exit(1);
-            }
+    if let Some(code) = run_headless(&cli) {
+        if code == 0 {
+            return Ok(());
         }
+        std::process::exit(code);
     }
 
-    if args.iter().any(|a| a == "--mcp" || a == "mcp") {
+    if matches!(cli.action, CliAction::Mcp) {
         // Intentionally no process-wide lock: many agents may each spawn --mcp.
         eprintln!(
             "vibecap mcp ready (pid {}, live session {})",
@@ -2337,8 +2299,10 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
-    let no_tray = args.iter().any(|a| a == "--no-tray");
-    let start_hidden = args.iter().any(|a| a == "--hidden");
+    let (no_tray, start_hidden) = match cli.action {
+        CliAction::Gui { hidden, no_tray } => (no_tray, hidden),
+        _ => (false, false),
+    };
     let enable_tray = !no_tray || start_hidden;
 
     // Brand dock / taskbar icon. Without this, eframe uses the default white "e".

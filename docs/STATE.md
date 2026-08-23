@@ -8,10 +8,21 @@ Last updated: 2026-08-23. Source of truth is `master` on GitHub, not a chat tran
 | :--- | :--- |
 | Tag | [v0.3.0](https://github.com/TekosherM/vibecap/releases/tag/v0.3.0) |
 | Tip | `master` — web HTTP studio + `vibecap_job` |
-| Connector that works | **Open web studio tab** (this is the agent connector) |
-| Connector that often fails | Native `vibecap` GUI + `vibecap --mcp` (stdio, two processes) |
+| Connector that works | **CLI** `record start` / `--screenshot` / `record stop` (no MCP). Linux = ffmpeg x11grab. |
+| Lumen Cart connector | Open web studio tab + `vibecap_job` |
+| Connector that often fails | Native `vibecap --mcp` in Cursor / Grok Bot dynamic-tool harnesses (tools never appear) |
 
-## Agent recipe (most jobs)
+## Agent recipe (signed-in desktop / Chrome flow)
+
+```
+vibecap record start --output-dir ./frames --display "$DISPLAY"
+vibecap --screenshot --output-dir ./frames
+vibecap record stop
+```
+
+See `docs/AGENTS.md`. Do **not** use `GET /api/agent/still` without `display`/`output_dir` — that is the demo shutter.
+
+## Agent recipe (Lumen Cart evidence)
 
 ```
 GET  /api/agent/hooks

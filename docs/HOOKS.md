@@ -6,7 +6,7 @@ The studio and the agent share one plan (`GET /api/agent/hooks` / `vibecap_hooks
 
 | Medium | Available when | Use for |
 | :--- | :--- | :--- |
-| **JPEG** | Studio tab attached (demo, screen, or camera) | Pixels as they are right now |
+| **JPEG** | Native `display`/`output_dir`, or studio tab (demo / screen / camera) | Pixels of the **named display**, or the shutter if no native args |
 | **WebM** | Same. Unbounded record — no duration | Multi-step flow until the UI settles |
 | **JSON** | Always (server-side) | DOM, console, HTTP, shell, database, session logs |
 

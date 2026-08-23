@@ -1,61 +1,68 @@
 ---
 name: vibecap
-description: Capture stills and unbounded video, and collect frontend / backend / database / log evidence. Use the web HTTP studio when MCP is not attached; use vibecap --mcp for the native desktop app.
+description: Capture stills and unbounded video of the screen the agent is driving. Prefer the CLI when MCP is not attached. Web studio HTTP can use the same native capturer if display/output_dir is set.
 ---
 
-# Vibecap — capture-only
+# Capture-only agent
 
-Two connectors. Pick one. Do not mix paths.
+Install once, then start → still → stop. **Do not** use the web studio demo shutter for a real Chrome window.
 
-| | Native (desktop) | Web studio |
+```bash
+cargo install --path .          # or ./target/release/vibecap
+# Linux: ffmpeg on PATH; echo $DISPLAY  (backend = ffmpeg x11grab)
+
+OUT=/workspace/search-review/run4/frames
+mkdir -p "$OUT"
+
+vibecap record start --output-dir "$OUT" --display "$DISPLAY"
+# drive the signed-in flow (unbounded — hours are fine)
+vibecap --screenshot --output-dir "$OUT" --display "$DISPLAY"
+# optional crop: --window "Chrome"
+vibecap record stop             # MP4 in $OUT; add --gif for a companion GIF
+```
+
+| | |
+| :--- | :--- |
+| Files | `--output-dir` (required for agent jobs). Default if omitted: `vibecap --paths` |
+| Display | `--display` / `$DISPLAY` / `VIBECAP_DISPLAY` |
+| Window | `--window` / `--app` (Linux x11grab crop when geometry is found) |
+| MCP | `./scripts/vibecap-mcp.sh` via `.cursor/mcp.json` — `record_start` / `capture` / `record_stop` |
+| No MCP | This CLI. Cursor / Grok Bot dynamic tools often never list MCP tools. |
+| HTTP | `POST /api/agent/call` with `args.display` or `args.output_dir` uses the **same** capturer. Omit them and you get the Lumen Cart shutter. |
+
+`vibecap --help` and `docs/AGENTS.md` match this recipe.
+
+---
+
+## Two connectors (do not mix blindly)
+
+| | Native CLI / MCP | Web studio |
 | :--- | :--- | :--- |
-| Attach | Keep `vibecap` running, then `vibecap --mcp` | **The open studio tab is the connector.** No `--mcp`. |
-| Output | `{Videos}/Vibecap` or `~/Movies/Vibecap` | Pack + Media downloads. JPEG inline. **Not** `~/Movies`. |
-| Docs | `docs/MCP.md` `docs/USAGE.md` | `docs/WEB.md` `docs/HOOKS.md` |
+| Attach | `vibecap --mcp` **or** the CLI above (no mcp.json needed) | Open tab **or** HTTP native args |
+| Real screen | Yes — x11grab / screencapture / gdigrab | Only if `display` / `window` / `output_dir` is set |
+| Lumen Cart pack | — | `vibecap_job` (demo subject + JSON hooks) |
+| Docs | `docs/AGENTS.md` `docs/MCP.md` | `docs/WEB.md` `docs/HOOKS.md` |
 
----
-
-## Web HTTP (use this if MCP never attached)
+## Web HTTP (Lumen Cart evidence)
 
 ```
 GET  /api/agent/hooks
 POST /api/agent/call   { "tool": "vibecap_job" }
 GET  /api/agent/still/{id}.jpg
-GET  /api/agent/clip/{id}.webm
-GET  /api/agent/help
 ```
 
-`vibecap_job` is the whole checkout evidence run: record (no duration), walk (coupon 422, tax 500, pay 402, 3 stills), ingest frontend/backend/database/logs, stop, pack. JPEG inline. Not ~/Movies.
+`vibecap_job` walks the **demo** checkout. JSON hooks always bind to Lumen Cart.
 
-Capture tools need the studio tab open (`studio.attached`). Poll `GET /api/agent/result/{id}`.
-
-### When to hook
-
-| Signal | Tool | Medium |
-| :--- | :--- | :--- |
-| Pixels / layout / wrong UI copy | `snapshot` or `capture` | JPEG |
-| Full checkout evidence | `vibecap_job` | WebM + 3 JPEGs + JSON pack |
-| Console / DOM | `vibecap_ingest_frontend` | JSON |
-| 4xx/5xx / stack / shell | `vibecap_ingest_backend` | JSON |
-| Wrong stock / price / row | `vibecap_ingest_database` | JSON |
-| Don’t want to choose | `vibecap_bug_pack` | all |
-| Screen / camera | pixels only | JSON still taps Lumen Cart |
-
-Inbox / annotate / poll loops are **optional**. Skip them unless you need a human.
-
----
-
-## Native MCP
-
-```bash
-vibecap              # GUI + tray — leave running
-vibecap --mcp        # stdio sidecar
-```
+## Native MCP (if the harness actually lists tools)
 
 ```json
-{ "mcpServers": { "vibecap": { "command": "vibecap", "args": ["--mcp"] } } }
+{ "mcpServers": { "vibecap": { "command": "./scripts/vibecap-mcp.sh" } } }
 ```
 
-Capture-only here too: `vibecap_capture` (still), `vibecap_record_video` (`duration_secs` required on native), then read the printed path under the media dir.
+`vibecap_record_start` → drive → `vibecap_capture` → `vibecap_record_stop`.
+`vibecap_record_video` without `duration_secs` is start (unbounded). With `duration_secs` (max 600) it is a short clip.
 
-HITL (`request_feedback` + poll) is optional. Full tool list: `docs/MCP.md`.
+## HITL (optional)
+
+Inbox / `request_feedback` + poll only when you need a human. Skip for capture-only jobs.
+Full tool list: `docs/MCP.md`.
