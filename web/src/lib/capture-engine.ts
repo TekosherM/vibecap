@@ -478,6 +478,13 @@ class CaptureEngine {
     this.emit();
   }
 
+  resetDemoWalk() {
+    this.demoPhase = "ready";
+    this.couponRejected = false;
+    this.taxFailed = false;
+    this.emit();
+  }
+
   async useScreen() {
     this.stopTracks(true);
     try {

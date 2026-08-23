@@ -313,21 +313,12 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
       tool: "open_studio",
       why: "JPEG / WebM need this tab open. JSON hooks (FE / BE / DB) still work.",
     });
-  } else if (!facts.paid) {
+  } else {
     next.push({
       tool: "vibecap_job",
-      why: "Record, walk (422/500/402 + 3 stills), ingest, stop, pack. One call.",
-    });
-  } else if (facts.recording) {
-    next.push({
-      tool: "vibecap_record_stop",
-      why: "Walk already snapped the failures. Stop when it settles.",
-    });
-  }
-  if (facts.paid) {
-    next.push({
-      tool: "vibecap_bug_pack",
-      why: "One JSON of every live layer + stills.",
+      why: facts.paid
+        ? "Re-run: record, walk, ingest, stop, pack."
+        : "Record, walk (422/500/402 + 3 stills), ingest, stop, pack. One call.",
     });
   }
 

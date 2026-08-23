@@ -25,7 +25,7 @@ Brand assets: [docs/brand/](docs/brand/).
 | Evidence | Screen pixels | Pixels **plus** DOM, console, HTTP, shell, database, logs |
 | Output | `{Videos}/Vibecap` or `~/Movies/Vibecap` | Pack JSON + Media downloads. **Not** a home folder. |
 
-Most agent jobs on the web studio: hooks → record_start → snapshot → record_stop → bug_pack. Inbox is optional.
+Most agent jobs on the web studio: `vibecap_job` (record → walk coupon/tax/pay → ingest → stop → pack). Inbox is optional.
 
 - Web: [docs/WEB.md](docs/WEB.md) · [docs/HOOKS.md](docs/HOOKS.md) · [web/README.md](web/README.md)
 - Native MCP: [docs/MCP.md](docs/MCP.md)
@@ -55,10 +55,7 @@ npm run dev
 
 ```
 GET  /api/agent/hooks
-POST /api/agent/call  {"tool":"vibecap_record_start"}
-POST /api/agent/call  {"tool":"vibecap_snapshot"}
-POST /api/agent/call  {"tool":"vibecap_record_stop"}
-POST /api/agent/call  {"tool":"vibecap_bug_pack"}
+POST /api/agent/call  {"tool":"vibecap_job"}
 ```
 
 Stills are JPEG in the tool result and at `GET /api/agent/still/{id}.jpg`. Do not look in `~/Movies/Vibecap`.
