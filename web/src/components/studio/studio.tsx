@@ -394,7 +394,8 @@ export function Studio() {
         mime: "image/jpeg",
         data_url: saved?.row.data_url ?? null,
         path: saved?.row.id ? `/api/agent/still/${saved.row.id}.jpg` : null,
-        clip: "Media stage — Download clip. JPEG poster is inline. Not ~/Movies/Vibecap.",
+        clip: "GET /api/agent/clip/{id}.webm. Pack / Media Download clip. Not ~/Movies.",
+        clip_path: saved?.row.id ? `/api/agent/clip/${saved.row.id}.webm` : null,
       };
     }
     if (tool === "vibecap_record_video") {
