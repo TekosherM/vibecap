@@ -26,15 +26,14 @@ Then open the studio and leave it up so capture tools can run.
 ## Agent loop (most jobs)
 
 ```
-GET  /api/agent/hooks          # what's live, which medium, what to call next
-POST /api/agent/call           { "tool": "vibecap_record_start" }
-POST /api/agent/call           { "tool": "vibecap_snapshot" }     # as often as you want
-POST /api/agent/call           { "tool": "vibecap_record_stop" }
-POST /api/agent/call           { "tool": "vibecap_bug_pack" }
+GET  /api/agent/hooks
+POST /api/agent/call           { "tool": "vibecap_job" }
 GET  /api/agent/still/{id}.jpg
 GET  /api/agent/media
 GET  /api/agent/help
 ```
+
+`vibecap_job` records, walks Lumen Cart (coupon 422, tax 500, pay 402, 3 stills), ingests frontend/backend/database/logs, stops, and packs. Granular tools still exist.
 
 Capture tools enqueue while the studio tab is open. Poll `GET /api/agent/result/{id}`.
 

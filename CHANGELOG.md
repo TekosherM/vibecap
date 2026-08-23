@@ -18,6 +18,7 @@ Native desktop work on `master` not yet cut as a binary. Desktop assets remain [
 - Walk snaps coupon / tax / pay frames automatically (3 JPEGs)
 - `vibecap_job` — one call: record, walk (3 stills), ingest FE/BE/DB/logs, stop, pack
 - Job holds each checkout failure on camera (~4s clip) and Pack downloads JSON + stills + clip
+- Job is re-runnable (resets checkout) and README / web README use the one-call recipe
 - Feedback loop coverage for 30 agent/human scenarios (`docs/FEEDBACK_USE_CASES.md`)
 - MCP: `vibecap_list_feedback`, `vibecap_cancel_feedback` (12 tools total)
 - `request_feedback`: optional `media_path`, `options`, `priority`, `agent_label`, `preferred_reply`, `context`

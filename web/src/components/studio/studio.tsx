@@ -264,6 +264,9 @@ export function Studio() {
   }
 
   async function runWalk() {
+    captureEngine.resetDemoWalk();
+    await afterPaint();
+    await hold(350);
     const coupon = await subjectCoupon({ data: { sessionId: sid! } });
     captureEngine.rejectCoupon();
     await afterPaint();
@@ -809,6 +812,7 @@ export function Studio() {
               onNewSession={async () => {
                 const name = window.prompt("Session name", "New QA run");
                 if (!name) return;
+                captureEngine.resetDemoWalk();
                 const row = await createSession({ data: { name } });
                 await refresh(row.id);
                 toast.success("Session opened");
@@ -1086,9 +1090,14 @@ function SourcesStage({
           <h1 className="text-lg font-semibold tracking-tight">Sources</h1>
           <p className="text-sm text-muted">{plan.rule}</p>
         </div>
-        <Button size="sm" variant="accent" onClick={() => onCollect("vibecap_bug_pack")}>
-          Collect all
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="accent" onClick={() => onCollect("vibecap_job")}>
+            Job
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onCollect("vibecap_bug_pack")}>
+            Collect all
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
