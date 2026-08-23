@@ -25,7 +25,7 @@ HELP_OUT="$("$BIN" --help)"
 echo "$HELP_OUT" | grep -q -- '--mcp' && ok "help lists --mcp" || bad "help --mcp" "$HELP_OUT"
 echo "$HELP_OUT" | grep -q -- '--screenshot' && ok "help lists --screenshot" || bad "help --screenshot" "$HELP_OUT"
 VER_OUT="$("$BIN" --version)"
-echo "$VER_OUT" | grep -q '0.1.0' && ok "version 0.1.0" || bad "version" "$VER_OUT"
+echo "$VER_OUT" | grep -qE 'vibecap [0-9]+\.[0-9]+\.[0-9]+' && ok "version prints" || bad "version" "$VER_OUT"
 
 echo "== MCP protocol =="
 # Multi-request session over one stdio process
