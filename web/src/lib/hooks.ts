@@ -322,15 +322,9 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
     if (!facts.coupon || !facts.tax || !facts.paid) {
       next.push({
         tool: "vibecap_subject_walk",
-        why: "Coupon 422, tax 500, pay 402. REC stays on.",
+        why: "Coupon 422, tax 500, pay 402 — snaps each frame. REC stays on.",
       });
     }
-    next.push({
-      tool: "vibecap_snapshot",
-      why: facts.paid
-        ? "402 is on screen — grab the failure frame. Does not stop REC."
-        : "Grab the failure frame. Does not stop REC.",
-    });
   }
   for (const id of ["dom", "http", "database"] as const) {
     const h = hooks.find((x) => x.id === id);

@@ -544,6 +544,7 @@ export const buildPack = createServerFn({ method: "POST" })
       logs: evidence.filter((e) => e.source === "logs"),
       capture: evidence.filter((e) => e.source === "capture"),
     };
+    const httpFails = logs.filter((l) => /\b(402|422|500)\b/.test(l.message)).length;
     const summary = [
       `${stills.length} stills`,
       `${bySource.frontend.length} frontend`,
@@ -551,6 +552,7 @@ export const buildPack = createServerFn({ method: "POST" })
       `${bySource.database.length} database`,
       `${bySource.logs.length} log bundles`,
       `${logs.length} raw log lines`,
+      `${httpFails} failing HTTP/log lines`,
     ].join(" · ");
     const payload = JSON.stringify(
       {
