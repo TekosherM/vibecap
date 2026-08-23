@@ -1,8 +1,19 @@
 # Architecture
 
-Vibecap is intentionally **one binary**: desktop UI + MCP server in the same crate (`src/main.rs`). No service mesh, no database, no cloud.
+Two products, one repo:
 
-## Process modes
+| | Native | Web (`web/`) |
+| :--- | :--- | :--- |
+| Process | One Rust binary: UI + MCP | TanStack Start HTTP studio |
+| Agent attach | `vibecap --mcp` (stdio) | **The open tab is the connector** |
+| State | Files under `~/.config/vibecap` | Unowned Postgres (Neon / PGLite) |
+| Output | `{Videos}/Vibecap` | Pack JSON + JPEG/WebM downloads |
+
+The native crate stays **one binary**. No service mesh. MCP is stdio only.
+
+---
+
+## Native process modes
 
 ```text
 vibecap                 →  eframe/egui desktop app
@@ -12,7 +23,7 @@ vibecap --screenshot     →  one-shot headless capture, then exit
 
 Mode is chosen in `main()` before any UI init.
 
-## Layers
+## Native layers
 
 ```text
 ┌────────────────────────────────────────────┐
@@ -65,6 +76,31 @@ Mode is chosen in `main()` before any UI init.
 | `chrono` | Timestamps |
 
 External binaries: **ffmpeg**, **screencapture** (macOS).
+
+---
+
+## Web studio (`web/`)
+
+HTTP evidence studio for agents that cannot attach stdio MCP.
+
+```text
+Browser (Safelight UI)
+  shutter / sources / pack / media / still / inbox / agent
+        │
+        ├─ capture-engine   demo | screen | camera
+        │                   unbounded MediaRecorder + JPEG snaps
+        │
+        └─ POST /api/agent/call
+              capture tools  → command queue → studio tab executes
+              JSON tools     → ingest frontend / backend / db / logs
+              bug_pack       → one JSON + stills
+```
+
+- Capture tools need the tab heartbeating (`studio.attached`).
+- JSON hooks bind to the **instrumented subject**, not a random screen share.
+- Stills: inline `data_url` + `GET /api/agent/still/{id}.jpg`. Not `~/Movies`.
+
+See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md).
 
 ## Platform module
 
