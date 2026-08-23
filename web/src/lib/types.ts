@@ -27,6 +27,7 @@ export type CaptureRow = {
   label: string;
   mime: string;
   data_url: string | null;
+  clip_url: string | null;
   duration_ms: number | null;
   created_at: string;
 };
@@ -153,11 +154,12 @@ When to hook
   Timeline of the session             ingest_logs      → JSON
   Don't want to choose                bug_pack
 
-JSON hooks bind to the instrumented subject (Lumen Cart).
-Screen / camera only change the visual medium — not the DOM / console / HTTP taps.
+JSON hooks bind to Lumen Cart even if the shutter is screen/camera.
+Screen / camera only change JPEG / WebM pixels.
 
-Output lives in the pack (Download JSON) and Media (Download JPEG / WebM).
-JPEG files: GET /api/agent/still/{id}.jpg
+Output lives in the pack (Download JSON / stills / clip) and Media.
+JPEG: GET /api/agent/still/{id}.jpg
+WebM: GET /api/agent/clip/{id}.webm  (survives reload)
 Do not look in ~/Movies/Vibecap or ~/Vibecap.
 
 Inbox / annotate / poll loops are optional. Skip them unless you need a human.

@@ -30,15 +30,17 @@ function splatFrom(params: { _splat?: string }) {
   return params._splat ?? "";
 }
 
-function dataUrlToJpeg(id: string, dataUrl: string) {
-  const match = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl);
+function dataUrlToFile(id: string, dataUrl: string, fallbackName: string) {
+  const match = /^data:([^,]*?);base64,(.+)$/s.exec(dataUrl);
   if (!match) return null;
   const body = Buffer.from(match[2], "base64");
   const short = id.slice(0, 8);
+  const mime = match[1] || "application/octet-stream";
+  const ext = mime.includes("webm") ? "webm" : mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : fallbackName;
   return new Response(body, {
     headers: {
-      "content-type": match[1] || "image/jpeg",
-      "content-disposition": `attachment; filename="vibecap-${short}.jpg"`,
+      "content-type": mime,
+      "content-disposition": `attachment; filename="vibecap-${short}.${ext}"`,
       "cache-control": "no-store",
     },
   });
@@ -72,9 +74,9 @@ export const Route = createFileRoute("/api/agent/$")({
             plan,
             capture_only: CAPTURE_ONLY_TOOLS,
             output: {
-              stills: "inline data_url + GET /api/agent/still/{id}.jpg + Media Download JPEG",
-              packs: "POST vibecap_bug_pack → Pack stage Download JSON / Download stills",
-              clips: "Media stage Download clip (webm). Not a filesystem path.",
+              stills: "inline data_url + GET /api/agent/still/{id}.jpg",
+              packs: "POST vibecap_job or vibecap_bug_pack → Pack Download JSON / stills / clip",
+              clips: "GET /api/agent/clip/{id}.webm (persisted). Not a filesystem path.",
               not: ["~/Movies/Vibecap", "~/Vibecap"],
             },
             help: "GET /api/agent/help",
@@ -94,6 +96,16 @@ export const Route = createFileRoute("/api/agent/$")({
           if (!row) return Response.json({ error: "not found" }, { status: 404 });
           return Response.json(row);
         }
+        if (splat.startsWith("clip/")) {
+          const raw = splat.slice("clip/".length);
+          const id = raw.replace(/\.webm$/i, "");
+          const row = await getCapture({ data: { id } });
+          if (!row) return Response.json({ error: "not found" }, { status: 404 });
+          if (!row.clip_url) return Response.json({ error: "no clip" }, { status: 404 });
+          const file = dataUrlToFile(id, row.clip_url, "webm");
+          if (!file) return Response.json({ error: "bad clip" }, { status: 500 });
+          return file;
+        }
         if (splat.startsWith("still/") || splat.startsWith("media/")) {
           const raw = splat.replace(/^(still|media)\//, "");
           const wantFile = /\.(jpg|jpeg)$/i.test(raw);
@@ -102,13 +114,14 @@ export const Route = createFileRoute("/api/agent/$")({
           if (!row) return Response.json({ error: "not found" }, { status: 404 });
           if (wantFile) {
             if (!row.data_url) return Response.json({ error: "no still" }, { status: 404 });
-            const file = dataUrlToJpeg(id, row.data_url);
+            const file = dataUrlToFile(id, row.data_url, "jpg");
             if (!file) return Response.json({ error: "bad still" }, { status: 500 });
             return file;
           }
           return Response.json({
             ...row,
             file: row.data_url ? `/api/agent/still/${row.id}.jpg` : null,
+            clip: row.clip_url ? `/api/agent/clip/${row.id}.webm` : null,
           });
         }
         if (splat === "media") {
@@ -117,6 +130,7 @@ export const Route = createFileRoute("/api/agent/$")({
             rows.map((c) => ({
               ...c,
               file: c.data_url ? `/api/agent/still/${c.id}.jpg` : null,
+              clip: c.clip_url ? `/api/agent/clip/${c.id}.webm` : null,
             })),
           );
         }

@@ -2,7 +2,15 @@
 
 Vibecap native exposes a **stdio JSON-RPC** Model Context Protocol server.
 
-If your agent **cannot attach** `vibecap --mcp`, use the **web HTTP studio** instead. That tab *is* the connector. See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md). Do not look in `~/Movies/Vibecap` for web stills.
+If your agent **cannot attach** `vibecap --mcp`, use the **web HTTP studio** instead. That tab *is* the connector.
+
+```
+cd web && npm run dev
+POST /api/agent/call  {"tool":"vibecap_job"}
+GET  /api/agent/clip/{id}.webm
+```
+
+See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md). Do not look in `~/Movies/Vibecap` for web stills.
 
 ## Start the native server
 

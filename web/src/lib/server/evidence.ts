@@ -122,6 +122,7 @@ export const saveCapture = createServerFn({ method: "POST" })
       label: z.string().default(""),
       mime: z.string().default("image/jpeg"),
       dataUrl: z.string().max(2_500_000).nullable().optional(),
+      clipUrl: z.string().max(16_000_000).nullable().optional(),
       durationMs: z.number().optional(),
     }),
   )
@@ -129,7 +130,7 @@ export const saveCapture = createServerFn({ method: "POST" })
     const sql = await getSql();
     const id = nid();
     const rows = await sql<CaptureRow>`
-      insert into captures (id, session_id, kind, label, mime, data_url, duration_ms)
+      insert into captures (id, session_id, kind, label, mime, data_url, clip_url, duration_ms)
       values (
         ${id},
         ${data.sessionId},
@@ -137,6 +138,7 @@ export const saveCapture = createServerFn({ method: "POST" })
         ${data.label},
         ${data.mime},
         ${data.dataUrl ?? null},
+        ${data.clipUrl ?? null},
         ${data.durationMs ?? null}
       )
       returning *
@@ -144,7 +146,7 @@ export const saveCapture = createServerFn({ method: "POST" })
     await sql`
       update budget set
         frames_used = frames_used + 1,
-        mb_used = mb_used + ${(data.dataUrl?.length ?? 0) / (1024 * 1024)}
+        mb_used = mb_used + ${((data.dataUrl?.length ?? 0) + (data.clipUrl?.length ?? 0)) / (1024 * 1024)}
       where id = ${"global"}
     `;
     return rows[0];
@@ -574,10 +576,13 @@ export const buildPack = createServerFn({ method: "POST" })
         logs,
         output: {
           kind: "session-pack",
-          location: "Pack stage → Download JSON / Download stills",
+          location: "Pack stage → Download JSON / stills / clip",
           not: ["~/Movies/Vibecap", "~/Vibecap", "agent workspace copies"],
           files: {
             stills: stills.map((s) => `/api/agent/still/${s.id}.jpg`),
+            clips: captures
+              .filter((c) => c.kind === "video")
+              .map((c) => `/api/agent/clip/${c.id}.webm`),
             frontend: "evidence/frontend.json",
             backend: "evidence/backend.json",
             database: "evidence/database.json",
