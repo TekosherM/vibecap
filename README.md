@@ -231,21 +231,26 @@ Copy or symlink into your agent skills dir (e.g. `~/.agents/skills/vibecap/`).
 
 | Path | Use |
 | :--- | :--- |
-| `{Videos}/Vibecap/` or `~/Movies/Vibecap` | Screenshots, videos, GIFs |
-| `{config}/vibecap/` | Budget, session, retro, feedback inbox |
-| `{config}/vibecap/feedback/` | Agent questions + your answers |
+| `{Videos}/Vibecap/` or `~/Movies/Vibecap` | Native screenshots, videos, GIFs |
+| `{config}/vibecap/` | Native budget, session, retro, feedback inbox |
+| `{config}/vibecap/feedback/` | Native agent questions + your answers |
+| Web Pack + Media | JPEG / WebM / JSON downloads. **Not** a home folder. |
 
 ---
 
 ## Development
 
 ```bash
+# native
 cargo build --release
 ./scripts/smoke_mcp.sh
 cargo run --release -- --mcp
+
+# web
+cd web && npm install && npm run typecheck && npm run dev
 ```
 
-Layout: `src/main.rs` (shell) · `src/app/` (state, MCP, recording) · `src/ui/` (Safelight tabs) · `src/platform/` (OS + ffmpeg).
+Layout: `src/` native · `web/` HTTP studio · `docs/WEB.md` · `docs/HOOKS.md`.
 
 ---
 

@@ -5,7 +5,7 @@ Vibecap is a GUI + OS-capture tool. Automated coverage focuses on **headless sur
 ## Quick checks
 
 ```bash
-# Compile
+# Compile (Linux needs `libxdo-dev` plus the GTK/xcb packages in `.github/workflows/ci.yml`)
 cargo build --release
 
 # CLI surface
