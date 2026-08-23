@@ -27,7 +27,7 @@ Brand assets: [docs/brand/](docs/brand/).
 
 Most agent jobs on the web studio: `vibecap_job` (record → walk coupon/tax/pay → ingest → stop → pack). Inbox is optional.
 
-- Web: [docs/WEB.md](docs/WEB.md) · [docs/HOOKS.md](docs/HOOKS.md) · [web/README.md](web/README.md)
+- Web: [docs/WEB.md](docs/WEB.md) · [docs/HOOKS.md](docs/HOOKS.md) · [docs/STATE.md](docs/STATE.md) · [web/README.md](web/README.md)
 - Native MCP: [docs/MCP.md](docs/MCP.md)
 - Skill (short, capture-only first): [skills/vibecap/SKILL.md](skills/vibecap/SKILL.md)
 
