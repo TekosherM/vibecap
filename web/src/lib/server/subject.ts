@@ -16,10 +16,19 @@ export function cartBody(items: CatalogItem[]) {
   };
 }
 
-export function taxBody() {
+export function taxBody(zip = "94107") {
   return {
     error: "tax is undefined",
     helper: "pricing.ts:88",
-    zip: "94107",
+    zip,
+  };
+}
+
+export function couponBody() {
+  return {
+    ok: false,
+    status: 422,
+    error: "coupon_expired",
+    code: "LUMEN10",
   };
 }

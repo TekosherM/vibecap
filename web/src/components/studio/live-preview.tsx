@@ -1,5 +1,11 @@
 import { useEffect, useRef } from "react";
-import { captureEngine, demoPayHit, type EngineSnapshot } from "@/lib/capture-engine";
+import {
+  captureEngine,
+  demoCouponHit,
+  demoPayHit,
+  demoTaxHit,
+  type EngineSnapshot,
+} from "@/lib/capture-engine";
 import { Badge } from "@/components/ui/badge";
 
 function formatRec(started: number | null) {
@@ -17,13 +23,19 @@ export function LivePreview({
   engine,
   tick,
   onPay,
+  onCoupon,
+  onTax,
 }: {
   engine: EngineSnapshot;
   tick: number;
   onPay?: () => void;
+  onCoupon?: () => void;
+  onTax?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pay = demoPayHit();
+  const coupon = demoCouponHit();
+  const tax = demoTaxHit();
 
   useEffect(() => {
     captureEngine.attachVideo(videoRef.current);
@@ -54,19 +66,49 @@ export function LivePreview({
           poster={engine.lastStill ?? undefined}
           className="h-full w-full"
         />
-        {engine.source === "demo" && onPay && (
-          <button
-            type="button"
-            aria-label={declined ? "Card declined — pay again" : "Pay now"}
-            disabled={paying}
-            onClick={onPay}
-            className="absolute z-10 min-h-11 cursor-pointer rounded-lg bg-transparent"
-            style={{
-              left: `${pay.x * 100}%`,
-              top: `${pay.y * 100}%`,
-              width: `${pay.w * 100}%`,
-            }}
-          />
+        {engine.source === "demo" && (
+          <>
+            {onCoupon && (
+              <button
+                type="button"
+                aria-label={engine.couponRejected ? "Coupon expired — apply again" : "Apply coupon LUMEN10"}
+                onClick={onCoupon}
+                className="absolute z-10 min-h-11 cursor-pointer rounded-lg bg-transparent"
+                style={{
+                  left: `${coupon.x * 100}%`,
+                  top: `${coupon.y * 100}%`,
+                  width: `${coupon.w * 100}%`,
+                }}
+              />
+            )}
+            {onTax && (
+              <button
+                type="button"
+                aria-label={engine.taxFailed ? "Tax lookup failed — try again" : "Lookup tax for ZIP 94107"}
+                onClick={onTax}
+                className="absolute z-10 min-h-11 cursor-pointer rounded-lg bg-transparent"
+                style={{
+                  left: `${tax.x * 100}%`,
+                  top: `${tax.y * 100}%`,
+                  width: `${tax.w * 100}%`,
+                }}
+              />
+            )}
+            {onPay && (
+              <button
+                type="button"
+                aria-label={declined ? "Card declined — pay again" : "Pay now"}
+                disabled={paying}
+                onClick={onPay}
+                className="absolute z-10 min-h-11 cursor-pointer rounded-lg bg-transparent"
+                style={{
+                  left: `${pay.x * 100}%`,
+                  top: `${pay.y * 100}%`,
+                  width: `${pay.w * 100}%`,
+                }}
+              />
+            )}
+          </>
         )}
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3">
           <div className="flex items-center gap-2">

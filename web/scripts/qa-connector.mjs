@@ -42,6 +42,8 @@ async function call(tool, args = {}) {
 }
 
 const start = await call("vibecap_record_start");
+const coupon = await call("vibecap_subject_coupon");
+const taxWalk = await call("vibecap_subject_tax");
 const pay = await call("vibecap_subject_pay");
 const snap = await call("vibecap_snapshot");
 const parsed = snap.parsed;
@@ -79,6 +81,10 @@ const subject = await page.evaluate(async () => {
   return {
     cart: { status: cart.status, body: await cart.json() },
     tax: { status: tax.status, body: await tax.json() },
+    coupon: await fetch("/api/coupon", { method: "POST" }).then(async (r) => ({
+      status: r.status,
+      body: await r.json(),
+    })),
   };
 });
 const status = await page.evaluate(async () => {
@@ -100,6 +106,8 @@ console.log(JSON.stringify({
     rule: hooks.rule,
   },
   start: { status: start.pending?.status, resultStatus: start.result?.status, result: start.parsed ?? start.result?.result },
+  coupon: { status: coupon.result?.status, error: coupon.parsed?.error ?? coupon.result?.result?.error },
+  tax: { status: taxWalk.result?.status, http: taxWalk.parsed?.status ?? taxWalk.result?.result?.status },
   pay: {
     status: pay.pending?.status,
     resultStatus: pay.result?.status,

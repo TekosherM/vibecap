@@ -20,7 +20,7 @@ import {
   DEMO_TERMINAL,
 } from "@/lib/demo-data";
 import { evaluateHooks, type HookPlan } from "@/lib/hooks";
-import { cartBody, taxBody } from "@/lib/server/subject";
+import { cartBody, couponBody, taxBody } from "@/lib/server/subject";
 
 function nid() {
   return crypto.randomUUID();
@@ -242,6 +242,65 @@ export const subjectPay = createServerFn({ method: "POST" })
     return payload;
   });
 
+export const subjectCoupon = createServerFn({ method: "POST" })
+  .validator(z.object({ sessionId: z.string() }))
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    await ensureSeed(sql);
+    const payload = couponBody();
+    await sql`
+      insert into logs (session_id, stream, level, message, meta)
+      values (
+        ${data.sessionId},
+        ${"backend"},
+        ${"error"},
+        ${"POST /api/coupon 422 coupon_expired LUMEN10"},
+        ${"coupons.ts:22"}
+      )
+    `;
+    await sql`
+      insert into logs (session_id, stream, level, message, meta)
+      values (
+        ${data.sessionId},
+        ${"frontend"},
+        ${"warn"},
+        ${"Coupon LUMEN10 expired — banner clips on pay panel"},
+        ${"CouponField.tsx:18"}
+      )
+    `;
+    return payload;
+  });
+
+export const subjectTax = createServerFn({ method: "POST" })
+  .validator(z.object({ sessionId: z.string(), zip: z.string().optional() }))
+  .handler(async ({ data }) => {
+    const sql = await getSql();
+    await ensureSeed(sql);
+    const zip = data.zip || "94107";
+    const payload = { ...taxBody(zip), status: 500 };
+    await sql`
+      insert into logs (session_id, stream, level, message, meta)
+      values (
+        ${data.sessionId},
+        ${"backend"},
+        ${"error"},
+        ${`GET /api/tax?zip=${zip} 500 tax is undefined`},
+        ${"pricing.ts:88"}
+      )
+    `;
+    await sql`
+      insert into logs (session_id, stream, level, message, meta)
+      values (
+        ${data.sessionId},
+        ${"frontend"},
+        ${"error"},
+        ${"Uncaught TypeError: Cannot read properties of undefined (reading 'tax')"},
+        ${"checkout.js:214"}
+      )
+    `;
+    return payload;
+  });
+
 export const ingestFrontend = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -322,6 +381,7 @@ export const ingestBackend = createServerFn({ method: "POST" })
         http: [
           { method: "GET", path: "/api/cart", status: 200, ms: 42, body: cart },
           { method: "GET", path: "/api/tax?zip=94107", status: 500, ms: 12, body: tax },
+          { method: "POST", path: "/api/coupon", status: 422, ms: 38, body: couponBody() },
           {
             method: "POST",
             path: "/api/checkout",
@@ -812,6 +872,17 @@ export const getHookPlan = createServerFn({ method: "GET" })
     }
     const items = await sql<{ sku: string; stock: number }>`select sku, stock from catalog_items`;
     const stockZero = items.filter((i) => i.stock === 0).length;
+    let coupon = false;
+    let tax = false;
+    let paid = false;
+    if (sessionId) {
+      const msgs = await sql<{ message: string }>`
+        select message from logs where session_id = ${sessionId} order by created_at desc limit 80
+      `;
+      coupon = msgs.some((m) => m.message.includes("coupon_expired"));
+      tax = msgs.some((m) => m.message.includes("/api/tax"));
+      paid = msgs.some((m) => m.message.includes("POST /api/checkout 402"));
+    }
     return evaluateHooks({
       attached,
       recording: studio?.recording ?? false,
@@ -820,6 +891,9 @@ export const getHookPlan = createServerFn({ method: "GET" })
       collected,
       captureCount,
       stockZero,
+      coupon,
+      tax,
+      paid,
     });
   });
 
