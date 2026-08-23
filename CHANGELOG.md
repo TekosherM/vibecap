@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Agent capture path (Linux field report)
+
+Agents on Cursor / Grok Bot often never see MCP tools and got demo-shutter stills plus a 5s `record_video` cap. This cut makes the **CLI the attachable path** and aligns docs.
+
+- **CLI:** `record start` / `--screenshot` / `record stop` / `--paths`; `--output-dir`, `--display`, `--window`, `--gif`
+- **MCP:** `vibecap_record_start` / `_stop` / `_status`; `output_dir` + `display` + `window` on capture; omit `duration_secs` on `record_video` to start unbounded
+- **Linux:** ffmpeg **x11grab** is the supported agent backend (not a grim/import fallback). Name a `DISPLAY` or window title.
+- **Output:** one default (`vibecap --paths`); caller `--output-dir` always wins. Help / skill / MCP.md no longer disagree on `~/Movies` vs `~/Vibecap`.
+- **Web:** `POST /api/agent/call` with `display` / `window` / `output_dir` shells out to the same CLI (real screen). Without those args, stills stay the shutter (demo Lumen Cart if source is Demo).
+- **Hook:** `.cursor/mcp.json` + `scripts/vibecap-mcp.sh` (no pre-wired machine path). Skill leads with the capture-only recipe.
+- Docs: `docs/AGENTS.md`
+
 Native desktop changelog below this cut is already on `master`. Web evidence job shipped in 0.3.0.
 
 ### Added

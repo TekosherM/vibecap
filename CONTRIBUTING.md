@@ -19,11 +19,17 @@ The most useful contributions start from real use:
 2. Wire `vibecap --mcp` and/or `skills/vibecap/` into your harness.
 3. Capture + optional Inbox while coding.
 
-**Web** (when MCP never attaches)
+**CLI** (when MCP never attaches — preferred for a real screen)
 
-1. `cd web && npm install && npm run dev` — leave the tab open. **That tab is the connector.**
-2. Capture-only: hooks → `record_start` → `snapshot` → `record_stop` → `bug_pack`.
-3. Do not look in `~/Movies/Vibecap`.
+1. `vibecap record start --output-dir ./frames --display "$DISPLAY"`
+2. `vibecap --screenshot --output-dir ./frames`
+3. `vibecap record stop`
+
+**Web** (Lumen Cart, or HTTP native args)
+
+1. `cd web && npm install && npm run dev`
+2. Real screen: `POST /api/agent/call` with `display` / `output_dir`.
+3. Demo pack: `vibecap_job`. Without those args, stills are the shutter.
 
 Open an [issue](https://github.com/TekosherM/vibecap/issues) with OS, harness, and what broke. Visual repros taken with Vibecap are ideal.
 

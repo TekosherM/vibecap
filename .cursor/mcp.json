@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vibecap": {
+      "command": "./scripts/vibecap-mcp.sh",
+      "args": []
+    }
+  }
+}

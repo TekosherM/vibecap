@@ -16,9 +16,11 @@ The native crate stays **one binary**. No service mesh. MCP is stdio only.
 ## Native process modes
 
 ```text
-vibecap                 →  eframe/egui desktop app
-vibecap --mcp            →  stdio JSON-RPC MCP server (no window)
-vibecap --screenshot     →  one-shot headless capture, then exit
+vibecap                      →  eframe/egui desktop app
+vibecap --mcp                 →  stdio JSON-RPC MCP server (no window)
+vibecap --screenshot          →  one-shot still (--output-dir / --display / --window)
+vibecap record start|stop     →  unbounded agent recording
+vibecap --paths               →  print default media dir + backend
 ```
 
 Mode is chosen in `main()` before any UI init.
@@ -96,9 +98,9 @@ Browser (Safelight UI)
               bug_pack       → one JSON + stills
 ```
 
-- Capture tools need the tab heartbeating (`studio.attached`).
-- JSON hooks bind to the **instrumented subject**, not a random screen share.
-- Stills: inline `data_url` + `GET /api/agent/still/{id}.jpg`. Not `~/Movies`.
+- Capture tools need the tab heartbeating (`studio.attached`) **unless** `display` / `window` / `output_dir` is set — then the server runs the native CLI (same x11grab capturer).
+- JSON hooks bind to the **instrumented subject** (Lumen Cart), not a random screen share.
+- Native stills: `--output-dir` on disk. Shutter stills: `GET /api/agent/still/{id}.jpg`.
 
 See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md).
 

@@ -2,7 +2,9 @@
 //!
 //! Keep capture OS details in `platform/`; keep paint in `ui/`.
 
+pub mod agent_record;
 pub mod budget;
+pub mod cli;
 pub mod feedback;
 pub mod io;
 pub mod library;
@@ -30,6 +32,10 @@ pub use live::{
     get_budget_note_mutex, get_latest_live_gif_mutex, get_live_started_mutex,
     LIVE_INSPECTION_RUNNING,
 };
+pub use agent_record::{
+    load_record_state, record_status_line, start_agent_record, stop_agent_record, AgentRecordState,
+};
+pub use cli::{help_text, parse_args, run_headless, CliAction, CliArgs};
 pub use mcp::run_mcp_server;
 pub use paths::{
     capture_screenshot_to_media_dir, default_live_dir, default_media_dir, mcp_live_dir,

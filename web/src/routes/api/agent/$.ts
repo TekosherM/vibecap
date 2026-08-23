@@ -18,8 +18,15 @@ import {
   listMedia,
   listSessions,
   requestFeedback,
+  saveCapture,
   setBudget,
 } from "@/lib/server/evidence";
+import {
+  isNativeCaptureTool,
+  runNativeCapture,
+  wantsNativeSource,
+} from "@/lib/server/native-capture";
+import { readFileSync } from "node:fs";
 
 async function defaultSessionId() {
   const sessions = await listSessions();
@@ -74,10 +81,12 @@ export const Route = createFileRoute("/api/agent/$")({
             plan,
             capture_only: CAPTURE_ONLY_TOOLS,
             output: {
-              stills: "inline data_url + GET /api/agent/still/{id}.jpg",
+              stills:
+                "Pass display/window/output_dir to capture the real screen (same x11grab capturer as the CLI). Otherwise shutter JPEG + GET /api/agent/still/{id}.jpg",
               packs: "POST vibecap_job or vibecap_bug_pack → Pack Download JSON / stills / clip",
-              clips: "GET /api/agent/clip/{id}.webm (persisted). Not a filesystem path.",
-              not: ["~/Movies/Vibecap", "~/Vibecap"],
+              clips: "GET /api/agent/clip/{id}.webm (persisted). Or native MP4 via record_start/stop + output_dir.",
+              default_dir: "Native CLI/MCP: vibecap --paths (Videos/Vibecap). Caller --output-dir always wins.",
+              not: ["guessing ~/Movies vs ~/Vibecap — use --output-dir or --paths"],
             },
             help: "GET /api/agent/help",
             hooks: "GET /api/agent/hooks",
@@ -237,6 +246,42 @@ export const Route = createFileRoute("/api/agent/$")({
               { status: 400 },
             );
           }
+        }
+
+        if (isNativeCaptureTool(tool) && wantsNativeSource(args)) {
+          const native = runNativeCapture(tool, args);
+          let still: string | null = null;
+          if (native.ok && native.path && /\.(jpg|jpeg)$/i.test(native.path) && sessionId) {
+            try {
+              const buf = readFileSync(native.path);
+              const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
+              const row = await saveCapture({
+                data: {
+                  sessionId,
+                  kind: "still",
+                  label: `Native ${args.display ?? args.window ?? "display"}`,
+                  mime: "image/jpeg",
+                  dataUrl,
+                },
+              });
+              still = `/api/agent/still/${row.id}.jpg`;
+            } catch {
+              /* pack persist is optional; disk path is the source of truth */
+            }
+          }
+          return Response.json(
+            {
+              status: native.ok ? "done" : "error",
+              tool,
+              result: {
+                ...native,
+                file: native.path,
+                still,
+                source: "native-display",
+              },
+            },
+            { status: native.ok ? 200 : 400 },
+          );
         }
 
         const studio = await getStudioStatus();

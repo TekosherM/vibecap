@@ -11,6 +11,8 @@ cargo build --release
 # CLI surface
 ./target/release/vibecap --help
 ./target/release/vibecap --version
+./target/release/vibecap --paths
+./target/release/vibecap --record-status
 
 # MCP protocol smoke (no screen capture required for budget/feedback tools)
 ./scripts/smoke_mcp.sh
@@ -25,8 +27,8 @@ test "$(wc -l < src/main.rs)" -lt 2500
 
 Exercises:
 
-1. `initialize` → server info `vibecap` / `0.1.0`
-2. `tools/list` → ≥12 documented tools (incl. list/cancel feedback)
+1. `initialize` → server info `vibecap` / crate version
+2. `tools/list` → ≥19 documented tools (incl. record_start/stop/status)
 3. `vibecap_set_budget` / `vibecap_get_spending`
 4. `vibecap_request_feedback` / `get_feedback` / `list_feedback` / `cancel_feedback`
 5. Text-only `request_feedback` (no media) with options
@@ -48,6 +50,7 @@ SMOKE_CAPTURE=1 ./scripts/smoke_mcp.sh
 cd web
 npm install
 npm run typecheck
+npm test                         # includes native-capture flag mapping
 node scripts/qa-connector.mjs   # needs the studio tab running
 ```
 

@@ -24,6 +24,14 @@ echo "== CLI =="
 HELP_OUT="$("$BIN" --help)"
 echo "$HELP_OUT" | grep -q -- '--mcp' && ok "help lists --mcp" || bad "help --mcp" "$HELP_OUT"
 echo "$HELP_OUT" | grep -q -- '--screenshot' && ok "help lists --screenshot" || bad "help --screenshot" "$HELP_OUT"
+echo "$HELP_OUT" | grep -q -- '--output-dir' && ok "help lists --output-dir" || bad "help --output-dir" "$HELP_OUT"
+echo "$HELP_OUT" | grep -q -- '--record-start' && ok "help lists --record-start" || bad "help --record-start" "$HELP_OUT"
+echo "$HELP_OUT" | grep -q -- '--record-stop' && ok "help lists --record-stop" || bad "help --record-stop" "$HELP_OUT"
+echo "$HELP_OUT" | grep -qi 'x11grab\|DISPLAY\|screencapture\|gdigrab' && ok "help names capture backend" || bad "help backend" "$HELP_OUT"
+PATHS_OUT="$("$BIN" --paths)"
+echo "$PATHS_OUT" | grep -q 'media_dir=' && ok "--paths prints media_dir" || bad "--paths" "$PATHS_OUT"
+STATUS_OUT="$("$BIN" --record-status)"
+echo "$STATUS_OUT" | grep -qi 'recording' && ok "--record-status idle/live" || bad "--record-status" "$STATUS_OUT"
 VER_OUT="$("$BIN" --version)"
 echo "$VER_OUT" | grep -qE 'vibecap [0-9]+\.[0-9]+\.[0-9]+' && ok "version prints" || bad "version" "$VER_OUT"
 
@@ -71,6 +79,9 @@ else
   echo "$RESP" | grep -q '"name":"vibecap"' && ok "initialize serverInfo.name" || bad "initialize name" "$RESP"
   echo "$RESP" | grep -q 'vibecap_capture' && ok "tools/list has capture" || bad "tools capture" "$RESP"
   echo "$RESP" | grep -q 'vibecap_record_video' && ok "tools/list has record_video" || bad "tools record" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_record_start' && ok "tools/list has record_start" || bad "tools record_start" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_record_stop' && ok "tools/list has record_stop" || bad "tools record_stop" "$RESP"
+  echo "$RESP" | grep -q 'vibecap_record_status' && ok "tools/list has record_status" || bad "tools record_status" "$RESP"
   echo "$RESP" | grep -q 'vibecap_export_gif' && ok "tools/list has export_gif" || bad "tools gif" "$RESP"
   echo "$RESP" | grep -q 'vibecap_start_live_inspection' && ok "tools/list has live start" || bad "tools live" "$RESP"
   echo "$RESP" | grep -q 'vibecap_get_live_frame' && ok "tools/list has live frame" || bad "tools live frame" "$RESP"
@@ -86,8 +97,8 @@ else
   echo "$RESP" | grep -q 'vibecap_save_retro' && ok "tools/list has save_retro" || bad "tools save_retro" "$RESP"
   echo "$RESP" | grep -q 'vibecap_bug_report' && ok "tools/list has bug_report" || bad "tools bug_report" "$RESP"
   TOOL_COUNT=$(echo "$RESP" | tr ',' '\n' | grep -c '"name":"vibecap_' || true)
-  if [[ "$TOOL_COUNT" -ge 16 ]]; then
-    ok "tools/list reports ≥16 vibecap_* tools ($TOOL_COUNT)"
+  if [[ "$TOOL_COUNT" -ge 19 ]]; then
+    ok "tools/list reports ≥19 vibecap_* tools ($TOOL_COUNT)"
   else
     bad "tool count" "found $TOOL_COUNT"
   fi

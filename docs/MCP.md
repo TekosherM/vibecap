@@ -2,40 +2,45 @@
 
 Vibecap native exposes a **stdio JSON-RPC** Model Context Protocol server.
 
-If your agent **cannot attach** `vibecap --mcp`, use the **web HTTP studio** instead. That tab *is* the connector.
+If your harness **never lists** these tools (common on Cursor / Grok Bot dynamic-tool
+runtimes), **do not wait for MCP**. Use the CLI in [AGENTS.md](AGENTS.md):
 
-```
-cd web && npm run dev
-POST /api/agent/call  {"tool":"vibecap_job"}
-GET  /api/agent/clip/{id}.webm
+```bash
+vibecap record start --output-dir ./frames --display "$DISPLAY"
+vibecap --screenshot --output-dir ./frames
+vibecap record stop
 ```
 
-See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md). Do not look in `~/Movies/Vibecap` for web stills.
+Web HTTP can call the **same capturer** when `args.display` / `output_dir` is set
+([WEB.md](WEB.md)). `vibecap_job` is the Lumen Cart demo pack, not a random Chrome tab.
 
 ## Start the native server
 
 ```bash
-vibecap --mcp
+./scripts/vibecap-mcp.sh
+# or: vibecap --mcp
 ```
 
-### Client config example
+### Portable client config
+
+Checked in: [`.cursor/mcp.json`](../.cursor/mcp.json) and [`mcp.json`](../mcp.json).
 
 ```json
 {
   "mcpServers": {
     "vibecap": {
-      "command": "vibecap",
-      "args": ["--mcp"]
+      "command": "./scripts/vibecap-mcp.sh"
     }
   }
 }
 ```
 
-Use the installed binary. Prefer this over `cargo run --manifest-path /absolute/...` so configs stay portable.
+The script finds `target/release/vibecap`, `VIBECAP_BIN`, or `vibecap` on `PATH`.
+No machine-specific absolute path.
 
 | Client | Typical config path |
 | :--- | :--- |
-| Cursor | `~/.cursor/mcp.json` |
+| Cursor | project `.cursor/mcp.json` (this repo) or `~/.cursor/mcp.json` |
 | Claude Desktop | `claude_desktop_config.json` |
 | Gemini / Antigravity | MCP config under `~/.gemini/` |
 
@@ -45,14 +50,17 @@ Use the installed binary. Prefer this over `cargo run --manifest-path /absolute/
 - Protocol version advertised: `2024-11-05`
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`, `notifications/initialized`
 
-## Tools (16)
+## Tools (19)
 
 ### Capture & media
 
 | Tool | Args | Behavior |
 | :--- | :--- | :--- |
-| **`vibecap_capture`** | `app_name?` | Full-screen JPG → `~/Movies/Vibecap/screenshot_<ts>.jpg`. Optional focus via `open -a`. Does **not** open the annotation UI (use desktop app for drawings). |
-| **`vibecap_record_video`** | `app_name?`, `duration_secs?` (default 5, max 600) | Records MP4 + companion motion GIF. Honors budget caps. |
+| **`vibecap_capture`** | `output_dir?`, `display?`, `window?`, `app_name?` | Still of the **named display / window** (Linux: ffmpeg x11grab). JPEG → `output_dir` or the default from `vibecap --paths`. |
+| **`vibecap_record_start`** | `output_dir?`, `display?`, `window?`, `gif?` | Start **unbounded** MP4. Drive the flow; then `record_stop`. |
+| **`vibecap_record_stop`** | `gif?` | Stop and finalize the MP4 (optional companion GIF). |
+| **`vibecap_record_status`** | — | Live? pid, elapsed, path. |
+| **`vibecap_record_video`** | `duration_secs?`, `output_dir?`, `display?`, `window?`, `gif?` | **Omit** `duration_secs` → same as start (unbounded). Set it (max 600) for a short clip + GIF. |
 | **`vibecap_export_gif`** | `video_path`, `start_time`, `end_time` | Timeline GIF via ffmpeg (`fps=15,scale=800:-1:flags=lanczos`). |
 | **`vibecap_list_apps`** | — | Running app names for window focus / `app_name` args. |
 | **`vibecap_bug_report`** | `app_name?` | Still + retro GIF when frames exist (one-shot bug pack). |
@@ -115,12 +123,15 @@ Full use-case matrix: [FEEDBACK_USE_CASES.md](FEEDBACK_USE_CASES.md).
     requests/<id>.json
     responses/<id>.json
 
-~/Movies/Vibecap/
+{output_dir or default from `vibecap --paths`}/
   screenshot_*.jpg
   video_*.mp4
   video_*_clip.gif
+  .vibecap-record.json   # live unbounded session breadcrumb
   live/                  # live inspection frames
 ```
+
+Default media dir is **one** path: `dirs::video_dir()/Vibecap`, else `~/Movies/Vibecap` (macOS), else `~/Vibecap`. Agents should pass `output_dir`.
 
 App UI and MCP share the same budget + feedback directories.
 

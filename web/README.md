@@ -2,7 +2,7 @@
 
 HTTP evidence studio for agents. Same Safelight Graphite + amber brand as the native app.
 
-This running tab **is** the connector. There is no `vibecap --mcp` to attach.
+This running tab **is** the connector for Lumen Cart evidence. For a real Chrome/desktop flow, pass `display` / `output_dir` on capture tools (same x11grab CLI) or use `vibecap record start` — see [docs/AGENTS.md](../docs/AGENTS.md).
 
 ## What it is
 

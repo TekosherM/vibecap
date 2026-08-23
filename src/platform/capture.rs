@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use super::paths::media_dir;
+use super::source::{resolve_grab, CaptureOpts, GrabSpec};
+use super::shell::focus_app;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LiveFormat {
@@ -38,10 +40,24 @@ fn run_status(mut cmd: Command, what: &str) -> Result<(), String> {
 
 /// Full-screen screenshot to `out` (jpg/png path chosen by caller).
 pub fn capture_screenshot(out: &Path) -> Result<(), String> {
+    capture_screenshot_opts(out, &CaptureOpts::default())
+}
+
+/// Screenshot of the named display / window (Linux x11grab) or full screen.
+///
+/// On Linux the supported agent backend is **ffmpeg x11grab**. grim / import
+/// are last-resort fallbacks only when x11grab cannot start and the caller
+/// did not name a display.
+pub fn capture_screenshot_opts(out: &Path, opts: &CaptureOpts) -> Result<(), String> {
+    if let Some(app) = opts.window.as_deref() {
+        let _ = focus_app(app);
+    }
+    let spec = resolve_grab(opts);
     let out_s = path_str(out)?;
 
     #[cfg(target_os = "macos")]
     {
+        let _ = spec;
         let mut cmd = Command::new("screencapture");
         // -x silent, -t jpg. Without Screen Recording permission, macOS often
         // still exits 0 but only captures wallpaper / no app windows.
@@ -57,7 +73,7 @@ pub fn capture_screenshot(out: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        // gdigrab single frame
+        let _ = spec;
         let mut cmd = super::ffmpeg::ffmpeg_command()?;
         cmd.args([
             "-y",
@@ -73,52 +89,68 @@ pub fn capture_screenshot(out: &Path) -> Result<(), String> {
             "2",
             out_s,
         ]);
-        return run_status(cmd, "ffmpeg gdigrab screenshot");
+        run_status(cmd, "ffmpeg gdigrab screenshot")?;
+        return validate_capture_file(out);
     }
 
     #[cfg(target_os = "linux")]
     {
-        // Prefer grim (Wayland), then import (ImageMagick), then ffmpeg x11grab.
-        if Command::new("grim")
-            .arg(out_s)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            return Ok(());
+        match linux_x11grab_still(&spec, out_s) {
+            Ok(()) => return validate_capture_file(out),
+            Err(e) => {
+                // Named display/window: do not silently snap a different output.
+                if !opts.is_default() {
+                    return Err(e);
+                }
+                if Command::new("grim")
+                    .arg(out_s)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+                {
+                    return validate_capture_file(out);
+                }
+                if Command::new("import")
+                    .args(["-window", "root", out_s])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+                {
+                    return validate_capture_file(out);
+                }
+                return Err(e);
+            }
         }
-        if Command::new("import")
-            .args(["-window", "root", out_s])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-        let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0.0".into());
-        let mut cmd = super::ffmpeg::ffmpeg_command()?;
-        cmd.args([
-            "-y",
-            "-f",
-            "x11grab",
-            "-video_size",
-            &linux_screen_size(),
-            "-i",
-            &display,
-            "-frames:v",
-            "1",
-            "-q:v",
-            "2",
-            out_s,
-        ]);
-        return run_status(cmd, "ffmpeg x11grab screenshot");
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        let _ = out_s;
+        let _ = (out_s, spec);
         Err("screenshot is not supported on this platform".into())
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_x11grab_still(spec: &GrabSpec, out_s: &str) -> Result<(), String> {
+    let mut cmd = super::ffmpeg::ffmpeg_command()?;
+    cmd.args([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "x11grab",
+        "-video_size",
+        spec.video_size.as_deref().unwrap_or("1920x1080"),
+        "-i",
+        &spec.input,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        out_s,
+    ]);
+    run_status(cmd, "ffmpeg x11grab screenshot")
 }
 
 /// Interactive region/window capture when the OS supports it (macOS screencapture -i).
@@ -170,11 +202,25 @@ fn validate_capture_file(out: &Path) -> Result<(), String> {
 
 /// Record a fixed-duration screen clip to `out_mp4`.
 pub fn record_screen_clip(out_mp4: &Path, duration_secs: u64) -> Result<(), String> {
+    record_screen_clip_opts(out_mp4, duration_secs, &CaptureOpts::default())
+}
+
+/// Fixed-duration record of the named display / window.
+pub fn record_screen_clip_opts(
+    out_mp4: &Path,
+    duration_secs: u64,
+    opts: &CaptureOpts,
+) -> Result<(), String> {
+    if let Some(app) = opts.window.as_deref() {
+        let _ = focus_app(app);
+    }
+    let spec = resolve_grab(opts);
     let out_s = path_str(out_mp4)?;
     let dur = duration_secs.max(1).to_string();
 
     #[cfg(target_os = "macos")]
     {
+        let _ = spec;
         let mut cmd = Command::new("screencapture");
         cmd.args(["-v", "-V", &dur, out_s]);
         return run_status(cmd, "screencapture -v");
@@ -182,6 +228,7 @@ pub fn record_screen_clip(out_mp4: &Path, duration_secs: u64) -> Result<(), Stri
 
     #[cfg(target_os = "windows")]
     {
+        let _ = spec;
         let mut cmd = super::ffmpeg::ffmpeg_command()?;
         cmd.args([
             "-y",
@@ -204,20 +251,22 @@ pub fn record_screen_clip(out_mp4: &Path, duration_secs: u64) -> Result<(), Stri
 
     #[cfg(target_os = "linux")]
     {
-        let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0.0".into());
         let mut cmd = super::ffmpeg::ffmpeg_command()?;
         cmd.args([
             "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
             "-f",
             "x11grab",
             "-framerate",
             "30",
             "-video_size",
-            &linux_screen_size(),
+            spec.video_size.as_deref().unwrap_or("1920x1080"),
             "-t",
             &dur,
             "-i",
-            &display,
+            &spec.input,
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -229,7 +278,7 @@ pub fn record_screen_clip(out_mp4: &Path, duration_secs: u64) -> Result<(), Stri
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        let _ = (out_s, dur);
+        let _ = (out_s, dur, spec);
         Err("screen recording is not supported on this platform".into())
     }
 }
@@ -273,11 +322,17 @@ pub fn mp4_to_gif(mp4: &Path, gif: &Path) -> Result<(), String> {
 
 /// Headless screenshot into the media directory; returns the output path.
 pub fn capture_to_media_dir() -> Result<PathBuf, String> {
-    let out = media_dir().join(format!(
+    capture_to_dir(&media_dir(), &CaptureOpts::default())
+}
+
+/// Headless still into `dir`. Creates the directory. Returns the JPEG path.
+pub fn capture_to_dir(dir: &Path, opts: &CaptureOpts) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("could not create output dir: {e}"))?;
+    let out = dir.join(format!(
         "screenshot_{}.jpg",
         chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
     ));
-    capture_screenshot(&out)?;
+    capture_screenshot_opts(&out, opts)?;
     Ok(out)
 }
 
@@ -329,12 +384,30 @@ pub fn spawn_screen_recorder(
     with_audio: bool,
     crop: Option<(i32, i32, i32, i32)>, // w,h,x,y
 ) -> Result<Child, String> {
+    spawn_screen_recorder_opts(out_mp4, fps, with_audio, crop, &CaptureOpts::default())
+}
+
+/// Unbounded recorder with optional display / window (Linux x11grab).
+pub fn spawn_screen_recorder_opts(
+    out_mp4: &Path,
+    fps: u32,
+    with_audio: bool,
+    crop: Option<(i32, i32, i32, i32)>,
+    opts: &CaptureOpts,
+) -> Result<Child, String> {
+    if let Some(app) = opts.window.as_deref() {
+        let _ = focus_app(app);
+    }
+    let spec = resolve_grab(opts);
     let out_s = path_str(out_mp4)?;
     let mut cmd = super::ffmpeg::ffmpeg_command()?;
     cmd.arg("-y");
+    cmd.arg("-hide_banner");
+    cmd.arg("-loglevel").arg("error");
 
     #[cfg(target_os = "macos")]
     {
+        let _ = &spec;
         cmd.arg("-f").arg("avfoundation");
         cmd.arg("-r").arg(fps.to_string());
         let device = if with_audio { "1:0" } else { "1:none" };
@@ -343,7 +416,7 @@ pub fn spawn_screen_recorder(
 
     #[cfg(target_os = "windows")]
     {
-        let _ = with_audio; // system audio via dshow is machine-specific; video-only for now
+        let _ = (with_audio, &spec); // system audio via dshow is machine-specific; video-only for now
         cmd.arg("-f").arg("gdigrab");
         cmd.arg("-framerate").arg(fps.to_string());
         cmd.arg("-i").arg("desktop");
@@ -352,19 +425,25 @@ pub fn spawn_screen_recorder(
     #[cfg(target_os = "linux")]
     {
         let _ = with_audio;
-        let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0.0".into());
         cmd.arg("-f").arg("x11grab");
         cmd.arg("-framerate").arg(fps.to_string());
-        cmd.arg("-video_size").arg(linux_screen_size());
-        cmd.arg("-i").arg(display);
+        cmd.arg("-video_size")
+            .arg(spec.video_size.as_deref().unwrap_or("1920x1080"));
+        cmd.arg("-i").arg(&spec.input);
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        let _ = (fps, with_audio);
+        let _ = (fps, with_audio, spec);
         return Err("screen recording is not supported on this platform".into());
     }
 
+    // Prefer explicit region crop; otherwise a Linux window grab already sized the input.
+    let crop = crop.or(if spec.crop.is_some() && cfg!(not(target_os = "linux")) {
+        spec.crop
+    } else {
+        None
+    });
     if let Some((w, h, x, y)) = crop {
         cmd.arg("-vf").arg(format!("crop={}:{}:{}:{}", w, h, x, y));
     }
@@ -436,20 +515,3 @@ pub fn spawn_voice_memo(out_audio: &Path) -> Result<Child, String> {
     })
 }
 
-#[cfg(target_os = "linux")]
-fn linux_screen_size() -> String {
-    // Prefer xdpyinfo; fall back to a common default.
-    if let Ok(output) = Command::new("xdpyinfo").output() {
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines() {
-            if let Some(rest) = line.trim().strip_prefix("dimensions:") {
-                // e.g. " 1920x1080 pixels (...)"
-                let dims = rest.split_whitespace().next().unwrap_or("1920x1080");
-                if dims.contains('x') {
-                    return dims.to_string();
-                }
-            }
-        }
-    }
-    std::env::var("VIBECAP_SCREEN_SIZE").unwrap_or_else(|_| "1920x1080".into())
-}

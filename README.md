@@ -18,14 +18,16 @@ Brand assets: [docs/brand/](docs/brand/).
 
 ## Two connectors
 
-| | Native | Web |
+| | Native CLI / MCP | Web |
 | :--- | :--- | :--- |
-| How the agent attaches | Leave `vibecap` running, then `vibecap --mcp` | **The open studio tab is the connector.** There is no `--mcp`. |
-| Capture | Screenshot / record to disk | Unbounded record, snap JPEGs while REC is on |
-| Evidence | Screen pixels | Pixels **plus** DOM, console, HTTP, shell, database, logs |
-| Output | `{Videos}/Vibecap` or `~/Movies/Vibecap` | Pack JSON + Media downloads. **Not** a home folder. |
+| How the agent attaches | **CLI** (`record start` / `--screenshot` / `record stop`) — no mcp.json required. Or `vibecap --mcp` via [`.cursor/mcp.json`](.cursor/mcp.json). | Open tab for Lumen Cart. **Or** HTTP with `display` / `output_dir` (same native capturer). |
+| Capture | Target display / window (Linux: **ffmpeg x11grab**) | Native screen if those args are set; otherwise the shutter (demo / getDisplayMedia) |
+| Evidence | Screen pixels | Pixels **plus** DOM, console, HTTP, shell, database, logs (Lumen Cart) |
+| Output | `--output-dir` (default: `vibecap --paths`) | Pack + Media, **or** the caller `output_dir` for native stills |
 
-Most agent jobs on the web studio: `vibecap_job` (record → walk coupon/tax/pay → ingest → stop → pack). Inbox is optional.
+**Capture-only (signed-in Chrome / desktop flow):** see [docs/AGENTS.md](docs/AGENTS.md). Start / still / stop, files in `--output-dir`.
+
+Lumen Cart evidence job: `vibecap_job`. Inbox is optional.
 
 - Web: [docs/WEB.md](docs/WEB.md) · [docs/HOOKS.md](docs/HOOKS.md) · [docs/STATE.md](docs/STATE.md) · [web/README.md](web/README.md)
 - Native MCP: [docs/MCP.md](docs/MCP.md)
@@ -43,44 +45,39 @@ Vibecap is built for **smooth visual feedback loops** with whatever harness you 
 
 That loop is the product: agent sees the screen, you stay in flow, feedback stays visual and fast.
 
-### Web studio (HTTP)
+### Agent path (CLI — works when MCP never attaches)
 
-If MCP never attaches, use the web studio. Leave the tab open.
+Cursor / Grok Bot dynamic-tool harnesses often never list `vibecap_*` MCP tools. Use the binary:
 
 ```bash
-cd web
-npm install
-npm run dev
+OUT=./frames
+vibecap record start --output-dir "$OUT" --display "$DISPLAY"
+vibecap --screenshot --output-dir "$OUT"
+vibecap record stop
+```
+
+Linux backend is **ffmpeg x11grab** (supported, not a fallback). `ffmpeg` + `$DISPLAY` required.
+
+### Web studio (HTTP)
+
+Lumen Cart pack, **or** native stills when you pass `display` / `output_dir`:
+
+```bash
+cd web && npm install && npm run dev
 ```
 
 ```
-GET  /api/agent/hooks
-POST /api/agent/call  {"tool":"vibecap_job"}
+POST /api/agent/call {"tool":"vibecap_capture","args":{"display":":0","output_dir":"./frames"}}
+POST /api/agent/call {"tool":"vibecap_job"}
 ```
 
-Stills are JPEG in the tool result and at `GET /api/agent/still/{id}.jpg`. Do not look in `~/Movies/Vibecap`.
+Without `display` / `window` / `output_dir`, `GET /api/agent/still/{id}.jpg` is the **shutter** (demo pay screen if source is Demo).
 
 ### Native (MCP)
 
 ```bash
-# Human GUI (tray) — leave this running
-vibecap
-
-# Agent sidecar (one process per client is fine)
-vibecap --mcp
-```
-
-MCP config sketch:
-
-```json
-{
-  "mcpServers": {
-    "vibecap": {
-      "command": "vibecap",
-      "args": ["--mcp"]
-    }
-  }
-}
+./scripts/vibecap-mcp.sh    # portable; used by .cursor/mcp.json
+# or: vibecap --mcp
 ```
 
 ---
@@ -163,7 +160,9 @@ vibecap --help
 | `vibecap --hidden` | Start in tray only |
 | `vibecap --no-tray` | Window close quits |
 | `vibecap --mcp` | Stdio MCP for agents |
-| `vibecap --screenshot` | Headless still; prints path |
+| `vibecap --screenshot` | Headless still of the named display/window; prints path |
+| `vibecap record start` / `stop` | Unbounded MP4 (agent long flows) |
+| `vibecap --paths` | Print the one default media dir + backend |
 
 **Tray:** status · Show/Hide · Screenshot/Record · Loop stages (Shutter · Media · Clip · Still · Inbox · Settings) · Bug pack · Quit.
 
@@ -199,6 +198,7 @@ SMOKE_CAPTURE=1 ./scripts/smoke_mcp.sh   # optional real capture
 | [docs/FEEDBACK_USE_CASES.md](docs/FEEDBACK_USE_CASES.md) | HITL scenarios |
 | [docs/brand/](docs/brand/) | Logo, app icon, marks |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | PR hygiene |
+| [docs/AGENTS.md](docs/AGENTS.md) | CLI / harness (Cursor, Grok Bot) |
 | [skills/vibecap/SKILL.md](skills/vibecap/SKILL.md) | Agent skill |
 
 ---
@@ -220,7 +220,7 @@ Copy or symlink into your agent skills dir (e.g. `~/.agents/skills/vibecap/`).
 | :--- | :--- | :--- |
 | **macOS** | `screencapture` + ffmpeg | ✅ Primary |
 | **Windows** | ffmpeg `gdigrab` | ✅ Builds; install ffmpeg |
-| **Linux** | ffmpeg `x11grab` / grim | ✅ Builds |
+| **Linux** | ffmpeg **x11grab** (agent backend); grim still fallback | ✅ Builds |
 
 ---
 
@@ -228,7 +228,7 @@ Copy or symlink into your agent skills dir (e.g. `~/.agents/skills/vibecap/`).
 
 | Path | Use |
 | :--- | :--- |
-| `{Videos}/Vibecap/` or `~/Movies/Vibecap` | Native screenshots, videos, GIFs |
+| `--output-dir` or `vibecap --paths` | Native stills / MP4. One documented default per OS. |
 | `{config}/vibecap/` | Native budget, session, retro, feedback inbox |
 | `{config}/vibecap/feedback/` | Native agent questions + your answers |
 | Web Pack + Media | JPEG / WebM / JSON downloads. **Not** a home folder. |

@@ -33,9 +33,9 @@ pub fn ffmpeg_command() -> Result<Command, String> {
 }
 
 pub fn ffmpeg_missing_message() -> String {
-    "ffmpeg not found. Install with `brew install ffmpeg`, then fully quit and reopen Vibecap \
-     (Finder apps do not see Homebrew on PATH). Or set VIBECAP_FFMPEG to the full binary path \
-     (e.g. /usr/local/bin/ffmpeg)."
+    "ffmpeg not found. Linux agent capture uses ffmpeg x11grab — install with \
+     `sudo apt install ffmpeg` (or `brew install ffmpeg` on macOS). Finder/Dock launches \
+     do not see Homebrew on PATH; set VIBECAP_FFMPEG to the full binary path if needed."
         .into()
 }
 
@@ -172,9 +172,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_message_mentions_brew_and_env() {
+    fn missing_message_mentions_install_and_env() {
         let m = ffmpeg_missing_message();
-        assert!(m.contains("brew"));
+        assert!(m.contains("ffmpeg"));
         assert!(m.contains("VIBECAP_FFMPEG"));
+        assert!(m.contains("x11grab") || m.contains("brew") || m.contains("apt"));
     }
 }

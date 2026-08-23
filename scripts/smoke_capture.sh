@@ -24,9 +24,11 @@ echo "== Capture functional smoke =="
 echo "Binary: $BIN"
 echo "Host: $(uname -s) $(uname -m)"
 
-# 1) CLI full-screen screenshot
-echo "-- CLI --screenshot --"
-if OUT="$("$BIN" --screenshot 2>"$TMP/shot_err")"; then
+# 1) CLI full-screen screenshot (caller output dir)
+echo "-- CLI --screenshot --output-dir --"
+SHOT_DIR="$TMP/frames"
+mkdir -p "$SHOT_DIR"
+if OUT="$("$BIN" --screenshot --output-dir "$SHOT_DIR" --display "${DISPLAY:-:0}" 2>"$TMP/shot_err")"; then
   if [[ -f "$OUT" ]]; then
     BYTES=$(wc -c <"$OUT" | tr -d ' ')
     if [[ "$BYTES" -gt 20000 ]]; then
