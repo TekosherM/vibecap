@@ -28,7 +28,7 @@ export const DEMO_HTTP = [
     path: "/api/cart",
     status: 200,
     ms: 42,
-    body: '{"items":3,"subtotal":4500}',
+    body: '{"items":3,"subtotal":4500,"ui_total":4100}',
   },
   {
     method: "POST",

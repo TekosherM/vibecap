@@ -865,20 +865,32 @@ function ShutterStage({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2">
         <h1 className="text-lg font-semibold tracking-tight">Shutter</h1>
-        <Badge tone="muted">Live stage</Badge>
-        <div className="ml-auto flex flex-wrap gap-2">
+        <Badge tone="muted" className="hidden sm:inline-flex">
+          Live stage
+        </Badge>
+        <div className="ml-auto flex gap-1 sm:gap-2">
           <Button size="sm" variant={engine.source === "demo" ? "accent" : "subtle"} onClick={onDemo}>
-            Demo subject
+            Demo
           </Button>
-          <Button size="sm" variant={engine.source === "screen" ? "accent" : "subtle"} onClick={onScreen}>
+          <Button
+            size="sm"
+            variant={engine.source === "screen" ? "accent" : "subtle"}
+            onClick={onScreen}
+            aria-label="Screen"
+          >
             <Monitor className="size-4" />
-            Screen
+            <span className="hidden sm:inline">Screen</span>
           </Button>
-          <Button size="sm" variant={engine.source === "camera" ? "accent" : "subtle"} onClick={onCamera}>
+          <Button
+            size="sm"
+            variant={engine.source === "camera" ? "accent" : "subtle"}
+            onClick={onCamera}
+            aria-label="Camera"
+          >
             <Camera className="size-4" />
-            Camera
+            <span className="hidden sm:inline">Camera</span>
           </Button>
         </div>
       </div>
@@ -897,9 +909,9 @@ function ShutterStage({
         <Badge tone={plan.signals.stock_zero ? "agent" : "muted"}>
           {plan.signals.stock_zero} stock 0
         </Badge>
-        <span className="text-[12px] text-muted">Firing now — Sources says which medium to use.</span>
+        <span className="hidden text-[12px] text-muted sm:inline">Firing now — Sources says which medium to use.</span>
       </div>
-      <p className="text-[12px] text-muted">
+      <p className="hidden text-[12px] text-muted sm:block">
         Record, then Pay now to walk checkout. Snap the 402 frame while REC is on. Stop when it settles.
       </p>
     </div>
@@ -1099,9 +1111,14 @@ function SourcesStage({
           ))}
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
-        <pre className="max-h-56 overflow-auto rounded-xl bg-surface-2 p-3 font-mono text-[11px] leading-relaxed text-muted shadow-[var(--shadow-border)]">
-          {DEMO_TERMINAL}
-        </pre>
+        <details className="rounded-xl bg-surface-2 p-3 shadow-[var(--shadow-border)]">
+          <summary className="cursor-pointer text-[11px] uppercase tracking-wider text-dim">
+            Shell / compose
+          </summary>
+          <pre className="mt-2 max-h-56 overflow-auto font-mono text-[11px] leading-relaxed text-muted">
+            {DEMO_TERMINAL}
+          </pre>
+        </details>
         <div className="rounded-xl bg-surface-2 p-3 shadow-[var(--shadow-border)]">
           <div className="text-[11px] uppercase tracking-wider text-dim">Console</div>
           <ul className="mt-2 space-y-1.5 font-mono text-[11px]">
