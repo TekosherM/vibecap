@@ -257,6 +257,29 @@ export function Studio() {
     });
   }
 
+  async function runWalk() {
+    const coupon = await subjectCoupon({ data: { sessionId: sid! } });
+    captureEngine.rejectCoupon();
+    await afterPaint();
+    const couponStill = await persistStill("snapshot", "Coupon 422 LUMEN10");
+    const tax = await subjectTax({ data: { sessionId: sid! } });
+    captureEngine.failTax();
+    await afterPaint();
+    const taxStill = await persistStill("snapshot", "Tax 500 ZIP 94107");
+    captureEngine.setDemoPhase("paying");
+    const pay = await subjectPay({ data: { sessionId: sid! } });
+    captureEngine.setDemoPhase("declined");
+    await afterPaint();
+    const payStill = await persistStill("snapshot", "Pay 402 card_declined");
+    const stills = [couponStill, taxStill, payStill].filter(Boolean).map((row) => ({
+      captureId: row!.id,
+      path: `/api/agent/still/${row!.id}.jpg`,
+      mime: "image/jpeg",
+      data_url: row!.data_url,
+    }));
+    return { coupon, tax, pay, stills };
+  }
+
   async function onStill() {
     setBusy("still");
     const row = await persistStill("still", `Screenshot ${new Date().toLocaleTimeString()}`);
@@ -391,32 +414,36 @@ export function Studio() {
       return { ok: true, attached: captureEngine.getSnapshot().live };
     }
     if (tool === "vibecap_subject_walk") {
-      const coupon = await subjectCoupon({ data: { sessionId: sid } });
-      captureEngine.rejectCoupon();
-      await afterPaint();
-      const couponStill = await persistStill("snapshot", "Coupon 422 LUMEN10");
-      const tax = await subjectTax({ data: { sessionId: sid } });
-      captureEngine.failTax();
-      await afterPaint();
-      const taxStill = await persistStill("snapshot", "Tax 500 ZIP 94107");
-      captureEngine.setDemoPhase("paying");
       try {
-        const pay = await subjectPay({ data: { sessionId: sid } });
-        captureEngine.setDemoPhase("declined");
-        await afterPaint();
-        const payStill = await persistStill("snapshot", "Pay 402 card_declined");
+        const walked = await runWalk();
         await refresh();
         toast.message("Walked checkout — coupon 422, tax 500, pay 402 · 3 stills");
+        return walked;
+      } catch (err) {
+        captureEngine.setDemoPhase("ready");
+        throw err;
+      }
+    }
+    if (tool === "vibecap_job") {
+      try {
+        if (!captureEngine.recording) captureEngine.startRecording();
+        const walked = await runWalk();
+        await ingestFrontend({ data: { sessionId: sid } });
+        await ingestBackend({ data: { sessionId: sid } });
+        await ingestDatabase({ data: { sessionId: sid } });
+        await ingestLogs({ data: { sessionId: sid } });
+        const saved = captureEngine.recording ? await stopAndSaveClip() : null;
+        const pack = await buildPack({ data: { sessionId: sid } });
+        await refresh();
+        setStage("pack");
+        toast.success("Job packed — JSON + stills + clip in Pack / Media");
         return {
-          coupon,
-          tax,
-          pay,
-          stills: [couponStill, taxStill, payStill].filter(Boolean).map((row) => ({
-            captureId: row!.id,
-            path: `/api/agent/still/${row!.id}.jpg`,
-            mime: "image/jpeg",
-            data_url: row!.data_url,
-          })),
+          ...walked,
+          packId: pack.id,
+          summary: pack.summary,
+          captureId: saved?.row.id ?? null,
+          duration_ms: saved?.durationMs ?? 0,
+          clip: "Media stage — Download clip. JPEG stills inline. Not ~/Movies/Vibecap.",
         };
       } catch (err) {
         captureEngine.setDemoPhase("ready");
@@ -558,6 +585,7 @@ export function Studio() {
         { label: "Screenshot", hint: "S", run: () => void onStill() },
         { label: "Start / stop recording", hint: "R", run: () => void onRecordToggle() },
         { label: "Agent snap while live", hint: "during rec", run: () => void onSnap() },
+        { label: "Full evidence job", hint: "record+walk+pack", run: () => void runTool("vibecap_job") },
         { label: "Walk checkout (coupon, tax, pay)", hint: "422/500/402", run: () => void runTool("vibecap_subject_walk") },
         { label: "Apply coupon LUMEN10", hint: "422", run: () => void runTool("vibecap_subject_coupon") },
         { label: "Lookup tax ZIP", hint: "500", run: () => void runTool("vibecap_subject_tax") },
@@ -1607,6 +1635,9 @@ function AgentStage({
           <Button size="sm" variant={engine.recording ? "danger" : "accent"} onClick={onRecord}>
             {engine.recording ? <Square className="size-3.5 fill-current" /> : <Radio className="size-4" />}
             {engine.recording ? "Stop" : "Start rec"}
+          </Button>
+          <Button size="sm" variant="accent" onClick={() => onRun("vibecap_job")}>
+            Job
           </Button>
           <Button size="sm" variant="outline" onClick={() => onRun("vibecap_subject_walk")}>
             <CreditCard className="size-4" />

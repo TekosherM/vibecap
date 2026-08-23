@@ -116,6 +116,10 @@ export type StudioStatusRow = {
 /** Capture-only recipe. Inbox is optional. */
 export const CAPTURE_ONLY_TOOLS = [
   {
+    name: "vibecap_job",
+    summary: "Record, walk checkout (3 stills), ingest FE/BE/DB/logs, stop, pack. One call.",
+  },
+  {
     name: "vibecap_record_start",
     summary: "Start recording. No duration. Keep the camera on until the UI settles.",
   },
@@ -124,16 +128,12 @@ export const CAPTURE_ONLY_TOOLS = [
     summary: "Walk Lumen Cart: coupon 422, tax 500, pay 402. Snaps each failure. Does not stop REC.",
   },
   {
-    name: "vibecap_snapshot",
-    summary: "Still while video is rolling. Does not stop the recorder. Returns the JPEG.",
-  },
-  {
     name: "vibecap_record_stop",
     summary: "Stop. Clip + poster land in the pack / Media — never ~/Movies or ~/Vibecap.",
   },
   {
-    name: "vibecap_capture",
-    summary: "One still if you do not need motion. Returns the JPEG in the tool result.",
+    name: "vibecap_bug_pack",
+    summary: "One JSON pack. Stills are inline — nothing to copy out of a home directory.",
   },
 ] as const;
 
@@ -143,10 +143,7 @@ This running studio IS the connector. There is no vibecap --mcp to attach.
 POST /api/agent/call   GET /api/agent/help   GET /api/agent/hooks   GET /api/agent/media
 
 0. GET /api/agent/hooks              # what's live, which medium, what to call next
-1. vibecap_record_start              # no duration — keep rolling
-2. vibecap_subject_walk              # coupon 422, tax 500, pay 402 + 3 stills
-3. vibecap_record_stop               # when results settle
-4. vibecap_bug_pack                  # one JSON: stills + frontend + backend + db + logs
+1. vibecap_job                       # record → walk (3 stills) → ingest → stop → pack
 
 When to hook
   Pixels / layout / wrong UI copy     still or video (JPEG / WebM)
@@ -172,6 +169,14 @@ export const AGENT_TOOLS = [
     summary: "What's live, when to collect it, which medium. Call this first.",
   },
   ...CAPTURE_ONLY_TOOLS,
+  {
+    name: "vibecap_snapshot",
+    summary: "Still while video is rolling. Does not stop the recorder. Returns the JPEG.",
+  },
+  {
+    name: "vibecap_capture",
+    summary: "One still if you do not need motion. Returns the JPEG in the tool result.",
+  },
   {
     name: "vibecap_record_video",
     summary: "Record. duration_secs optional — omit it to start unbounded, then record_stop.",
@@ -215,10 +220,6 @@ export const AGENT_TOOLS = [
   {
     name: "vibecap_ingest_logs",
     summary: "Collect structured logs for the active session.",
-  },
-  {
-    name: "vibecap_bug_pack",
-    summary: "One JSON pack. Stills are inline — nothing to copy out of a home directory.",
   },
   {
     name: "vibecap_request_feedback",
