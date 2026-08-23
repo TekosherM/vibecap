@@ -120,22 +120,6 @@ export const CAPTURE_ONLY_TOOLS = [
     name: "vibecap_job",
     summary: "Record, walk checkout (3 stills), ingest FE/BE/DB/logs, stop, pack. One call.",
   },
-  {
-    name: "vibecap_record_start",
-    summary: "Start recording. No duration. Keep the camera on until the UI settles.",
-  },
-  {
-    name: "vibecap_subject_walk",
-    summary: "Walk Lumen Cart: coupon 422, tax 500, pay 402. Snaps each failure. Does not stop REC.",
-  },
-  {
-    name: "vibecap_record_stop",
-    summary: "Stop. Clip + poster land in the pack / Media — never ~/Movies or ~/Vibecap.",
-  },
-  {
-    name: "vibecap_bug_pack",
-    summary: "One JSON pack. Stills are inline — nothing to copy out of a home directory.",
-  },
 ] as const;
 
 export const AGENT_HELP = `Vibecap — capture-only (most jobs)
