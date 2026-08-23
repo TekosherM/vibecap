@@ -313,33 +313,23 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
       tool: "open_studio",
       why: "JPEG / WebM need this tab open. JSON hooks (FE / BE / DB) still work.",
     });
-  } else if (!facts.recording) {
+  } else if (!facts.paid) {
     next.push({
-      tool: "vibecap_record_start",
-      why: "Multi-step checkout — keep the camera on until the UI settles.",
+      tool: "vibecap_job",
+      why: "Record, walk (422/500/402 + 3 stills), ingest, stop, pack. One call.",
     });
-  } else {
-    if (!facts.coupon || !facts.tax || !facts.paid) {
-      next.push({
-        tool: "vibecap_subject_walk",
-        why: "Coupon 422, tax 500, pay 402 — snaps each frame. REC stays on.",
-      });
-    }
-  }
-  for (const id of ["dom", "http", "database"] as const) {
-    const h = hooks.find((x) => x.id === id);
-    if (h?.recommend) next.push({ tool: h.tool, why: h.reason });
-  }
-  if (facts.recording) {
+  } else if (facts.recording) {
     next.push({
       tool: "vibecap_record_stop",
-      why: "When results settle. JPEG poster + clip land in Media.",
+      why: "Walk already snapped the failures. Stop when it settles.",
     });
   }
-  next.push({
-    tool: "vibecap_bug_pack",
-    why: "If you don't want to choose — one JSON of every live layer + stills.",
-  });
+  if (facts.paid) {
+    next.push({
+      tool: "vibecap_bug_pack",
+      why: "One JSON of every live layer + stills.",
+    });
+  }
 
   return {
     subject: {

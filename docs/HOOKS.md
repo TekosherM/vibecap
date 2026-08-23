@@ -29,11 +29,8 @@ Screen / camera only change the **visual** medium. DOM, console, HTTP, and DB ta
 ## Typical checkout job
 
 ```
-hooks            → see console, HTTP 402/422/500, stock 0, DOM issues
-record_start     → camera on, no duration
-subject_walk     → coupon 422, tax 500, pay 402 + 3 stills (REC stays on)
-record_stop      → poster + clip in Media
-bug_pack         → one JSON (frontend + backend + db + logs + stills)
+hooks       → see console, HTTP 402/422/500, stock 0, DOM issues
+vibecap_job → record, walk (3 stills), ingest FE/BE/DB/logs, stop, pack
 ```
 
 Inbox is optional. Do not poll it unless you asked a human a question.

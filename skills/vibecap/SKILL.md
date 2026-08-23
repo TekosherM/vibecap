@@ -19,15 +19,12 @@ Two connectors. Pick one. Do not mix paths.
 
 ```
 GET  /api/agent/hooks
-POST /api/agent/call   { "tool": "vibecap_record_start" }
-POST /api/agent/call   { "tool": "vibecap_subject_walk" }  # 422 / 500 / 402 + 3 stills
-POST /api/agent/call   { "tool": "vibecap_record_stop" }
-POST /api/agent/call   { "tool": "vibecap_bug_pack" }
+POST /api/agent/call   { "tool": "vibecap_job" }
 GET  /api/agent/still/{id}.jpg
 GET  /api/agent/help
 ```
 
-`record_start` has **no duration**. `subject_walk` hits LUMEN10 (422), ZIP tax (500), Pay (402), and snaps each frame. REC stays on. Then stop.
+`vibecap_job` is the whole checkout evidence run: record (no duration), walk (coupon 422, tax 500, pay 402, 3 stills), ingest frontend/backend/database/logs, stop, pack. JPEG inline. Not ~/Movies.
 
 Capture tools need the studio tab open (`studio.attached`). Poll `GET /api/agent/result/{id}`.
 
@@ -36,7 +33,7 @@ Capture tools need the studio tab open (`studio.attached`). Poll `GET /api/agent
 | Signal | Tool | Medium |
 | :--- | :--- | :--- |
 | Pixels / layout / wrong UI copy | `snapshot` or `capture` | JPEG |
-| Multi-step until it settles | `record_start` → `subject_walk` → `record_stop` | WebM + 3 JPEGs |
+| Full checkout evidence | `vibecap_job` | WebM + 3 JPEGs + JSON pack |
 | Console / DOM | `vibecap_ingest_frontend` | JSON |
 | 4xx/5xx / stack / shell | `vibecap_ingest_backend` | JSON |
 | Wrong stock / price / row | `vibecap_ingest_database` | JSON |

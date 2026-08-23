@@ -36,12 +36,10 @@ JSON tools (`hooks`, `ingest_*`, `bug_pack`, budget, inbox) run immediately on t
 ## Capture-only (most jobs)
 
 1. `GET /api/agent/hooks`
-2. `vibecap_record_start` — **no duration**. Keep rolling.
-3. `vibecap_subject_walk` — coupon **422**, tax **500**, pay **402**, **3 stills**. REC stays on.
-4. `vibecap_record_stop` — when the UI settles. Poster JPEG + clip in Media.
-5. `vibecap_bug_pack` — stills + frontend + backend + database + logs.
+2. `vibecap_job` — record → walk (coupon 422, tax 500, pay 402, **3 stills**) → ingest FE/BE/DB/logs → stop → pack.
 
-Granular: `vibecap_subject_coupon`, `vibecap_subject_tax`, `vibecap_subject_pay`.
+Granular: `record_start`, `subject_walk`, `subject_coupon` / `tax` / `pay`, `snapshot`, `record_stop`, `bug_pack`.
+
 
 `vibecap_record_video` still exists. `duration_secs` is optional; omit it for unbounded, then `record_stop`.
 

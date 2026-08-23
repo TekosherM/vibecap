@@ -41,10 +41,19 @@ async function call(tool, args = {}) {
   return { pending, result, parsed };
 }
 
-const start = await call("vibecap_record_start");
-const walk = await call("vibecap_subject_walk");
-const snap = await call("vibecap_snapshot");
+const job = await call("vibecap_job");
+const start = { pending: { status: "skipped" }, result: { status: "done" }, parsed: null };
+const walk = job;
+const snap = { pending: { status: "skipped" }, result: { status: "done" }, parsed: (job.parsed?.stills ?? [])[2] };
 const parsed = snap.parsed;
+const stop = {
+  parsed: {
+    captureId: job.parsed?.captureId,
+    duration_ms: job.parsed?.duration_ms,
+    data_url: parsed?.data_url,
+    clip: job.parsed?.clip,
+  },
+};
 
 let jpeg = { ok: false, type: "", bytes: 0, status: 0 };
 if (parsed?.path) {
@@ -54,8 +63,6 @@ if (parsed?.path) {
     return { ok: r.ok, type: r.headers.get("content-type"), bytes: buf.byteLength, status: r.status };
   }, parsed.path);
 }
-
-const stop = await call("vibecap_record_stop");
 
 await page.getByRole("button", { name: "Sources" }).first().click();
 await page.waitForTimeout(400);
@@ -103,7 +110,15 @@ console.log(JSON.stringify({
     next: (hooks.next ?? []).map((n) => n.tool),
     rule: hooks.rule,
   },
-  start: { status: start.pending?.status, resultStatus: start.result?.status, result: start.parsed ?? start.result?.result },
+  job: {
+    status: job.result?.status,
+    packId: job.parsed?.packId ?? job.result?.result?.packId,
+    summary: job.parsed?.summary ?? job.result?.result?.summary,
+    stills: (job.parsed?.stills ?? job.result?.result?.stills ?? []).length,
+    coupon: job.parsed?.coupon?.error ?? job.result?.result?.coupon?.error,
+    tax: job.parsed?.tax?.status ?? job.result?.result?.tax?.status,
+    pay: job.parsed?.pay?.error ?? job.result?.result?.pay?.error,
+  },
   walk: {
     status: walk.result?.status,
     coupon: walk.parsed?.coupon?.error ?? walk.result?.result?.coupon?.error,
