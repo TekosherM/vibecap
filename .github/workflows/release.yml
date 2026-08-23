@@ -55,7 +55,7 @@ jobs:
           sudo apt-get install -y \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxkbcommon-dev libssl-dev libgtk-3-dev \
-            libasound2-dev libudev-dev pkg-config
+            libasound2-dev libudev-dev libxdo-dev pkg-config
 
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
@@ -118,9 +118,9 @@ jobs:
           body: |
             ## Vibecap ${{ github.ref_name }}
 
-            Native screen recorder, annotation studio, and MCP sidecar for AI coding agents.
+            Two connectors: native MCP (`vibecap --mcp`) and the **web HTTP studio** (the open tab is the connector).
 
-            ### Assets
+            ### Native assets
             | File | Platform |
             | :--- | :--- |
             | `vibecap-aarch64-apple-darwin.tar.gz` | macOS Apple Silicon |
@@ -128,7 +128,15 @@ jobs:
             | `vibecap-x86_64-unknown-linux-gnu.tar.gz` | Linux x86_64 |
             | `vibecap-x86_64-pc-windows-msvc.zip` | Windows x86_64 |
 
-            ### Install (example, macOS Apple Silicon)
+            ### Web studio
+            ```bash
+            git clone https://github.com/TekosherM/vibecap.git
+            cd vibecap/web && npm install && npm run dev
+            ```
+            Capture-only: `hooks` → `record_start` → `snapshot` → `record_stop` → `bug_pack`.
+            Stills: `GET /api/agent/still/{id}.jpg`. Not `~/Movies/Vibecap`.
+
+            ### Install native (macOS Apple Silicon)
             ```bash
             tar -xzf vibecap-aarch64-apple-darwin.tar.gz
             sudo mv vibecap-aarch64-apple-darwin/vibecap /usr/local/bin/
@@ -138,6 +146,6 @@ jobs:
             Requires **ffmpeg** on `PATH` for GIF export / editor tools.
             macOS: grant **Screen Recording** permission.
 
-            Docs: [USAGE](https://github.com/TekosherM/vibecap/blob/master/docs/USAGE.md) · [MCP](https://github.com/TekosherM/vibecap/blob/master/docs/MCP.md) · [PLATFORMS](https://github.com/TekosherM/vibecap/blob/master/docs/PLATFORMS.md)
+            Docs: [WEB](https://github.com/TekosherM/vibecap/blob/master/docs/WEB.md) · [HOOKS](https://github.com/TekosherM/vibecap/blob/master/docs/HOOKS.md) · [USAGE](https://github.com/TekosherM/vibecap/blob/master/docs/USAGE.md) · [MCP](https://github.com/TekosherM/vibecap/blob/master/docs/MCP.md)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

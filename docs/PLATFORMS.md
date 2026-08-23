@@ -1,6 +1,6 @@
 # Platform support
 
-Vibecap keeps one CLI/MCP surface across OSes. Capture backends are selected at compile time via `src/platform/`.
+Native capture backends live under `src/platform/`. The **web studio** (`web/`) is HTTP and runs wherever Node does — see [WEB.md](WEB.md).
 
 ## Status
 
@@ -32,7 +32,7 @@ Vibecap keeps one CLI/MCP surface across OSes. Capture backends are selected at 
 | :--- | :--- | :--- |
 | macOS | Screen Recording permission, ffmpeg for GIF/editor | — |
 | Windows | ffmpeg on `PATH` | chocolatey ffmpeg |
-| Linux | ffmpeg; X11 session for x11grab | `grim` (Wayland stills), `wmctrl`, `xdpyinfo` |
+| Linux | ffmpeg; X11 session for x11grab; `libxdo-dev` to **link** the desktop binary | `grim` (Wayland stills), `wmctrl`, `xdpyinfo` |
 
 Environment knobs:
 

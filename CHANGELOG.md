@@ -59,6 +59,7 @@ Web studio + agent-loop docs. Native crate stays 0.1.0; desktop binaries are sti
 - Agent skill shortened; capture-only first; inbox/poll loops optional
 - README, USAGE, CONTRIBUTING, ARCHITECTURE, TESTING document two connectors
 - Web stills live in the pack and `GET /api/agent/still/{id}.jpg` — not `~/Movies/Vibecap`
+- CI: Linux installs `libxdo-dev` (fixes red Ubuntu badge); web `npm run typecheck` job
 
 ## [0.1.0] — 2026-08-05
 
