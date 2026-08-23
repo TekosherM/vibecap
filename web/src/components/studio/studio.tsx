@@ -257,19 +257,29 @@ export function Studio() {
     });
   }
 
+  function hold(ms = 700) {
+    return new Promise<void>((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+  }
+
   async function runWalk() {
     const coupon = await subjectCoupon({ data: { sessionId: sid! } });
     captureEngine.rejectCoupon();
     await afterPaint();
+    await hold(700);
     const couponStill = await persistStill("snapshot", "Coupon 422 LUMEN10");
     const tax = await subjectTax({ data: { sessionId: sid! } });
     captureEngine.failTax();
     await afterPaint();
+    await hold(700);
     const taxStill = await persistStill("snapshot", "Tax 500 ZIP 94107");
     captureEngine.setDemoPhase("paying");
+    await hold(400);
     const pay = await subjectPay({ data: { sessionId: sid! } });
     captureEngine.setDemoPhase("declined");
     await afterPaint();
+    await hold(800);
     const payStill = await persistStill("snapshot", "Pay 402 card_declined");
     const stills = [couponStill, taxStill, payStill].filter(Boolean).map((row) => ({
       captureId: row!.id,
@@ -425,13 +435,16 @@ export function Studio() {
       }
     }
     if (tool === "vibecap_job") {
+      setBusy("vibecap_job");
       try {
         if (!captureEngine.recording) captureEngine.startRecording();
+        await hold(400);
         const walked = await runWalk();
         await ingestFrontend({ data: { sessionId: sid } });
         await ingestBackend({ data: { sessionId: sid } });
         await ingestDatabase({ data: { sessionId: sid } });
         await ingestLogs({ data: { sessionId: sid } });
+        await hold(500);
         const saved = captureEngine.recording ? await stopAndSaveClip() : null;
         const pack = await buildPack({ data: { sessionId: sid } });
         await refresh();
@@ -448,6 +461,8 @@ export function Studio() {
       } catch (err) {
         captureEngine.setDemoPhase("ready");
         throw err;
+      } finally {
+        setBusy(null);
       }
     }
     if (tool === "vibecap_subject_coupon") {
@@ -721,6 +736,7 @@ export function Studio() {
               packs={packs}
               evidence={evidence}
               captures={captures}
+              videoUrls={videoUrls}
               onBuild={() => void runTool("vibecap_bug_pack")}
             />
           )}
@@ -845,7 +861,7 @@ export function Studio() {
           </Button>
           <Button
             size="sm"
-            variant={engine.recording ? "danger" : "accent"}
+            variant={engine.recording ? "danger" : "subtle"}
             onClick={() => void onRecordToggle()}
           >
             {engine.recording ? <Square className="size-3.5 fill-current" /> : <Radio className="size-4" />}
@@ -857,19 +873,15 @@ export function Studio() {
           </Button>
           <Button
             size="sm"
-            variant={engine.demoPhase === "declined" ? "danger" : "subtle"}
-            onClick={() => void runTool("vibecap_subject_walk")}
-            disabled={busy === "vibecap_subject_walk" || engine.demoPhase === "paying"}
+            variant={engine.demoPhase === "declined" ? "danger" : "accent"}
+            onClick={() => void runTool("vibecap_job")}
+            disabled={busy === "vibecap_job"}
           >
             <CreditCard className="size-4" />
-            {engine.demoPhase === "paying"
-              ? "Walking…"
-              : engine.demoPhase === "declined"
-                ? "Declined"
-                : "Walk"}
+            {busy === "vibecap_job" ? "Job…" : engine.demoPhase === "declined" ? "Packed" : "Job"}
           </Button>
           <div className="hidden text-[11px] text-dim sm:block">
-            Record, Walk (coupon → tax → pay), Snap, Stop.
+            Job records, walks coupon → tax → pay, and packs JSON + clip.
           </div>
         </div>
         <div className="flex gap-1 overflow-x-auto px-3 pb-2 md:hidden">
@@ -1250,15 +1262,18 @@ function PackStage({
   packs,
   evidence,
   captures,
+  videoUrls,
   onBuild,
 }: {
   packs: PackRow[];
   evidence: EvidenceRow[];
   captures: CaptureRow[];
+  videoUrls: Record<string, string>;
   onBuild: () => void;
 }) {
   const latest = packs[0];
   const stills = captures.filter((c) => c.data_url && c.kind !== "video");
+  const clip = captures.find((c) => c.kind === "video" && videoUrls[c.id]);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
       <div className="flex items-end justify-between">
@@ -1306,6 +1321,16 @@ function PackStage({
                 <Download className="size-4" />
                 Download stills
               </Button>
+              {clip && (
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  onClick={() => downloadHref(videoUrls[clip.id], `vibecap-clip-${clip.id.slice(0, 8)}.webm`)}
+                >
+                  <Download className="size-4" />
+                  Download clip
+                </Button>
+              )}
             </div>
           </div>
           {stills.length > 0 && (

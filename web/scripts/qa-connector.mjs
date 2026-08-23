@@ -64,6 +64,8 @@ if (parsed?.path) {
   }, parsed.path);
 }
 
+await page.screenshot({ path: "/workspace/screenshots/qa-pack.png", fullPage: false });
+
 await page.getByRole("button", { name: "Sources" }).first().click();
 await page.waitForTimeout(400);
 await page.screenshot({ path: "/workspace/screenshots/qa-sources.png", fullPage: false });
@@ -118,6 +120,7 @@ console.log(JSON.stringify({
     coupon: job.parsed?.coupon?.error ?? job.result?.result?.coupon?.error,
     tax: job.parsed?.tax?.status ?? job.result?.result?.tax?.status,
     pay: job.parsed?.pay?.error ?? job.result?.result?.pay?.error,
+    duration_ms: job.parsed?.duration_ms ?? job.result?.result?.duration_ms,
   },
   walk: {
     status: walk.result?.status,
