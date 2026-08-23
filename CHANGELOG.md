@@ -15,6 +15,7 @@ Native desktop work on `master` not yet cut as a binary. Desktop assets remain [
 - Phone shutter: compact source switcher, live cart/tax HTTP on Sources
 - Coupon LUMEN10 (422 expired) and ZIP tax lookup (500) are live walk steps
 - `vibecap_subject_walk` / **Walk** runs coupon 422 → tax 500 → pay 402 without stopping REC
+- Walk snaps coupon / tax / pay frames automatically (3 JPEGs)
 - Feedback loop coverage for 30 agent/human scenarios (`docs/FEEDBACK_USE_CASES.md`)
 - MCP: `vibecap_list_feedback`, `vibecap_cancel_feedback` (12 tools total)
 - `request_feedback`: optional `media_path`, `options`, `priority`, `agent_label`, `preferred_reply`, `context`

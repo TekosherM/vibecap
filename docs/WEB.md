@@ -37,10 +37,9 @@ JSON tools (`hooks`, `ingest_*`, `bug_pack`, budget, inbox) run immediately on t
 
 1. `GET /api/agent/hooks`
 2. `vibecap_record_start` — **no duration**. Keep rolling.
-3. `vibecap_subject_walk` — coupon **422**, tax **500**, pay **402**. REC stays on.
-4. `vibecap_snapshot` — failure frame. Does not stop REC. JPEG is inline.
-5. `vibecap_record_stop` — when the UI settles. Poster JPEG + clip in Media.
-6. `vibecap_bug_pack` — stills + frontend + backend + database + logs.
+3. `vibecap_subject_walk` — coupon **422**, tax **500**, pay **402**, **3 stills**. REC stays on.
+4. `vibecap_record_stop` — when the UI settles. Poster JPEG + clip in Media.
+5. `vibecap_bug_pack` — stills + frontend + backend + database + logs.
 
 Granular: `vibecap_subject_coupon`, `vibecap_subject_tax`, `vibecap_subject_pay`.
 

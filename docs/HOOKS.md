@@ -23,20 +23,17 @@ Screen / camera only change the **visual** medium. DOM, console, HTTP, and DB ta
 | Wrong stock / price / row | Database | `vibecap_ingest_database` | Bug never touches persisted state |
 | Need a timeline of collections | Session logs | `vibecap_ingest_logs` | First minute — collect layers first |
 | Need pixels now / failure frame | Still | `vibecap_snapshot` (or `capture`) | Need motion — use record |
-| Cart → pay → error, timing, race | Video | `record_start` … `record_stop` | Single static screen — one still is cheaper |
+| Cart → coupon → tax → pay | Video + stills | `record_start` → `subject_walk` → `record_stop` | Single static screen — one still is cheaper |
 | Don’t want to choose | Pack | `vibecap_bug_pack` | — |
 
 ## Typical checkout job
 
 ```
-hooks            → see 2 console errors, HTTP 402, tax 500, stock 0, 4 DOM issues
+hooks            → see console, HTTP 402/422/500, stock 0, DOM issues
 record_start     → camera on, no duration
-snapshot         → each failure frame (JPEG inline)
-ingest_frontend  → DOM + console
-ingest_backend   → HTTP + compose
-ingest_database  → catalog_items (LM-15 stock 0)
+subject_walk     → coupon 422, tax 500, pay 402 + 3 stills (REC stays on)
 record_stop      → poster + clip in Media
-bug_pack         → one JSON
+bug_pack         → one JSON (frontend + backend + db + logs + stills)
 ```
 
 Inbox is optional. Do not poll it unless you asked a human a question.

@@ -109,6 +109,7 @@ console.log(JSON.stringify({
     coupon: walk.parsed?.coupon?.error ?? walk.result?.result?.coupon?.error,
     tax: walk.parsed?.tax?.status ?? walk.result?.result?.tax?.status,
     pay: walk.parsed?.pay?.error ?? walk.result?.result?.pay?.error,
+    stills: (walk.parsed?.stills ?? walk.result?.result?.stills ?? []).length,
   },
   snap: {
     status: snap.pending?.status,

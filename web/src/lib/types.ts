@@ -121,7 +121,7 @@ export const CAPTURE_ONLY_TOOLS = [
   },
   {
     name: "vibecap_subject_walk",
-    summary: "Walk Lumen Cart: coupon 422, tax 500, pay 402. Does not stop REC.",
+    summary: "Walk Lumen Cart: coupon 422, tax 500, pay 402. Snaps each failure. Does not stop REC.",
   },
   {
     name: "vibecap_snapshot",
@@ -144,10 +144,9 @@ POST /api/agent/call   GET /api/agent/help   GET /api/agent/hooks   GET /api/age
 
 0. GET /api/agent/hooks              # what's live, which medium, what to call next
 1. vibecap_record_start              # no duration — keep rolling
-2. vibecap_subject_walk              # coupon 422, tax 500, pay 402
-3. vibecap_snapshot                  # failure frame; video stays up
-4. vibecap_record_stop               # when results settle
-5. vibecap_bug_pack                  # one JSON: stills + frontend + backend + db + logs
+2. vibecap_subject_walk              # coupon 422, tax 500, pay 402 + 3 stills
+3. vibecap_record_stop               # when results settle
+4. vibecap_bug_pack                  # one JSON: stills + frontend + backend + db + logs
 
 When to hook
   Pixels / layout / wrong UI copy     still or video (JPEG / WebM)

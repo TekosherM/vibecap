@@ -251,6 +251,12 @@ export function Studio() {
     return row;
   }
 
+  function afterPaint() {
+    return new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  }
+
   async function onStill() {
     setBusy("still");
     const row = await persistStill("still", `Screenshot ${new Date().toLocaleTimeString()}`);
@@ -387,15 +393,31 @@ export function Studio() {
     if (tool === "vibecap_subject_walk") {
       const coupon = await subjectCoupon({ data: { sessionId: sid } });
       captureEngine.rejectCoupon();
+      await afterPaint();
+      const couponStill = await persistStill("snapshot", "Coupon 422 LUMEN10");
       const tax = await subjectTax({ data: { sessionId: sid } });
       captureEngine.failTax();
+      await afterPaint();
+      const taxStill = await persistStill("snapshot", "Tax 500 ZIP 94107");
       captureEngine.setDemoPhase("paying");
       try {
         const pay = await subjectPay({ data: { sessionId: sid } });
         captureEngine.setDemoPhase("declined");
+        await afterPaint();
+        const payStill = await persistStill("snapshot", "Pay 402 card_declined");
         await refresh();
-        toast.message("Walked checkout — coupon 422, tax 500, pay 402");
-        return { coupon, tax, pay };
+        toast.message("Walked checkout — coupon 422, tax 500, pay 402 · 3 stills");
+        return {
+          coupon,
+          tax,
+          pay,
+          stills: [couponStill, taxStill, payStill].filter(Boolean).map((row) => ({
+            captureId: row!.id,
+            path: `/api/agent/still/${row!.id}.jpg`,
+            mime: "image/jpeg",
+            data_url: row!.data_url,
+          })),
+        };
       } catch (err) {
         captureEngine.setDemoPhase("ready");
         throw err;
