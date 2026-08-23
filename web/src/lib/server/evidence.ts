@@ -20,6 +20,7 @@ import {
   DEMO_TERMINAL,
 } from "@/lib/demo-data";
 import { evaluateHooks, type HookPlan } from "@/lib/hooks";
+import { cartBody, taxBody } from "@/lib/server/subject";
 
 function nid() {
   return crypto.randomUUID();
@@ -310,10 +311,25 @@ export const ingestBackend = createServerFn({ method: "POST" })
       order by created_at desc
       limit 24
     `;
+    const items = await sql<CatalogItem>`
+      select id, sku, name, price_cents, stock from catalog_items order by id
+    `;
+    const cart = cartBody(items);
+    const tax = taxBody();
     const body = JSON.stringify(
       {
         terminal: DEMO_TERMINAL,
-        http: DEMO_HTTP,
+        http: [
+          { method: "GET", path: "/api/cart", status: 200, ms: 42, body: cart },
+          { method: "GET", path: "/api/tax?zip=94107", status: 500, ms: 12, body: tax },
+          {
+            method: "POST",
+            path: "/api/checkout",
+            status: 402,
+            ms: 184,
+            body: { error: "card_declined", code: "generic_decline", ui_total_cents: 4100, items_sum_cents: cart.subtotal_cents },
+          },
+        ],
         live_http: liveHttp.map((l) => ({
           level: l.level,
           message: l.message,

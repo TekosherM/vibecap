@@ -73,6 +73,14 @@ const media = await page.evaluate(async () => {
   const r = await fetch("/api/agent/media");
   return r.json();
 });
+const subject = await page.evaluate(async () => {
+  const cart = await fetch("/api/cart");
+  const tax = await fetch("/api/tax");
+  return {
+    cart: { status: cart.status, body: await cart.json() },
+    tax: { status: tax.status, body: await tax.json() },
+  };
+});
 const status = await page.evaluate(async () => {
   const r = await fetch("/api/agent/status");
   return r.json();
@@ -120,6 +128,7 @@ console.log(JSON.stringify({
     files: Array.isArray(media) ? media.filter((m) => typeof m.file === "string").length : 0,
     downloadButtons: await page.getByRole("button", { name: /Download (JPEG|clip)/ }).count(),
   },
+  subject,
   studio: status.studio,
 }, null, 2));
 await browser.close();

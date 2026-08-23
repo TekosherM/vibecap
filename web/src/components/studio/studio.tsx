@@ -480,12 +480,14 @@ export function Studio() {
         collected: [...new Set(evidence.map((e) => e.source))],
         captureCount: captures.length,
         stockZero: 1,
+        paid: engine.demoPhase === "declined",
       }),
     [
       engine.live,
       engine.recording,
       engine.inspecting,
       engine.source,
+      engine.demoPhase,
       evidence,
       captures.length,
     ],
@@ -593,6 +595,7 @@ export function Studio() {
               onScreen={() => captureEngine.useScreen().catch((e) => toast.error(String(e)))}
               onCamera={() => captureEngine.useCamera().catch((e) => toast.error(String(e)))}
               onDemo={() => void captureEngine.useDemo()}
+              onPay={() => void runTool("vibecap_subject_pay")}
             />
           )}
           {stage === "sources" && (
@@ -850,6 +853,7 @@ function ShutterStage({
   onScreen,
   onCamera,
   onDemo,
+  onPay,
 }: {
   engine: ReturnType<typeof captureEngine.getSnapshot>;
   tick: number;
@@ -857,6 +861,7 @@ function ShutterStage({
   onScreen: () => void;
   onCamera: () => void;
   onDemo: () => void;
+  onPay: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -878,7 +883,7 @@ function ShutterStage({
         </div>
       </div>
       {engine.lastError && <p className="text-sm text-danger">{engine.lastError}</p>}
-      <LivePreview engine={engine} tick={tick} />
+      <LivePreview engine={engine} tick={tick} onPay={onPay} />
       <div className="flex flex-wrap items-center gap-1.5">
         <Badge tone={plan.signals.console_errors ? "danger" : "muted"}>
           {plan.signals.console_errors} console

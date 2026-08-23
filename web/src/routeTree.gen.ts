@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiCartRouteImport } from './routes/api/cart'
 import { Route as ApiCheckoutRouteImport } from './routes/api/checkout'
+import { Route as ApiTaxRouteImport } from './routes/api/tax'
 import { Route as ApiAgentSplatRouteImport } from './routes/api/agent/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -18,9 +20,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCartRoute = ApiCartRouteImport.update({
+  id: '/api/cart',
+  path: '/api/cart',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCheckoutRoute = ApiCheckoutRouteImport.update({
   id: '/api/checkout',
   path: '/api/checkout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTaxRoute = ApiTaxRouteImport.update({
+  id: '/api/tax',
+  path: '/api/tax',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAgentSplatRoute = ApiAgentSplatRouteImport.update({
@@ -31,31 +43,45 @@ const ApiAgentSplatRoute = ApiAgentSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/cart': typeof ApiCartRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/tax': typeof ApiTaxRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/cart': typeof ApiCartRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/tax': typeof ApiTaxRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/cart': typeof ApiCartRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/tax': typeof ApiTaxRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/checkout' | '/api/agent/$'
+  fullPaths: '/' | '/api/cart' | '/api/checkout' | '/api/tax' | '/api/agent/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/checkout' | '/api/agent/$'
-  id: '__root__' | '/' | '/api/checkout' | '/api/agent/$'
+  to: '/' | '/api/cart' | '/api/checkout' | '/api/tax' | '/api/agent/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/cart'
+    | '/api/checkout'
+    | '/api/tax'
+    | '/api/agent/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiCartRoute: typeof ApiCartRoute
   ApiCheckoutRoute: typeof ApiCheckoutRoute
+  ApiTaxRoute: typeof ApiTaxRoute
   ApiAgentSplatRoute: typeof ApiAgentSplatRoute
 }
 
@@ -68,11 +94,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cart': {
+      id: '/api/cart'
+      path: '/api/cart'
+      fullPath: '/api/cart'
+      preLoaderRoute: typeof ApiCartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/checkout': {
       id: '/api/checkout'
       path: '/api/checkout'
       fullPath: '/api/checkout'
       preLoaderRoute: typeof ApiCheckoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/tax': {
+      id: '/api/tax'
+      path: '/api/tax'
+      fullPath: '/api/tax'
+      preLoaderRoute: typeof ApiTaxRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agent/$': {
@@ -87,7 +127,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiCartRoute: ApiCartRoute,
   ApiCheckoutRoute: ApiCheckoutRoute,
+  ApiTaxRoute: ApiTaxRoute,
   ApiAgentSplatRoute: ApiAgentSplatRoute,
 }
 export const routeTree = rootRouteImport

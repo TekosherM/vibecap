@@ -11,6 +11,7 @@ Native desktop work on `master` not yet cut as a binary. Desktop assets remain [
 
 ### Added
 - Web studio: **Pay now** / `vibecap_subject_pay` walks Lumen Cart (tax throw + Stripe 402) while REC stays on
+- Click the Pay CTA on the live checkout; `GET /api/cart` + `GET /api/tax` are live subject HTTP
 - Feedback loop coverage for 30 agent/human scenarios (`docs/FEEDBACK_USE_CASES.md`)
 - MCP: `vibecap_list_feedback`, `vibecap_cancel_feedback` (12 tools total)
 - `request_feedback`: optional `media_path`, `options`, `priority`, `agent_label`, `preferred_reply`, `context`

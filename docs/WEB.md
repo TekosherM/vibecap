@@ -62,3 +62,6 @@ Auth is **off**. Rows are unowned.
 - Production: `DATABASE_URL` (Neon)
 
 See [HOOKS.md](HOOKS.md) for when to collect each layer.
+
+
+Subject HTTP: `GET /api/cart`, `GET /api/tax` (500), `POST /api/checkout` (402).
