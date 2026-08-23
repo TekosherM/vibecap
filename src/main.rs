@@ -2294,7 +2294,7 @@ fn main() -> eframe::Result<()> {
         println!("  --mcp          Run as Model Context Protocol (MCP) stdio server");
         println!("                 Leave the GUI running, then start --mcp from the agent.");
         println!("                 If MCP never attaches, use the web HTTP studio instead:");
-        println!("                 cd web && npm run dev  →  POST /api/agent/call {\"tool\":\"vibecap_job\"}");
+        println!("                 cd web && npm run dev  →  POST /api/agent/call {{\"tool\":\"vibecap_job\"}}");
         println!("                 The open studio tab IS the connector. See docs/WEB.md.");
         println!("  --screenshot   Headless full-screen capture → {}", media_dir_display());
         println!("  --no-tray      Disable system tray (window close quits the app)");
