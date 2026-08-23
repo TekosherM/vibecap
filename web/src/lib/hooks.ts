@@ -137,6 +137,7 @@ export type HookFacts = {
   collected: string[];
   captureCount: number;
   stockZero: number;
+  paid?: boolean;
 };
 
 export type HookStatus = HookDef & {
@@ -316,13 +317,17 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
       why: "Multi-step checkout — keep the camera on until the UI settles.",
     });
   } else {
-    next.push({
-      tool: "vibecap_subject_pay",
-      why: "Walk checkout — tax throw + Stripe 402. REC stays on.",
-    });
+    if (!facts.paid) {
+      next.push({
+        tool: "vibecap_subject_pay",
+        why: "Walk checkout — tax throw + Stripe 402. REC stays on.",
+      });
+    }
     next.push({
       tool: "vibecap_snapshot",
-      why: "Grab the failure frame. Does not stop REC.",
+      why: facts.paid
+        ? "402 is on screen — grab the failure frame. Does not stop REC."
+        : "Grab the failure frame. Does not stop REC.",
     });
   }
   for (const id of ["dom", "http", "database"] as const) {

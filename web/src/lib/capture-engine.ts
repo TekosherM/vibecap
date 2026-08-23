@@ -13,6 +13,23 @@ export type EngineSnapshot = {
   version: number;
 };
 
+export const DEMO_FRAME = { w: 1280, h: 720 };
+
+/** Pay CTA in 1280×720 subject space, as fractions of the frame. */
+export function demoPayHit(w = DEMO_FRAME.w, h = DEMO_FRAME.h) {
+  const listX = 28;
+  const listY = 116;
+  const listW = w * 0.52;
+  const px = listX + listW + 24;
+  const pw = w - px - 28;
+  return {
+    x: (px + 20) / w,
+    y: (listY + 292) / h,
+    w: (pw - 52) / w,
+    h: 36 / h,
+  };
+}
+
 type Listener = () => void;
 
 const IDLE_SNAPSHOT: EngineSnapshot = {

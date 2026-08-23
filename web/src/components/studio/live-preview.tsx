@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { captureEngine, type EngineSnapshot } from "@/lib/capture-engine";
+import { captureEngine, demoPayHit, type EngineSnapshot } from "@/lib/capture-engine";
 import { Badge } from "@/components/ui/badge";
 
 function formatRec(started: number | null) {
@@ -16,11 +16,14 @@ function formatRec(started: number | null) {
 export function LivePreview({
   engine,
   tick,
+  onPay,
 }: {
   engine: EngineSnapshot;
   tick: number;
+  onPay?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pay = demoPayHit();
 
   useEffect(() => {
     captureEngine.attachVideo(videoRef.current);
@@ -37,42 +40,61 @@ export function LivePreview({
     }
   }, [engine.version]);
 
+  const paying = engine.demoPhase === "paying";
+  const declined = engine.demoPhase === "declined";
+
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl bg-surface-2 shadow-[var(--shadow-border)]">
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        poster={engine.lastStill ?? undefined}
-        className="h-full w-full object-contain"
-      />
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3">
-        <div className="flex items-center gap-2">
-          {engine.recording ? (
-            <Badge tone="danger">
-              <span
-                className="size-1.5 rounded-full bg-danger"
-                style={{ animation: "rec-pulse 1s ease-in-out infinite" }}
-              />
-              REC {formatRec(engine.recordingStartedAt)}
-            </Badge>
-          ) : (
-            <Badge tone="accent">
-              <span className="size-1.5 rounded-full bg-accent" />
-              LIVE
-            </Badge>
-          )}
-          <Badge tone="muted">{engine.source === "idle" ? "demo" : engine.source}</Badge>
-          {engine.inspecting && <Badge tone="accent">Inspect</Badge>}
+    <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-surface-2 shadow-[var(--shadow-border)]">
+      <div className="relative aspect-video h-full max-w-full">
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          poster={engine.lastStill ?? undefined}
+          className="h-full w-full"
+        />
+        {engine.source === "demo" && onPay && (
+          <button
+            type="button"
+            aria-label={declined ? "Card declined — pay again" : "Pay now"}
+            disabled={paying}
+            onClick={onPay}
+            className="absolute z-10 min-h-11 cursor-pointer rounded-lg bg-transparent"
+            style={{
+              left: `${pay.x * 100}%`,
+              top: `${pay.y * 100}%`,
+              width: `${pay.w * 100}%`,
+            }}
+          />
+        )}
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3">
+          <div className="flex items-center gap-2">
+            {engine.recording ? (
+              <Badge tone="danger">
+                <span
+                  className="size-1.5 rounded-full bg-danger"
+                  style={{ animation: "rec-pulse 1s ease-in-out infinite" }}
+                />
+                REC {formatRec(engine.recordingStartedAt)}
+              </Badge>
+            ) : (
+              <Badge tone="accent">
+                <span className="size-1.5 rounded-full bg-accent" />
+                LIVE
+              </Badge>
+            )}
+            <Badge tone="muted">{engine.source === "idle" ? "demo" : engine.source}</Badge>
+            {engine.inspecting && <Badge tone="accent">Inspect</Badge>}
+          </div>
+          <Badge tone="agent">
+            {engine.recording ? "Unbounded · Snap until it settles" : "Start/stop · no duration"}
+          </Badge>
         </div>
-        <Badge tone="agent">
-          {engine.recording ? "Unbounded · Snap until it settles" : "Start/stop · no duration"}
-        </Badge>
-      </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-between p-3 text-[11px] text-muted">
-        <span>1280×720 · 30 fps</span>
-        <span className="tabular-nums">t {tick}s</span>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-between p-3 text-[11px] text-muted">
+          <span>1280×720 · 30 fps</span>
+          <span className="tabular-nums">t {tick}s</span>
+        </div>
       </div>
     </div>
   );
