@@ -48,10 +48,12 @@ Granular: `record_start`, `subject_walk`, `subject_coupon` / `tax` / `pay`, `sna
 | Kind | Where |
 | :--- | :--- |
 | JPEG stills | Tool `data_url`, `GET /api/agent/still/{id}.jpg`, Media → Download JPEG |
-| WebM clips | Media → Download clip (session blob). Poster JPEG is stored. |
-| Evidence pack | Pack → Download JSON / Download stills |
+| WebM clips | Pack / Media → Download clip. `GET /api/agent/clip/{id}.webm` (persisted, survives reload). |
+| Evidence pack | Pack → Download JSON / stills / clip |
 
 **Not** `~/Movies/Vibecap` or `~/Vibecap`. Those paths are the native app.
+
+Screen / camera change **pixels only**. DOM, console, HTTP, and DB still tap the Lumen Cart subject.
 
 ## Database
 

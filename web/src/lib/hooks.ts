@@ -328,7 +328,10 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
       url: DEMO_FRONTEND_DOM.url,
       source: facts.source,
       attached: facts.attached,
-      note: "JSON hooks bind to this instrumented subject. Screen / camera only change the visual medium (JPEG / WebM), not the DOM / console / HTTP / DB taps.",
+      note:
+        facts.source === "screen" || facts.source === "camera"
+          ? `Shutter is ${facts.source} — JPEG/WebM only. DOM, console, HTTP, and DB still tap Lumen Cart.`
+          : "JSON hooks bind to Lumen Cart. Screen / camera only change JPEG / WebM pixels.",
     },
     signals,
     medium: {

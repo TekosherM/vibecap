@@ -21,6 +21,7 @@ Two connectors. Pick one. Do not mix paths.
 GET  /api/agent/hooks
 POST /api/agent/call   { "tool": "vibecap_job" }
 GET  /api/agent/still/{id}.jpg
+GET  /api/agent/clip/{id}.webm
 GET  /api/agent/help
 ```
 
@@ -38,6 +39,7 @@ Capture tools need the studio tab open (`studio.attached`). Poll `GET /api/agent
 | 4xx/5xx / stack / shell | `vibecap_ingest_backend` | JSON |
 | Wrong stock / price / row | `vibecap_ingest_database` | JSON |
 | Don’t want to choose | `vibecap_bug_pack` | all |
+| Screen / camera | pixels only | JSON still taps Lumen Cart |
 
 Inbox / annotate / poll loops are **optional**. Skip them unless you need a human.
 

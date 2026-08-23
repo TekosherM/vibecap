@@ -64,6 +64,26 @@ if (parsed?.path) {
   }, parsed.path);
 }
 
+const clipPath = job.parsed?.clip_path ?? job.result?.result?.clip_path;
+let clipFile = { ok: false, type: "", bytes: 0, status: 0 };
+if (clipPath) {
+  clipFile = await page.evaluate(async (path) => {
+    const r = await fetch(path);
+    const buf = await r.arrayBuffer();
+    return { ok: r.ok, type: r.headers.get("content-type"), bytes: buf.byteLength, status: r.status };
+  }, clipPath);
+  await page.reload({ waitUntil: "load", timeout: 20000 });
+  await page.waitForTimeout(800);
+  clipFile = {
+    ...clipFile,
+    afterReload: await page.evaluate(async (path) => {
+      const r = await fetch(path);
+      const buf = await r.arrayBuffer();
+      return { ok: r.ok, type: r.headers.get("content-type"), bytes: buf.byteLength, status: r.status };
+    }, clipPath),
+  };
+}
+
 await page.screenshot({ path: "/workspace/screenshots/qa-pack.png", fullPage: false });
 
 await page.getByRole("button", { name: "Sources" }).first().click();
@@ -121,6 +141,7 @@ console.log(JSON.stringify({
     tax: job.parsed?.tax?.status ?? job.result?.result?.tax?.status,
     pay: job.parsed?.pay?.error ?? job.result?.result?.pay?.error,
     duration_ms: job.parsed?.duration_ms ?? job.result?.result?.duration_ms,
+    clip_path: job.parsed?.clip_path ?? job.result?.result?.clip_path,
   },
   walk: {
     status: walk.result?.status,
@@ -139,6 +160,7 @@ console.log(JSON.stringify({
     path: parsed?.path,
   },
   jpegFile: jpeg,
+  clipFile,
   stop: {
     captureId: stop.parsed?.captureId,
     duration_ms: stop.parsed?.duration_ms,

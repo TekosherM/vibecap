@@ -152,6 +152,13 @@ export function Studio() {
     setEvidence(bundle.evidence);
     setPacks(bundle.packs);
     setLogs(bundle.logs);
+    setVideoUrls((prev) => {
+      const next = { ...prev };
+      for (const c of bundle.captures) {
+        if (c.kind === "video" && c.clip_url && !next[c.id]) next[c.id] = c.clip_url;
+      }
+      return next;
+    });
     const [box, bud] = await Promise.all([listInbox(), getBudget()]);
     setInbox(box);
     setBudgetState(bud);
@@ -314,17 +321,24 @@ export function Studio() {
     const clip = await captureEngine.stopRecording();
     if (!clip || !sid) return null;
     const poster = captureEngine.grabStill(1280, 0.92) ?? "";
+    const clipUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(clip.blob);
+    });
     const row = await saveCapture({
       data: {
         sessionId: sid,
         kind: "video",
         label: `Clip ${new Date().toLocaleTimeString()}`,
-        mime: clip.blob.type,
+        mime: clip.blob.type || "video/webm",
         dataUrl: poster,
+        clipUrl,
         durationMs: clip.durationMs,
       },
     });
-    const blobUrl = URL.createObjectURL(clip.blob);
+    const blobUrl = clipUrl || URL.createObjectURL(clip.blob);
     setVideoUrls((m) => ({ ...m, [row.id]: blobUrl }));
     setCaptures((c) => [row, ...c]);
     return { row, durationMs: clip.durationMs, blobUrl };
@@ -459,7 +473,8 @@ export function Studio() {
           summary: pack.summary,
           captureId: saved?.row.id ?? null,
           duration_ms: saved?.durationMs ?? 0,
-          clip: "Media stage — Download clip. JPEG stills inline. Not ~/Movies/Vibecap.",
+          clip: "Pack / Media — Download clip. GET /api/agent/clip/{id}.webm. Not ~/Movies.",
+          clip_path: saved?.row.id ? `/api/agent/clip/${saved.row.id}.webm` : null,
         };
       } catch (err) {
         captureEngine.setDemoPhase("ready");
@@ -1007,6 +1022,11 @@ function ShutterStage({
         </div>
       </div>
       {engine.lastError && <p className="text-sm text-danger">{engine.lastError}</p>}
+      {engine.source !== "demo" && engine.source !== "idle" && (
+        <p className="text-sm text-warn">
+          {engine.source} is pixels only. DOM, console, HTTP, and DB still tap Lumen Cart.
+        </p>
+      )}
       <LivePreview
         engine={engine}
         tick={tick}
@@ -1659,7 +1679,7 @@ function AgentStage({
           {engine.inspecting && <Badge tone="accent">Inspect</Badge>}
         </div>
         <p className="mt-1 text-sm text-muted">
-          Start rec → Walk → Snap the 402 → Stop. Inbox is optional.
+          Job records, walks coupon → tax → pay, and packs JSON + stills + clip.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" variant="subtle" onClick={onStill}>

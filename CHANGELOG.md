@@ -7,18 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Native desktop work on `master` not yet cut as a binary. Desktop assets remain [v0.1.0](https://github.com/TekosherM/vibecap/releases/tag/v0.1.0).
+Native desktop changelog below this cut is already on `master`. Web evidence job shipped in 0.3.0.
 
 ### Added
-- Web studio: **Pay now** / `vibecap_subject_pay` walks Lumen Cart (tax throw + Stripe 402) while REC stays on
-- Click the Pay CTA on the live checkout; `GET /api/cart` + `GET /api/tax` are live subject HTTP
-- Phone shutter: compact source switcher, live cart/tax HTTP on Sources
-- Coupon LUMEN10 (422 expired) and ZIP tax lookup (500) are live walk steps
-- `vibecap_subject_walk` / **Walk** runs coupon 422 → tax 500 → pay 402 without stopping REC
-- Walk snaps coupon / tax / pay frames automatically (3 JPEGs)
-- `vibecap_job` — one call: record, walk (3 stills), ingest FE/BE/DB/logs, stop, pack
-- Job holds each checkout failure on camera (~4s clip) and Pack downloads JSON + stills + clip
-- Job is re-runnable (resets checkout) and README / web README use the one-call recipe
 - Feedback loop coverage for 30 agent/human scenarios (`docs/FEEDBACK_USE_CASES.md`)
 - MCP: `vibecap_list_feedback`, `vibecap_cancel_feedback` (12 tools total)
 - `request_feedback`: optional `media_path`, `options`, `priority`, `agent_label`, `preferred_reply`, `context`
@@ -55,7 +46,24 @@ Native desktop work on `master` not yet cut as a binary. Desktop assets remain [
 - **Dock / app icon:** embed Safelight aperture PNG via eframe `with_icon` (replaces default egui “e”); regenerate full `AppIcon.icns` + `CFBundleIconName`; install script refreshes Launch Services
 - **Agent HITL notify:** new feedback requests fire OS notification + sound, Dock bounce, tray title `Inbox`/`Inbox N`, toast with agent+question, and auto-open Inbox (per-request-id tracking, not just count)
 
+## [0.3.0] — 2026-08-23
+
+Web evidence job. Native crate **0.3.0**. `--help` points at the HTTP studio if MCP never attaches.
+
+### Added
+- `vibecap_job` — one call: record, walk (coupon 422, tax 500, pay 402, 3 stills), ingest FE/BE/DB/logs, stop, pack
+- Walk / coupon / ZIP tax / Pay on the live Lumen Cart checkout
+- WebM clips persist (`clip_url`) and `GET /api/agent/clip/{id}.webm` (survives reload)
+- Pack downloads JSON + stills + clip
+- Screen/camera banner: JSON still taps Lumen Cart
+
+### Changed
+- Native `--help` / version: if MCP never attaches, use `cd web && npm run dev` then `vibecap_job`
+- Agent / README / WEB / skill lead with `vibecap_job`
+- Job is re-runnable (resets checkout) and holds each failure on camera (~4s)
+
 ## [0.2.0] — 2026-08-23
+
 
 Web studio + agent-loop docs. Native crate stays 0.1.0; desktop binaries are still the [v0.1.0](https://github.com/TekosherM/vibecap/releases/tag/v0.1.0) assets.
 

@@ -10,7 +10,7 @@ The studio and the agent share one plan (`GET /api/agent/hooks` / `vibecap_hooks
 | **WebM** | Same. Unbounded record — no duration | Multi-step flow until the UI settles |
 | **JSON** | Always (server-side) | DOM, console, HTTP, shell, database, session logs |
 
-Screen / camera only change the **visual** medium. DOM, console, HTTP, and DB taps bind to the **instrumented subject**, not a random browser tab.
+Screen / camera only change the **visual** medium (JPEG / WebM). DOM, console, HTTP, and DB taps **always** bind to Lumen Cart — not the shared tab or camera feed.
 
 ## When → hook → medium
 
@@ -23,7 +23,7 @@ Screen / camera only change the **visual** medium. DOM, console, HTTP, and DB ta
 | Wrong stock / price / row | Database | `vibecap_ingest_database` | Bug never touches persisted state |
 | Need a timeline of collections | Session logs | `vibecap_ingest_logs` | First minute — collect layers first |
 | Need pixels now / failure frame | Still | `vibecap_snapshot` (or `capture`) | Need motion — use record |
-| Cart → coupon → tax → pay | Video + stills | `record_start` → `subject_walk` → `record_stop` | Single static screen — one still is cheaper |
+| Cart → coupon → tax → pay | Video + stills + JSON | `vibecap_job` | Single static screen — one still is cheaper |
 | Don’t want to choose | Pack | `vibecap_bug_pack` | — |
 
 ## Typical checkout job

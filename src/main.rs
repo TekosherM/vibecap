@@ -2281,18 +2281,21 @@ fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     
     if args.iter().any(|a| a == "--version" || a == "-v" || a == "version") {
-        println!("vibecap 0.1.0");
+        println!("vibecap {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
     if args.iter().any(|a| a == "--help" || a == "-h" || a == "help") {
-        println!("Vibecap Studio 0.1.0");
+        println!("Vibecap Studio {}", env!("CARGO_PKG_VERSION"));
         println!("Native screen capture, annotation studio, and MCP sidecar for AI agents.");
         println!("\nUsage: vibecap [FLAGS]");
         println!("\nFlags:");
         println!("  (none)         Launch the desktop UI (system tray enabled)");
         println!("  --mcp          Run as Model Context Protocol (MCP) stdio server");
-        println!("                 Multiple --mcp processes are supported (one per agent/client).");
+        println!("                 Leave the GUI running, then start --mcp from the agent.");
+        println!("                 If MCP never attaches, use the web HTTP studio instead:");
+        println!("                 cd web && npm run dev  →  POST /api/agent/call {\"tool\":\"vibecap_job\"}");
+        println!("                 The open studio tab IS the connector. See docs/WEB.md.");
         println!("  --screenshot   Headless full-screen capture → {}", media_dir_display());
         println!("  --no-tray      Disable system tray (window close quits the app)");
         println!("  --hidden       Start hidden in the tray (implies tray)");
@@ -2303,7 +2306,7 @@ fn main() -> eframe::Result<()> {
         println!("  · Each MCP process has its own live-inspection session dir.");
         println!("  · Budget + feedback inbox are shared via config files.");
         println!("\nCapture backend: {}", platform::capture_backend_label());
-        println!("Docs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md");
+        println!("Docs: README.md  ·  docs/USAGE.md  ·  docs/MCP.md  ·  docs/WEB.md");
         println!("MCP tools: vibecap_capture | record_video | export_gif |");
         println!("           start/get/stop_live_inspection | set_budget | get_spending |");
         println!("           request_feedback | get_feedback | list_feedback | cancel_feedback");
