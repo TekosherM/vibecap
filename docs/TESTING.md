@@ -42,6 +42,17 @@ SMOKE_CAPTURE=1 ./scripts/smoke_mcp.sh
 ./scripts/smoke_capture.sh
 ```
 
+## Web studio (`web/`)
+
+```bash
+cd web
+npm install
+npm run typecheck
+node scripts/qa-connector.mjs   # needs the studio tab running
+```
+
+Pass if: unbounded `record_start`, snapshot while REC returns a JPEG, `GET /api/agent/still/{id}.jpg` is `image/jpeg`, `record_stop` returns a poster, Media shows download controls.
+
 ## Manual GUI checklist
 
 Run once before a release:

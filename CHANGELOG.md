@@ -7,15 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Web HTTP studio** (`web/`): Safelight evidence studio for agents — unbounded record, snap-while-REC, JPEG/WebM downloads, Neon/PGLite evidence pack
-- Live **hook plan** (`GET /api/agent/hooks`, `vibecap_hooks`): when to collect DOM, console, HTTP, shell, database, stills, video
-- Docs: `docs/WEB.md`, `docs/HOOKS.md`, `web/README.md`
-- Capture-only agent skill (HTTP first when MCP is not attached)
+Native desktop work on `master` not yet cut as a binary. Desktop assets remain [v0.1.0](https://github.com/TekosherM/vibecap/releases/tag/v0.1.0).
 
-### Changed
-- Agent skill shortened; inbox/poll loops marked optional
-- README documents two connectors (native MCP vs web HTTP) and output locations
+### Added
 - Feedback loop coverage for 30 agent/human scenarios (`docs/FEEDBACK_USE_CASES.md`)
 - MCP: `vibecap_list_feedback`, `vibecap_cancel_feedback` (12 tools total)
 - `request_feedback`: optional `media_path`, `options`, `priority`, `agent_label`, `preferred_reply`, `context`
@@ -52,6 +46,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dock / app icon:** embed Safelight aperture PNG via eframe `with_icon` (replaces default egui “e”); regenerate full `AppIcon.icns` + `CFBundleIconName`; install script refreshes Launch Services
 - **Agent HITL notify:** new feedback requests fire OS notification + sound, Dock bounce, tray title `Inbox`/`Inbox N`, toast with agent+question, and auto-open Inbox (per-request-id tracking, not just count)
 
+## [0.2.0] — 2026-08-23
+
+Web studio + agent-loop docs. Native crate stays 0.1.0; desktop binaries are still the [v0.1.0](https://github.com/TekosherM/vibecap/releases/tag/v0.1.0) assets.
+
+### Added
+- **Web HTTP studio** (`web/`): unbounded record, snap-while-REC, JPEG/WebM downloads, Neon/PGLite evidence pack
+- Live **hook plan** (`GET /api/agent/hooks`, `vibecap_hooks`): when to collect DOM, console, HTTP, shell, database, stills, video
+- Docs: `docs/WEB.md`, `docs/HOOKS.md`, `web/README.md`
+
+### Changed
+- Agent skill shortened; capture-only first; inbox/poll loops optional
+- README, USAGE, CONTRIBUTING, ARCHITECTURE, TESTING document two connectors
+- Web stills live in the pack and `GET /api/agent/still/{id}.jpg` — not `~/Movies/Vibecap`
+
 ## [0.1.0] — 2026-08-05
 
 First public open-source release.
@@ -76,4 +84,5 @@ First public open-source release.
 - Windows system audio and Wayland motion capture are best-effort
 - Requires ffmpeg for GIF/editor; Screen Recording permission on macOS
 
+[0.2.0]: https://github.com/TekosherM/vibecap/releases/tag/v0.2.0
 [0.1.0]: https://github.com/TekosherM/vibecap/releases/tag/v0.1.0

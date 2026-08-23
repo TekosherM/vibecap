@@ -1,5 +1,17 @@
 # Usage Guide
 
+Two ways in. Pick one.
+
+| | Native desktop | Web studio |
+| :--- | :--- | :--- |
+| Attach | Leave `vibecap` in the tray, then `vibecap --mcp` | Leave the studio tab open. **That is the connector.** |
+| Output | `{Videos}/Vibecap` (often `~/Movies/Vibecap`) | Pack + Media downloads. **Not** a home folder. |
+| Docs | this file · [MCP.md](MCP.md) | [WEB.md](WEB.md) · [HOOKS.md](HOOKS.md) |
+
+Web capture-only: `hooks` → `record_start` (no duration) → `snapshot` → `record_stop` → `bug_pack`. Inbox is optional.
+
+---
+
 ## Prerequisites
 
 | Requirement | Why |
@@ -159,6 +171,25 @@ From **Media**: open video/GIF with **Clip**, screenshots with **Still**.
 | **Ctrl + Shift + 2** | Start / stop recording |
 
 ## Agent workflows
+
+### 0. Web HTTP (when MCP never attaches)
+
+```bash
+cd web && npm install && npm run dev
+```
+
+Leave the tab open.
+
+```
+GET  /api/agent/hooks
+POST /api/agent/call  {"tool":"vibecap_record_start"}
+POST /api/agent/call  {"tool":"vibecap_snapshot"}
+POST /api/agent/call  {"tool":"vibecap_record_stop"}
+POST /api/agent/call  {"tool":"vibecap_bug_pack"}
+GET  /api/agent/still/{id}.jpg
+```
+
+JPEG is inline on snapshot/stop. Do not look in `~/Movies/Vibecap`. See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md).
 
 ### A. One-shot screenshot for vision
 
