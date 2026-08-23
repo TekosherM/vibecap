@@ -10,24 +10,44 @@ export type EngineSnapshot = {
   live: boolean;
   inspecting: boolean;
   demoPhase: DemoPhase;
+  couponRejected: boolean;
+  taxFailed: boolean;
   version: number;
 };
 
 export const DEMO_FRAME = { w: 1280, h: 720 };
 
-/** Pay CTA in 1280×720 subject space, as fractions of the frame. */
-export function demoPayHit(w = DEMO_FRAME.w, h = DEMO_FRAME.h) {
+export function demoLayout(w = DEMO_FRAME.w, h = DEMO_FRAME.h) {
   const listX = 28;
   const listY = 116;
   const listW = w * 0.52;
   const px = listX + listW + 24;
   const pw = w - px - 28;
+  const btnW = 72;
+  const fieldW = listW - 48 - btnW - 8;
+  const couponY = listY + 194;
+  const taxY = listY + 232;
   return {
-    x: (px + 20) / w,
-    y: (listY + 292) / h,
-    w: (pw - 52) / w,
-    h: 36 / h,
+    couponBtn: { x: listX + 20 + fieldW + 8, y: couponY, w: btnW, h: 32 },
+    taxBtn: { x: listX + 20 + fieldW + 8, y: taxY, w: btnW, h: 32 },
+    pay: { x: px + 20, y: listY + 292, w: pw - 52, h: 36 },
+    couponField: { x: listX + 20, y: couponY, w: fieldW, h: 32 },
+    taxField: { x: listX + 20, y: taxY, w: fieldW, h: 32 },
   };
+}
+
+function toHit(r: { x: number; y: number; w: number; h: number }, w = DEMO_FRAME.w, h = DEMO_FRAME.h) {
+  return { x: r.x / w, y: r.y / h, w: r.w / w, h: r.h / h };
+}
+
+export function demoPayHit() {
+  return toHit(demoLayout().pay);
+}
+export function demoCouponHit() {
+  return toHit(demoLayout().couponBtn);
+}
+export function demoTaxHit() {
+  return toHit(demoLayout().taxBtn);
 }
 
 type Listener = () => void;
@@ -41,6 +61,8 @@ const IDLE_SNAPSHOT: EngineSnapshot = {
   live: false,
   inspecting: false,
   demoPhase: "ready",
+  couponRejected: false,
+  taxFailed: false,
   version: 0,
 };
 
@@ -68,6 +90,8 @@ function paintDemo(
   h: number,
   t: number,
   phase: DemoPhase,
+  couponRejected: boolean,
+  taxFailed: boolean,
 ) {
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#ece7df";
@@ -143,37 +167,74 @@ function paintDemo(
   ctx.fillText("Order summary", listX + 20, listY + 28);
 
   items.forEach((item, i) => {
-    const y = listY + 56 + i * 78;
+    const y = listY + 40 + i * 48;
     ctx.fillStyle = "#f3eee6";
-    roundRect(ctx, listX + 20, y, 56, 56, 10);
+    roundRect(ctx, listX + 20, y, 40, 40, 8);
     ctx.fill();
     ctx.fillStyle = i === 2 ? "#9aa0ad" : "#1c1e24";
-    ctx.font = "600 22px system-ui, sans-serif";
-    ctx.fillText(item.name.slice(0, 1), listX + 40, y + 36);
+    ctx.font = "600 18px system-ui, sans-serif";
+    ctx.fillText(item.name.slice(0, 1), listX + 34, y + 26);
     ctx.fillStyle = "#1c1e24";
-    ctx.font = "600 14px system-ui, sans-serif";
-    ctx.fillText(item.name, listX + 92, y + 24);
+    ctx.font = "600 13px system-ui, sans-serif";
+    ctx.fillText(item.name, listX + 72, y + 16);
     ctx.fillStyle = "#8a8074";
-    ctx.font = "12px ui-monospace, monospace";
-    ctx.fillText(`${item.sku}  ·  qty ${item.qty}`, listX + 92, y + 44);
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.fillText(`${item.sku}  ·  qty ${item.qty}`, listX + 72, y + 32);
     ctx.fillStyle = "#1c1e24";
-    ctx.font = "600 14px system-ui, sans-serif";
+    ctx.font = "600 13px system-ui, sans-serif";
     ctx.textAlign = "right";
-    ctx.fillText(item.price, listX + listW - 20, y + 32);
+    ctx.fillText(item.price, listX + listW - 20, y + 28);
     ctx.textAlign = "left";
   });
 
+  const layout = demoLayout(w, h);
+  ctx.fillStyle = "#8a8074";
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.fillText("Coupon", layout.couponField.x, layout.couponField.y - 6);
+  ctx.fillStyle = "#f6f3ee";
+  roundRect(ctx, layout.couponField.x, layout.couponField.y, layout.couponField.w, layout.couponField.h, 8);
+  ctx.fill();
+  ctx.fillStyle = "#1c1e24";
+  ctx.font = "13px ui-monospace, monospace";
+  ctx.fillText("LUMEN10", layout.couponField.x + 12, layout.couponField.y + 21);
+  ctx.fillStyle = couponRejected ? "#7a2424" : "#1c1e24";
+  roundRect(ctx, layout.couponBtn.x, layout.couponBtn.y, layout.couponBtn.w, layout.couponBtn.h, 8);
+  ctx.fill();
+  ctx.fillStyle = "#fbf8f3";
+  ctx.font = "600 12px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(couponRejected ? "Expired" : "Apply", layout.couponBtn.x + layout.couponBtn.w / 2, layout.couponBtn.y + 21);
+  ctx.textAlign = "left";
+
+  ctx.fillStyle = "#8a8074";
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.fillText("ZIP", layout.taxField.x, layout.taxField.y - 6);
+  ctx.fillStyle = "#f6f3ee";
+  roundRect(ctx, layout.taxField.x, layout.taxField.y, layout.taxField.w, layout.taxField.h, 8);
+  ctx.fill();
+  ctx.fillStyle = "#1c1e24";
+  ctx.font = "13px ui-monospace, monospace";
+  ctx.fillText("94107", layout.taxField.x + 12, layout.taxField.y + 21);
+  ctx.fillStyle = taxFailed ? "#7a2424" : "#1c1e24";
+  roundRect(ctx, layout.taxBtn.x, layout.taxBtn.y, layout.taxBtn.w, layout.taxBtn.h, 8);
+  ctx.fill();
+  ctx.fillStyle = "#fbf8f3";
+  ctx.font = "600 12px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(taxFailed ? "500" : "Tax", layout.taxBtn.x + layout.taxBtn.w / 2, layout.taxBtn.y + 21);
+  ctx.textAlign = "left";
+
   ctx.fillStyle = "#8a8074";
   ctx.font = "12px system-ui, sans-serif";
-  ctx.fillText("Subtotal (3 items)", listX + 20, listY + 300);
+  ctx.fillText("Subtotal (3 items)", listX + 20, listY + 316);
   ctx.fillStyle = "#1c1e24";
   ctx.font = "600 13px system-ui, sans-serif";
   ctx.textAlign = "right";
-  ctx.fillText("$45.00", listX + listW - 20, listY + 300);
+  ctx.fillText("$45.00", listX + listW - 20, listY + 316);
   ctx.textAlign = "left";
   ctx.fillStyle = "#c4b8a8";
   ctx.font = "12px system-ui, sans-serif";
-  ctx.fillText("Tax (undefined helper)", listX + 20, listY + 322);
+  ctx.fillText(taxFailed ? "Tax helper threw · pricing.ts:88" : "Tax (undefined helper)", listX + 20, listY + 334);
 
   const px = listX + listW + 24;
   const pw = w - px - 28;
@@ -245,6 +306,24 @@ function paintDemo(
       64,
       toastY + 26,
     );
+  } else if (taxFailed || couponRejected) {
+    const toastY = h - 118;
+    ctx.fillStyle = "#2a1616";
+    roundRect(ctx, 28, toastY, w - 56, 44, 10);
+    ctx.fill();
+    ctx.fillStyle = "#e05555";
+    ctx.beginPath();
+    ctx.arc(48, toastY + 22, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f4d2d2";
+    ctx.font = "12px ui-monospace, monospace";
+    ctx.fillText(
+      taxFailed
+        ? "GET /api/tax?zip=94107  500  tax is undefined   ·   pricing.ts:88"
+        : "POST /api/coupon  422  coupon_expired   ·   LUMEN10",
+      64,
+      toastY + 26,
+    );
   }
 
   const cx = px + 90 + Math.sin(t / 900) * 18;
@@ -272,6 +351,8 @@ class CaptureEngine {
   lastStill: string | null = null;
   lastError: string | null = null;
   demoPhase: DemoPhase = "ready";
+  couponRejected = false;
+  taxFailed = false;
   demoCanvas: HTMLCanvasElement | null = null;
   videoEl: HTMLVideoElement | null = null;
   version = 0;
@@ -302,6 +383,8 @@ class CaptureEngine {
       live: Boolean(this.stream) || this.source === "demo",
       inspecting: this.inspecting,
       demoPhase: this.demoPhase,
+      couponRejected: this.couponRejected,
+      taxFailed: this.taxFailed,
       version: this.version,
     };
     this.listeners.forEach((fn) => fn());
@@ -330,7 +413,15 @@ class CaptureEngine {
     if (!ctx) return;
     if (this.raf) cancelAnimationFrame(this.raf);
     const loop = (t: number) => {
-      paintDemo(ctx, canvas.width, canvas.height, t, this.demoPhase);
+      paintDemo(
+        ctx,
+        canvas.width,
+        canvas.height,
+        t,
+        this.demoPhase,
+        this.couponRejected,
+        this.taxFailed,
+      );
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -339,11 +430,21 @@ class CaptureEngine {
   async useDemo() {
     this.stopTracks(false);
     this.demoPhase = "ready";
+    this.couponRejected = false;
+    this.taxFailed = false;
     const canvas = this.ensureDemoCanvas();
     if (canvas) {
       const ctx = canvas.getContext("2d");
       if (ctx) {
-        paintDemo(ctx, canvas.width, canvas.height, 0, this.demoPhase);
+        paintDemo(
+          ctx,
+          canvas.width,
+          canvas.height,
+          0,
+          this.demoPhase,
+          this.couponRejected,
+          this.taxFailed,
+        );
         this.lastStill = canvas.toDataURL("image/jpeg", 0.88);
         if (this.videoEl) this.videoEl.poster = this.lastStill;
       }
@@ -364,6 +465,16 @@ class CaptureEngine {
 
   setDemoPhase(phase: DemoPhase) {
     this.demoPhase = phase;
+    this.emit();
+  }
+
+  rejectCoupon() {
+    this.couponRejected = true;
+    this.emit();
+  }
+
+  failTax() {
+    this.taxFailed = true;
     this.emit();
   }
 

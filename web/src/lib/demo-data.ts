@@ -44,6 +44,13 @@ export const DEMO_HTTP = [
     ms: 12,
     body: '{"error":"tax is undefined"}',
   },
+  {
+    method: "POST",
+    path: "/api/coupon",
+    status: 422,
+    ms: 38,
+    body: '{"error":"coupon_expired","code":"LUMEN10"}',
+  },
 ];
 
 export const DEMO_TERMINAL = [

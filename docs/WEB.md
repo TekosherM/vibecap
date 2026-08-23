@@ -37,7 +37,9 @@ JSON tools (`hooks`, `ingest_*`, `bug_pack`, budget, inbox) run immediately on t
 
 1. `GET /api/agent/hooks`
 2. `vibecap_record_start` — **no duration**. Keep rolling.
-3. `vibecap_subject_pay` — walk Lumen Cart. Tax throw + Stripe **402**. REC stays on.
+3. `vibecap_subject_coupon` — LUMEN10, **422** expired. REC stays on.
+4. `vibecap_subject_tax` — ZIP 94107, tax helper **500**. REC stays on.
+5. `vibecap_subject_pay` — walk Lumen Cart. Tax throw + Stripe **402**. REC stays on.
 4. `vibecap_snapshot` — failure frame. Does not stop REC. JPEG is inline.
 5. `vibecap_record_stop` — when the UI settles. Poster JPEG + clip in Media.
 6. `vibecap_bug_pack` — stills + frontend + backend + database + logs.

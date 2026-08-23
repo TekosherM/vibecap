@@ -50,7 +50,9 @@ import {
   requestFeedback,
   saveCapture,
   setBudget,
+  subjectCoupon,
   subjectPay,
+  subjectTax,
   touchStudio,
 } from "@/lib/server/evidence";
 import type {
@@ -382,6 +384,20 @@ export function Studio() {
     if (tool === "open_studio") {
       return { ok: true, attached: captureEngine.getSnapshot().live };
     }
+    if (tool === "vibecap_subject_coupon") {
+      const result = await subjectCoupon({ data: { sessionId: sid } });
+      captureEngine.rejectCoupon();
+      await refresh();
+      toast.message("Coupon LUMEN10 expired — 422");
+      return result;
+    }
+    if (tool === "vibecap_subject_tax") {
+      const result = await subjectTax({ data: { sessionId: sid } });
+      captureEngine.failTax();
+      await refresh();
+      toast.message("Tax helper 500 — pricing.ts:88");
+      return result;
+    }
     if (tool === "vibecap_subject_pay") {
       captureEngine.setDemoPhase("paying");
       try {
@@ -481,6 +497,8 @@ export function Studio() {
         captureCount: captures.length,
         stockZero: 1,
         paid: engine.demoPhase === "declined",
+        coupon: engine.couponRejected,
+        tax: engine.taxFailed,
       }),
     [
       engine.live,
@@ -488,6 +506,8 @@ export function Studio() {
       engine.inspecting,
       engine.source,
       engine.demoPhase,
+      engine.couponRejected,
+      engine.taxFailed,
       evidence,
       captures.length,
     ],
@@ -499,6 +519,8 @@ export function Studio() {
         { label: "Screenshot", hint: "S", run: () => void onStill() },
         { label: "Start / stop recording", hint: "R", run: () => void onRecordToggle() },
         { label: "Agent snap while live", hint: "during rec", run: () => void onSnap() },
+        { label: "Apply coupon LUMEN10", hint: "422", run: () => void runTool("vibecap_subject_coupon") },
+        { label: "Lookup tax ZIP", hint: "500", run: () => void runTool("vibecap_subject_tax") },
         { label: "Pay now (walk checkout)", hint: "402", run: () => void runTool("vibecap_subject_pay") },
         ...STAGES.map((s) => ({
           label: `Go to ${s.label}`,
@@ -596,6 +618,8 @@ export function Studio() {
               onCamera={() => captureEngine.useCamera().catch((e) => toast.error(String(e)))}
               onDemo={() => void captureEngine.useDemo()}
               onPay={() => void runTool("vibecap_subject_pay")}
+              onCoupon={() => void runTool("vibecap_subject_coupon")}
+              onTax={() => void runTool("vibecap_subject_tax")}
             />
           )}
           {stage === "sources" && (
@@ -854,6 +878,8 @@ function ShutterStage({
   onCamera,
   onDemo,
   onPay,
+  onCoupon,
+  onTax,
 }: {
   engine: ReturnType<typeof captureEngine.getSnapshot>;
   tick: number;
@@ -862,6 +888,8 @@ function ShutterStage({
   onCamera: () => void;
   onDemo: () => void;
   onPay: () => void;
+  onCoupon: () => void;
+  onTax: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -895,7 +923,13 @@ function ShutterStage({
         </div>
       </div>
       {engine.lastError && <p className="text-sm text-danger">{engine.lastError}</p>}
-      <LivePreview engine={engine} tick={tick} onPay={onPay} />
+      <LivePreview
+        engine={engine}
+        tick={tick}
+        onPay={onPay}
+        onCoupon={onCoupon}
+        onTax={onTax}
+      />
       <div className="flex flex-wrap items-center gap-1.5">
         <Badge tone={plan.signals.console_errors ? "danger" : "muted"}>
           {plan.signals.console_errors} console
@@ -1533,6 +1567,12 @@ function AgentStage({
           <Button size="sm" variant={engine.recording ? "danger" : "accent"} onClick={onRecord}>
             {engine.recording ? <Square className="size-3.5 fill-current" /> : <Radio className="size-4" />}
             {engine.recording ? "Stop" : "Start rec"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onRun("vibecap_subject_coupon")}>
+            Coupon
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onRun("vibecap_subject_tax")}>
+            Tax
           </Button>
           <Button size="sm" variant="outline" onClick={() => onRun("vibecap_subject_pay")}>
             <CreditCard className="size-4" />

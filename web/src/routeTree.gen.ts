@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiCartRouteImport } from './routes/api/cart'
 import { Route as ApiCheckoutRouteImport } from './routes/api/checkout'
+import { Route as ApiCouponRouteImport } from './routes/api/coupon'
 import { Route as ApiTaxRouteImport } from './routes/api/tax'
 import { Route as ApiAgentSplatRouteImport } from './routes/api/agent/$'
 
@@ -30,6 +31,11 @@ const ApiCheckoutRoute = ApiCheckoutRouteImport.update({
   path: '/api/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCouponRoute = ApiCouponRouteImport.update({
+  id: '/api/coupon',
+  path: '/api/coupon',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTaxRoute = ApiTaxRouteImport.update({
   id: '/api/tax',
   path: '/api/tax',
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/cart': typeof ApiCartRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/coupon': typeof ApiCouponRoute
   '/api/tax': typeof ApiTaxRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/cart': typeof ApiCartRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/coupon': typeof ApiCouponRoute
   '/api/tax': typeof ApiTaxRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
@@ -60,19 +68,33 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/api/cart': typeof ApiCartRoute
   '/api/checkout': typeof ApiCheckoutRoute
+  '/api/coupon': typeof ApiCouponRoute
   '/api/tax': typeof ApiTaxRoute
   '/api/agent/$': typeof ApiAgentSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/cart' | '/api/checkout' | '/api/tax' | '/api/agent/$'
+  fullPaths:
+    | '/'
+    | '/api/cart'
+    | '/api/checkout'
+    | '/api/coupon'
+    | '/api/tax'
+    | '/api/agent/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/cart' | '/api/checkout' | '/api/tax' | '/api/agent/$'
+  to:
+    | '/'
+    | '/api/cart'
+    | '/api/checkout'
+    | '/api/coupon'
+    | '/api/tax'
+    | '/api/agent/$'
   id:
     | '__root__'
     | '/'
     | '/api/cart'
     | '/api/checkout'
+    | '/api/coupon'
     | '/api/tax'
     | '/api/agent/$'
   fileRoutesById: FileRoutesById
@@ -81,6 +103,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiCartRoute: typeof ApiCartRoute
   ApiCheckoutRoute: typeof ApiCheckoutRoute
+  ApiCouponRoute: typeof ApiCouponRoute
   ApiTaxRoute: typeof ApiTaxRoute
   ApiAgentSplatRoute: typeof ApiAgentSplatRoute
 }
@@ -108,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/coupon': {
+      id: '/api/coupon'
+      path: '/api/coupon'
+      fullPath: '/api/coupon'
+      preLoaderRoute: typeof ApiCouponRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/tax': {
       id: '/api/tax'
       path: '/api/tax'
@@ -129,6 +159,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiCartRoute: ApiCartRoute,
   ApiCheckoutRoute: ApiCheckoutRoute,
+  ApiCouponRoute: ApiCouponRoute,
   ApiTaxRoute: ApiTaxRoute,
   ApiAgentSplatRoute: ApiAgentSplatRoute,
 }

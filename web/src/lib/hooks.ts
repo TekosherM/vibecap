@@ -138,6 +138,8 @@ export type HookFacts = {
   captureCount: number;
   stockZero: number;
   paid?: boolean;
+  coupon?: boolean;
+  tax?: boolean;
 };
 
 export type HookStatus = HookDef & {
@@ -317,6 +319,18 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
       why: "Multi-step checkout — keep the camera on until the UI settles.",
     });
   } else {
+    if (!facts.coupon) {
+      next.push({
+        tool: "vibecap_subject_coupon",
+        why: "Apply LUMEN10 — 422 expired. REC stays on.",
+      });
+    }
+    if (!facts.tax) {
+      next.push({
+        tool: "vibecap_subject_tax",
+        why: "Lookup ZIP 94107 — tax helper 500. REC stays on.",
+      });
+    }
     if (!facts.paid) {
       next.push({
         tool: "vibecap_subject_pay",
