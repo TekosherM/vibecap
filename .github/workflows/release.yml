@@ -133,8 +133,9 @@ jobs:
             git clone https://github.com/TekosherM/vibecap.git
             cd vibecap/web && npm install && npm run dev
             ```
-            Capture-only: `hooks` → `record_start` → `snapshot` → `record_stop` → `bug_pack`.
-            Stills: `GET /api/agent/still/{id}.jpg`. Not `~/Movies/Vibecap`.
+            Capture-only: `POST /api/agent/call {"tool":"vibecap_job"}`.
+            Stills: `GET /api/agent/still/{id}.jpg`. Clips: `GET /api/agent/clip/{id}.webm`. Not `~/Movies/Vibecap`.
+            If MCP never attaches, the open web studio tab is the connector.
 
             ### Install native (macOS Apple Silicon)
             ```bash
