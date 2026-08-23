@@ -87,7 +87,7 @@ export function LivePreview({
             <Badge tone="muted">{engine.source === "idle" ? "demo" : engine.source}</Badge>
             {engine.inspecting && <Badge tone="accent">Inspect</Badge>}
           </div>
-          <Badge tone="agent">
+          <Badge tone="agent" className="hidden max-w-[46%] truncate sm:inline-flex">
             {engine.recording ? "Unbounded · Snap until it settles" : "Start/stop · no duration"}
           </Badge>
         </div>
