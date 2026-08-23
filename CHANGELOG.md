@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Web HTTP studio** (`web/`): Safelight evidence studio for agents — unbounded record, snap-while-REC, JPEG/WebM downloads, Neon/PGLite evidence pack
+- Live **hook plan** (`GET /api/agent/hooks`, `vibecap_hooks`): when to collect DOM, console, HTTP, shell, database, stills, video
+- Docs: `docs/WEB.md`, `docs/HOOKS.md`, `web/README.md`
+- Capture-only agent skill (HTTP first when MCP is not attached)
+
+### Changed
+- Agent skill shortened; inbox/poll loops marked optional
+- README documents two connectors (native MCP vs web HTTP) and output locations
 - Feedback loop coverage for 30 agent/human scenarios (`docs/FEEDBACK_USE_CASES.md`)
 - MCP: `vibecap_list_feedback`, `vibecap_cancel_feedback` (12 tools total)
 - `request_feedback`: optional `media_path`, `options`, `priority`, `agent_label`, `preferred_reply`, `context`
