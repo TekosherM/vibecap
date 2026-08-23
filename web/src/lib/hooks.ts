@@ -319,22 +319,10 @@ export function evaluateHooks(facts: HookFacts): HookPlan {
       why: "Multi-step checkout — keep the camera on until the UI settles.",
     });
   } else {
-    if (!facts.coupon) {
+    if (!facts.coupon || !facts.tax || !facts.paid) {
       next.push({
-        tool: "vibecap_subject_coupon",
-        why: "Apply LUMEN10 — 422 expired. REC stays on.",
-      });
-    }
-    if (!facts.tax) {
-      next.push({
-        tool: "vibecap_subject_tax",
-        why: "Lookup ZIP 94107 — tax helper 500. REC stays on.",
-      });
-    }
-    if (!facts.paid) {
-      next.push({
-        tool: "vibecap_subject_pay",
-        why: "Walk checkout — tax throw + Stripe 402. REC stays on.",
+        tool: "vibecap_subject_walk",
+        why: "Coupon 422, tax 500, pay 402. REC stays on.",
       });
     }
     next.push({

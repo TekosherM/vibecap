@@ -384,6 +384,23 @@ export function Studio() {
     if (tool === "open_studio") {
       return { ok: true, attached: captureEngine.getSnapshot().live };
     }
+    if (tool === "vibecap_subject_walk") {
+      const coupon = await subjectCoupon({ data: { sessionId: sid } });
+      captureEngine.rejectCoupon();
+      const tax = await subjectTax({ data: { sessionId: sid } });
+      captureEngine.failTax();
+      captureEngine.setDemoPhase("paying");
+      try {
+        const pay = await subjectPay({ data: { sessionId: sid } });
+        captureEngine.setDemoPhase("declined");
+        await refresh();
+        toast.message("Walked checkout — coupon 422, tax 500, pay 402");
+        return { coupon, tax, pay };
+      } catch (err) {
+        captureEngine.setDemoPhase("ready");
+        throw err;
+      }
+    }
     if (tool === "vibecap_subject_coupon") {
       const result = await subjectCoupon({ data: { sessionId: sid } });
       captureEngine.rejectCoupon();
@@ -519,6 +536,7 @@ export function Studio() {
         { label: "Screenshot", hint: "S", run: () => void onStill() },
         { label: "Start / stop recording", hint: "R", run: () => void onRecordToggle() },
         { label: "Agent snap while live", hint: "during rec", run: () => void onSnap() },
+        { label: "Walk checkout (coupon, tax, pay)", hint: "422/500/402", run: () => void runTool("vibecap_subject_walk") },
         { label: "Apply coupon LUMEN10", hint: "422", run: () => void runTool("vibecap_subject_coupon") },
         { label: "Lookup tax ZIP", hint: "500", run: () => void runTool("vibecap_subject_tax") },
         { label: "Pay now (walk checkout)", hint: "402", run: () => void runTool("vibecap_subject_pay") },
@@ -790,18 +808,18 @@ export function Studio() {
           <Button
             size="sm"
             variant={engine.demoPhase === "declined" ? "danger" : "subtle"}
-            onClick={() => void runTool("vibecap_subject_pay")}
-            disabled={busy === "vibecap_subject_pay" || engine.demoPhase === "paying"}
+            onClick={() => void runTool("vibecap_subject_walk")}
+            disabled={busy === "vibecap_subject_walk" || engine.demoPhase === "paying"}
           >
             <CreditCard className="size-4" />
             {engine.demoPhase === "paying"
-              ? "Paying…"
+              ? "Walking…"
               : engine.demoPhase === "declined"
                 ? "Declined"
-                : "Pay now"}
+                : "Walk"}
           </Button>
           <div className="hidden text-[11px] text-dim sm:block">
-            Record, Pay (walks 402), Snap the failure, Stop.
+            Record, Walk (coupon → tax → pay), Snap, Stop.
           </div>
         </div>
         <div className="flex gap-1 overflow-x-auto px-3 pb-2 md:hidden">
@@ -1557,7 +1575,7 @@ function AgentStage({
           {engine.inspecting && <Badge tone="accent">Inspect</Badge>}
         </div>
         <p className="mt-1 text-sm text-muted">
-          Start rec → Pay now → Snap the 402 → Stop. Inbox is optional.
+          Start rec → Walk → Snap the 402 → Stop. Inbox is optional.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" variant="subtle" onClick={onStill}>
@@ -1567,6 +1585,10 @@ function AgentStage({
           <Button size="sm" variant={engine.recording ? "danger" : "accent"} onClick={onRecord}>
             {engine.recording ? <Square className="size-3.5 fill-current" /> : <Radio className="size-4" />}
             {engine.recording ? "Stop" : "Start rec"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onRun("vibecap_subject_walk")}>
+            <CreditCard className="size-4" />
+            Walk
           </Button>
           <Button size="sm" variant="outline" onClick={() => onRun("vibecap_subject_coupon")}>
             Coupon
