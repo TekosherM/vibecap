@@ -92,6 +92,14 @@ export const DEMO_FRONTEND_DOM = {
       detail: "Muted helper text #c4b8a8 on #f4efe6 fails WCAG AA",
     },
     {
+      id: "coupon",
+      detail: "LUMEN10 Apply returns 422 coupon_expired; banner clips the pay panel",
+    },
+    {
+      id: "tax-zip",
+      detail: "ZIP 94107 tax lookup throws at pricing.ts:88 (undefined tax)",
+    },
+    {
       id: "stock",
       detail: "Graphite notebook is in cart with stock 0",
     },

@@ -42,9 +42,7 @@ async function call(tool, args = {}) {
 }
 
 const start = await call("vibecap_record_start");
-const coupon = await call("vibecap_subject_coupon");
-const taxWalk = await call("vibecap_subject_tax");
-const pay = await call("vibecap_subject_pay");
+const walk = await call("vibecap_subject_walk");
 const snap = await call("vibecap_snapshot");
 const parsed = snap.parsed;
 
@@ -106,14 +104,11 @@ console.log(JSON.stringify({
     rule: hooks.rule,
   },
   start: { status: start.pending?.status, resultStatus: start.result?.status, result: start.parsed ?? start.result?.result },
-  coupon: { status: coupon.result?.status, error: coupon.parsed?.error ?? coupon.result?.result?.error },
-  tax: { status: taxWalk.result?.status, http: taxWalk.parsed?.status ?? taxWalk.result?.result?.status },
-  pay: {
-    status: pay.pending?.status,
-    resultStatus: pay.result?.status,
-    http: pay.parsed?.status ?? pay.result?.result?.status,
-    error: pay.parsed?.error ?? pay.result?.result?.error,
-    ui_total_cents: pay.parsed?.ui_total_cents ?? pay.result?.result?.ui_total_cents,
+  walk: {
+    status: walk.result?.status,
+    coupon: walk.parsed?.coupon?.error ?? walk.result?.result?.coupon?.error,
+    tax: walk.parsed?.tax?.status ?? walk.result?.result?.tax?.status,
+    pay: walk.parsed?.pay?.error ?? walk.result?.result?.pay?.error,
   },
   snap: {
     status: snap.pending?.status,
