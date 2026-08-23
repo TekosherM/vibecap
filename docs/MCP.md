@@ -1,8 +1,10 @@
 # MCP Server Reference
 
-Vibecap exposes a **stdio JSON-RPC** Model Context Protocol server for AI coding agents.
+Vibecap native exposes a **stdio JSON-RPC** Model Context Protocol server.
 
-## Start the server
+If your agent **cannot attach** `vibecap --mcp`, use the **web HTTP studio** instead. That tab *is* the connector. See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md). Do not look in `~/Movies/Vibecap` for web stills.
+
+## Start the native server
 
 ```bash
 vibecap --mcp

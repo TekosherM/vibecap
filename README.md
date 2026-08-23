@@ -9,13 +9,29 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](docs/PLATFORMS.md)
 [![CI](https://github.com/TekosherM/vibecap/actions/workflows/ci.yml/badge.svg)](https://github.com/TekosherM/vibecap/actions/workflows/ci.yml)
 
-**Native screen capture + annotation for humans and AI coding agents.**  
-One small Rust binary. Desktop UI with a menu-bar tray. MCP server so your agent can capture, record, and ask you for visual feedback.
+**Native screen capture + a web evidence studio for humans and AI coding agents.**  
+Rust desktop app with a menu-bar tray and stdio MCP. Web studio with an HTTP connector so agents can capture, snap while recording, and pack frontend + backend + database + logs.
 
 Brand assets: [docs/brand/](docs/brand/).
 
 ---
 
+## Two connectors
+
+| | Native | Web |
+| :--- | :--- | :--- |
+| How the agent attaches | Leave `vibecap` running, then `vibecap --mcp` | **The open studio tab is the connector.** There is no `--mcp`. |
+| Capture | Screenshot / record to disk | Unbounded record, snap JPEGs while REC is on |
+| Evidence | Screen pixels | Pixels **plus** DOM, console, HTTP, shell, database, logs |
+| Output | `{Videos}/Vibecap` or `~/Movies/Vibecap` | Pack JSON + Media downloads. **Not** a home folder. |
+
+Most agent jobs on the web studio: hooks → record_start → snapshot → record_stop → bug_pack. Inbox is optional.
+
+- Web: [docs/WEB.md](docs/WEB.md) · [docs/HOOKS.md](docs/HOOKS.md) · [web/README.md](web/README.md)
+- Native MCP: [docs/MCP.md](docs/MCP.md)
+- Skill (short, capture-only first): [skills/vibecap/SKILL.md](skills/vibecap/SKILL.md)
+
+---
 ## Try it with your agent
 
 Vibecap is built for **smooth visual feedback loops** with whatever harness you already use — Cursor, Claude Code, Codex, Windsurf, Gemini, OpenCode, custom MCP clients, or your own agent stack.
@@ -26,6 +42,28 @@ Vibecap is built for **smooth visual feedback loops** with whatever harness you 
 4. You get a **notification**, tray **Inbox** badge, and Dock bounce — answer with text, chips, voice, or mark-up.
 
 That loop is the product: agent sees the screen, you stay in flow, feedback stays visual and fast.
+
+### Web studio (HTTP)
+
+If MCP never attaches, use the web studio. Leave the tab open.
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+```
+GET  /api/agent/hooks
+POST /api/agent/call  {"tool":"vibecap_record_start"}
+POST /api/agent/call  {"tool":"vibecap_snapshot"}
+POST /api/agent/call  {"tool":"vibecap_record_stop"}
+POST /api/agent/call  {"tool":"vibecap_bug_pack"}
+```
+
+Stills are JPEG in the tool result and at `GET /api/agent/still/{id}.jpg`. Do not look in `~/Movies/Vibecap`.
+
+### Native (MCP)
 
 ```bash
 # Human GUI (tray) — leave this running
@@ -74,6 +112,7 @@ Please **run it with your agent / harness** and open issues with: OS, how you la
 - **Annotation** — pen, arrow, rect, highlight, text, blur, step badges, clipboard
 - **Agent Inbox** — HITL questions with OS notification, tray title, Dock bounce, dual-pane reply
 - **MCP (16 tools)** — capture, record, GIF export, live inspection, budget, retro buffer, feedback, apps list, bug pack
+- **Web HTTP studio** — unbounded record, snap-while-REC, hook plan (DOM / console / HTTP / DB / logs), downloadable JPEG + WebM + JSON pack
 - **Safelight UI** — Graphite / light theme, Loop rail, Shutter dock, ⌘K palette, first-run wizard
 - **Lightweight** — single binary (~15 MB), no Electron, no always-on cloud
 
@@ -153,8 +192,11 @@ SMOKE_CAPTURE=1 ./scripts/smoke_mcp.sh   # optional real capture
 | Doc | Contents |
 | :--- | :--- |
 | [docs/USAGE.md](docs/USAGE.md) | CLI, desktop stages, agent workflows |
-| [docs/MCP.md](docs/MCP.md) | Tools, config, disk state |
+| [docs/MCP.md](docs/MCP.md) | Native stdio MCP tools |
+| [docs/WEB.md](docs/WEB.md) | Web HTTP studio + agent loop |
+| [docs/HOOKS.md](docs/HOOKS.md) | When to collect DOM / console / HTTP / DB / video |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Single-binary design |
+| [web/README.md](web/README.md) | Run the web studio |
 | [docs/PLATFORMS.md](docs/PLATFORMS.md) | macOS / Windows / Linux backends |
 | [docs/TESTING.md](docs/TESTING.md) | Smoke + manual checks |
 | [docs/FEEDBACK_USE_CASES.md](docs/FEEDBACK_USE_CASES.md) | HITL scenarios |
