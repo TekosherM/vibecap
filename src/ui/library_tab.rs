@@ -5,7 +5,7 @@ use egui::{RichText, Vec2};
 use std::path::PathBuf;
 
 use crate::app::{MediaCategory, MediaItem, LIBRARY_PAGE_SIZE};
-use crate::platform::{open_path, reveal_in_file_manager};
+use crate::platform::open_path;
 use crate::ui::icons::Icon;
 use crate::ui::theme;
 use crate::ui::{empty_state, loop_position_badge};
@@ -14,7 +14,7 @@ use crate::{AppTab, VibecapApp};
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                     ui.horizontal(|ui| {
-                        ui.heading(RichText::new("Media Library").color(theme::ACCENT()).strong());
+                        ui.heading(RichText::new("Media Library").color(theme::TEXT()).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("🔄 Refresh").clicked() {
                                 app.refresh_library();

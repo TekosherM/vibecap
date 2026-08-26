@@ -18,34 +18,36 @@ Capture-only agent: [AGENTS.md](AGENTS.md). Inbox is optional.
 | :--- | :--- |
 | **OS** | macOS primary; Windows/Linux via ffmpeg (see [PLATFORMS.md](PLATFORMS.md)) |
 | **ffmpeg** installed | Screen record, GIF export, filmstrip (GUI also searches Homebrew paths; override with `VIBECAP_FFMPEG`) |
-| **Screen Recording** permission (macOS) | System Settings → Privacy & Security → Screen Recording |
+| **Screen Recording** permission (macOS) | System Settings → Privacy & Security → Screen Recording → enable **one** Vibecap (the app) |
 
 Install ffmpeg (Homebrew): `brew install ffmpeg`
 
+### macOS Screen Recording (bare desktop / duplicates)
+
+If screenshots are only **wallpaper** or empty:
+
+1. **Quit everything:** tray → Quit Vibecap, then `killall vibecap` if needed.  
+2. **Settings → Privacy & Security → Screen Recording**  
+3. Enable **only** the **Vibecap** app entry. Turn **off** or remove extras (second Vibecap, unsigned cargo binary, Terminal-only entries from old installs).  
+4. Reopen with `open -a Vibecap` (prefer `/Applications/Vibecap.app`).  
+
+`./scripts/install_macos_app.sh` installs the app **and** symlinks `~/.cargo/bin/vibecap` → the app binary so GUI + MCP share **one** permission identity. Running a separate `cargo build` binary without that link creates a second list entry.
+
 ## Install
 
-### CLI / MCP (terminal)
-
-```bash
-cargo install --path .
-# binary: ~/.cargo/bin/vibecap
-```
-
-That only installs the command-line binary. It does **not** put an icon in **Applications**.
-
-### macOS app (Finder / Spotlight / Launchpad)
+### macOS app (recommended — Finder / Spotlight / Launchpad)
 
 ```bash
 ./scripts/install_macos_app.sh
-# → /Applications/Vibecap.app  (or ~/Applications if /Applications is not writable)
+# → /Applications/Vibecap.app
+# → ~/.cargo/bin/vibecap  (symlink to the app binary)
 open -a Vibecap
 ```
 
-Or from a clone without installing:
+### CLI / MCP only
 
-```bash
-cargo run --release -- [FLAGS]
-```
+Prefer the install script above so MCP uses the app binary.  
+`cargo install --path .` alone writes a **separate** binary (second Screen Recording entry).
 
 ## CLI
 

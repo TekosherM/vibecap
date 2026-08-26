@@ -5,7 +5,6 @@
 //! focused window; they do not get the web studio demo shutter.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::paths::{media_dir, media_dir_display};
 

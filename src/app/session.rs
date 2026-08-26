@@ -32,6 +32,12 @@ pub struct SessionState {
     /// Pre-record countdown: 0 | 3 | 5.
     #[serde(default)]
     pub record_countdown_secs: u8,
+    /// True after we have triggered the macOS Screen Recording permission probe once.
+    #[serde(default)]
+    pub screen_permission_prompted: bool,
+    /// True only after a probe produced a capture that looks allowed.
+    #[serde(default)]
+    pub screen_permission_ok: bool,
 }
 
 fn default_theme_dark() -> String {
@@ -50,13 +56,15 @@ impl Default for SessionState {
             edit_file: None,
             density: "comfortable".into(),
             library_filter: "All".into(),
-            window_w: 760.0,
-            window_h: 640.0,
+            window_w: 1160.0,
+            window_h: 800.0,
             // Fresh install (no session.json) → show wizard.
             wizard_done: false,
             theme: "dark".into(),
             last_region: None,
             record_countdown_secs: 0,
+            screen_permission_prompted: false,
+            screen_permission_ok: false,
         }
     }
 }

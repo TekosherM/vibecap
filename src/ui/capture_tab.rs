@@ -1,17 +1,14 @@
 //! Capture tab UI (extracted from main for Phase 1a).
 
 use eframe::egui;
-use egui::{Color32, RichText, Stroke, Vec2};
-use rfd::FileDialog;
-use std::path::PathBuf;
+use egui::{RichText, Stroke};
 
 use crate::ui::theme;
-use crate::ui::icons::Icon;
-use crate::ui::{empty_state, shutter_strip, ShutterAction};
-use crate::app::{get_dir_size_bytes, live_usage_snapshot, load_budget, save_budget, MediaCategory, LIBRARY_PAGE_SIZE};
-use crate::platform::{open_path, reveal_in_file_manager};
-use crate::{AppTab, CaptureTarget, VibecapApp};
+use crate::ui::{shutter_strip, ShutterAction};
+use crate::app::{budget_exceeded_reason, get_dir_size_bytes, load_budget};
+use crate::{CaptureTarget, VibecapApp};
 use crate::app::default_live_dir;
+use crate::ui::{btn_small, segmented, switch};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
@@ -54,97 +51,135 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                         ui.add_space(theme::SP_4);
 
-                        // ── Subtle options (below shutter) ───────
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new("Target")
-                                    .small()
-                                    .color(theme::TEXT_DIM()),
-                            );
-                            ui.add_space(theme::SP_2);
-                            ui.radio_value(&mut app.capture_target, CaptureTarget::Fullscreen, "Full");
-                            ui.radio_value(&mut app.capture_target, CaptureTarget::Region, "Region");
-                            ui.radio_value(&mut app.capture_target, CaptureTarget::Window, "Window");
-                        });
-                        if app.capture_target == CaptureTarget::Window {
-                            if !app.window_list_scanned {
-                                app.refresh_window_list();
-                            }
-                            ui.add_space(theme::SP_2);
-                            ui.horizontal(|ui| {
+                        // ── Capture options (grouped card) ────────
+                        egui::Frame::none()
+                            .fill(theme::SURFACE())
+                            .rounding(theme::rounding_md())
+                            .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                            .inner_margin(egui::Margin::same(theme::SP_3))
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width().min(560.0));
                                 ui.label(
-                                    RichText::new("App")
-                                        .small()
+                                    RichText::new("CAPTURE OPTIONS")
+                                        .size(11.0)
+                                        .strong()
                                         .color(theme::TEXT_MUTED()),
                                 );
-                                egui::ComboBox::from_id_source("window_app_picker")
-                                    .selected_text(if app.window_app.is_empty() {
-                                        "Select app…".to_string()
-                                    } else {
-                                        app.window_app.clone()
-                                    })
-                                    .width(220.0)
-                                    .show_ui(ui, |ui| {
-                                        for name in app.window_app_list.clone() {
-                                            ui.selectable_value(
-                                                &mut app.window_app,
-                                                name.clone(),
-                                                name,
-                                            );
+                                ui.add_space(theme::SP_2);
+                                crate::ui::group(ui, "TARGET", |ui| {
+                                    segmented(
+                                        ui,
+                                        &mut app.capture_target,
+                                        &[
+                                            (CaptureTarget::Fullscreen, "Full"),
+                                            (CaptureTarget::Region, "Region"),
+                                            (CaptureTarget::Window, "Window"),
+                                        ],
+                                    );
+                                });
+                                if app.capture_target == CaptureTarget::Window {
+                                    if !app.window_list_scanned {
+                                        app.refresh_window_list();
+                                    }
+                                    crate::ui::group(ui, "WINDOW", |ui| {
+                                        egui::ComboBox::from_id_source("window_app_picker")
+                                            .selected_text(if app.window_app.is_empty() {
+                                                "Select app…".to_string()
+                                            } else {
+                                                app.window_app.clone()
+                                            })
+                                            .width(220.0)
+                                            .show_ui(ui, |ui| {
+                                                for name in app.window_app_list.clone() {
+                                                    ui.selectable_value(
+                                                        &mut app.window_app,
+                                                        name.clone(),
+                                                        name,
+                                                    );
+                                                }
+                                            });
+                                        if btn_small(ui, "↻") {
+                                            app.refresh_window_list();
                                         }
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut app.window_app)
+                                                .hint_text("Or type app name (e.g. Google Chrome)")
+                                                .desired_width(220.0),
+                                        );
                                     });
-                                if ui.small_button("↻").on_hover_text("Refresh app list").clicked()
-                                {
-                                    app.refresh_window_list();
+                                }
+                                crate::ui::group(ui, "AUDIO", |ui| {
+                                    switch(ui, "Include audio", &mut app.capture_audio);
+                                });
+                                ui.label(
+                                    RichText::new(
+                                        "S / R in app · Ctrl+Shift+3 / 2 global · FPS & countdown in Settings",
+                                    )
+                                    .size(10.0)
+                                    .color(theme::TEXT_DIM()),
+                                );
+                                if app.capture_target == CaptureTarget::Fullscreen {
+                                    if let Some(prev) = &app.last_front_app {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "Fullscreen restores “{}” before the shot (never bare desktop).",
+                                                prev
+                                            ))
+                                            .size(10.0)
+                                            .color(theme::TEXT_MUTED()),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            RichText::new(
+                                                "Tip: click another app first, then Vibecap — Fullscreen restores that app before the shot.",
+                                            )
+                                            .size(10.0)
+                                            .color(theme::TEXT_DIM()),
+                                        );
+                                    }
                                 }
                             });
-                            ui.label(
-                                RichText::new(
-                                    "Focuses the app, then captures / records. Type a name if missing from the list.",
-                                )
-                                .small()
-                                .color(theme::TEXT_DIM()),
-                            );
-                            ui.add(
-                                egui::TextEdit::singleline(&mut app.window_app)
-                                    .hint_text("Or type app name (e.g. Google Chrome)")
-                                    .desired_width(280.0),
-                            );
-                        }
-                        ui.add_space(theme::SP_2);
-                        ui.horizontal(|ui| {
-                            ui.add_space(ui.available_width() / 2.0 - 80.0);
-                            ui.checkbox(
-                                &mut app.capture_audio,
-                                RichText::new("Include audio")
-                                    .small()
-                                    .color(theme::TEXT_MUTED()),
-                            );
-                        });
-                        ui.label(
-                            RichText::new("S / R in app  ·  Ctrl+Shift+3 / 2 global  ·  FPS in Settings")
-                                .small()
-                                .color(theme::TEXT_DIM()),
-                        );
-                        if app.capture_target == CaptureTarget::Fullscreen {
-                            if let Some(prev) = &app.last_front_app {
+
+                        ui.add_space(theme::SP_4);
+
+                        // ── Compact live-stats row (always visible proof of life) ──
+                        {
+                            let live_dir = default_live_dir().display().to_string();
+                            let (bytes, count) = get_dir_size_bytes(&live_dir);
+                            let mb = bytes as f64 / (1024.0 * 1024.0);
+                            let cfg = load_budget();
+                            let over = budget_exceeded_reason(&live_dir);
+                            ui.horizontal(|ui| {
+                                let dot_color = if over.is_some() {
+                                    theme::DANGER()
+                                } else if count > 0 {
+                                    theme::ACCENT()
+                                } else {
+                                    theme::TEXT_DIM()
+                                };
+                                let (r, _) =
+                                    ui.allocate_exact_size(egui::Vec2::splat(8.0), egui::Sense::hover());
+                                ui.painter()
+                                    .circle_filled(r.center(), 4.0, dot_color);
                                 ui.label(
                                     RichText::new(format!(
-                                        "Fullscreen will restore “{}” before capture (not bare desktop).",
-                                        prev
+                                        "Live {} frames · {:.2} MB · cap {}f/{:.0}MB",
+                                        count,
+                                        mb,
+                                        if cfg.max_frames == 0 { u64::MAX.to_string() } else { cfg.max_frames.to_string() },
+                                        cfg.max_mb,
                                     ))
                                     .small()
                                     .color(theme::TEXT_MUTED()),
                                 );
-                            } else {
-                                ui.label(
-                                    RichText::new(
-                                        "Tip: click another app first, then Vibecap — Fullscreen restores that app before the shot.",
-                                    )
-                                    .small()
-                                    .color(theme::TEXT_DIM()),
-                                );
-                            }
+                                if let Some(reason) = &over {
+                                    ui.label(
+                                        RichText::new(format!("⚠ {}", reason))
+                                            .small()
+                                            .color(theme::DANGER()),
+                                    );
+                                }
+                            });
                         }
 
                         // Retro buffer status (only when enabled — stays quiet when off)
@@ -168,18 +203,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         theme::TEXT_DIM()
                                     }),
                                 );
-                                if ui
-                                    .small_button("Save GIF")
-                                    .on_hover_text("Export last N seconds from retro buffer")
-                                    .clicked()
-                                {
+                                if btn_small(ui, "Save GIF") {
                                     app.dump_retro_buffer();
                                 }
-                                if ui
-                                    .small_button("Bug pack")
-                                    .on_hover_text("Screenshot + retro GIF")
-                                    .clicked()
-                                {
+                                if btn_small(ui, "Bug pack") {
                                     app.bug_report_pack(ctx);
                                 }
                             });
@@ -197,31 +224,41 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                         ui.add_space(16.0);
                         egui::CollapsingHeader::new(
-                            RichText::new("🤖 Agent session (live inspection & budget)")
-                                .color(theme::TEXT_MUTED()),
+                            RichText::new("Agent session · live inspection & budget")
+                                .color(theme::TEXT_MUTED())
+                                .size(12.0)
+                                .strong(),
                         )
-                        .default_open(false)
+                        .default_open(true)
                         .show(ui, |ui| {
                             let live_dir = default_live_dir().display().to_string();
                             let (bytes, count) = get_dir_size_bytes(&live_dir);
-                            let mb = (bytes as f64) / (1024.0 * 1024.0);
+                            let mb = bytes as f64 / (1024.0 * 1024.0);
                             let cfg = load_budget();
-                            ui.label(format!("Live frames: {} · {:.2} MB in {}", count, mb, live_dir));
-                            ui.label(format!(
-                                "Budget: frames cap {} · MB cap {:.1} · minutes cap {} · tier {}",
-                                if cfg.max_frames == 0 {
-                                    "unlimited".to_string()
-                                } else {
-                                    cfg.max_frames.to_string()
-                                },
-                                cfg.max_mb,
-                                if cfg.max_minutes == 0 {
-                                    "unlimited".to_string()
-                                } else {
-                                    cfg.max_minutes.to_string()
-                                },
-                                cfg.analysis_tier
-                            ));
+                            ui.label(
+                                RichText::new(format!("Live frames: {} · {:.2} MB", count, mb))
+                                    .size(12.0)
+                                    .color(theme::TEXT_MUTED()),
+                            );
+                            ui.label(
+                                RichText::new(format!(
+                                    "Budget: frames cap {} · MB cap {:.1} · minutes cap {} · tier {}",
+                                    if cfg.max_frames == 0 {
+                                        "unlimited".to_string()
+                                    } else {
+                                        cfg.max_frames.to_string()
+                                    },
+                                    cfg.max_mb,
+                                    if cfg.max_minutes == 0 {
+                                        "unlimited".to_string()
+                                    } else {
+                                        cfg.max_minutes.to_string()
+                                    },
+                                    cfg.analysis_tier
+                                ))
+                                .size(12.0)
+                                .color(theme::TEXT_MUTED()),
+                            );
                             ui.label(
                                 RichText::new(
                                     "Agents use vibecap_set_budget; live inspection auto-stops at caps.",

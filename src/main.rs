@@ -4,7 +4,7 @@ mod tray_ui;
 mod ui;
 
 use eframe::egui;
-use std::process::{Command, Child};
+use std::process::Child;
 use std::path::PathBuf;
 use std::io::Write;
 use chrono::Local;
@@ -15,32 +15,31 @@ use egui::{
     Color32, Stroke, Pos2, Rect, Vec2, ViewportId, ViewportBuilder, ViewportCommand, RichText,
     Frame, Align2, FontId, UserAttentionType,
 };
-use rfd::FileDialog;
 use std::time::{Duration, Instant};
 
 use platform::{
-    capture_screenshot, capture_screenshot_interactive, cont_process, focus_app,
-    frontmost_app_name, list_running_apps, notify_agent_question, open_path,
-    reveal_in_file_manager, spawn_screen_recorder, spawn_voice_memo, stop_process,
+activate_own_app, capture_screenshot, capture_screenshot_interactive, cont_process,
+    focus_app, frontmost_app_name, list_running_apps, notify_agent_question, open_screen_recording_settings, request_screen_recording_access,
+    reveal_in_file_manager, screen_capture_allowed, spawn_screen_recorder, spawn_voice_memo,
+    stop_process,
 };
 use tray_ui::{TrayAction, TrayController, TrayLiveState};
 use ui::{
-    apply_current_theme, apply_graphite_theme, empty_state, loop_rail, show_capture_toast,
-    show_countdown_bubble, show_palette, show_region_selector, show_toast_card, shutter_strip,
-    status_strip, CaptureToastAction, Density, LoopStage, PaletteAction, RegionHudResult,
-    ShutterAction, StatusSnapshot, ThemeMode, ToastLevel,
+    apply_current_theme, apply_graphite_theme, loop_rail, show_capture_toast,
+    show_countdown_bubble, show_palette, show_region_selector, show_toast_card,
+    status_strip, CaptureToastAction, Density, LoopStage, PaletteAction, RegionHudResult, StatusSnapshot, ThemeMode, ToastLevel,
 };
-use ui::icons::Icon;
 use ui::theme;
 
 use app::{
-    default_live_dir, default_media_dir, even_crop, extract_filmstrip_thumbs,
-    feedback_requests_dir, feedback_responses_dir, filter_items, finalize_recorder,
-    format_feedback_answer, get_dir_size_bytes, kill_recorder, live_usage_snapshot, load_budget,
-    mcp_live_dir, parse_args, run_headless, run_mcp_server, save_budget, scan_media_dir,
-    write_json_atomic, BudgetConfig, CliAction, FeedbackRequest, FeedbackResponse, MediaCategory,
-    MediaItem, LIBRARY_PAGE_SIZE,
+default_live_dir, default_media_dir, even_crop,
+    extract_filmstrip_thumbs, feedback_requests_dir, feedback_responses_dir, filter_items,
+    finalize_recorder, get_dir_size_bytes, kill_recorder,
+    live_usage_snapshot, load_budget, mcp_live_dir, parse_args, run_headless, run_mcp_server, scan_media_dir, take_pending_still, write_json_atomic, write_pending_still,
+    write_pending_still_error, CliAction, FeedbackRequest,
+    FeedbackResponse, MediaItem, LIBRARY_PAGE_SIZE,
 };
+use app::annotation_baker::{AnnotationAction, AnnotationTool};
 use app::io::vibecap_config_dir;
 use app::session::{
     density_from_str, density_to_str, load_session, save_session, SessionState,
@@ -98,28 +97,6 @@ pub(crate) enum CaptureTarget {
     Window,
 }
 
-#[derive(PartialEq, Clone, Copy, Default)]
-pub(crate) enum AnnotationTool {
-    #[default]
-    Pen,
-    Arrow,
-    Rectangle,
-    Highlight,
-    Text,
-    Blur,
-    StepBadge,
-}
-
-#[derive(Clone)]
-pub(crate) struct AnnotationAction {
-    pub tool: AnnotationTool,
-    pub color: Color32,
-    pub stroke_width: f32,
-    pub points: Vec<Pos2>,
-    pub text_content: String,
-    pub badge_number: usize,
-}
-
 #[derive(Default)]
 pub(crate) struct VibecapApp {
     current_tab: AppTab,
@@ -144,8 +121,6 @@ pub(crate) struct VibecapApp {
     // Channels for async capture
     /// Region-select → arm recording on next frame (avoids re-entrancy).
     pending_arm_record: bool,
-    screenshot_tx: Option<crossbeam_channel::Sender<Result<PathBuf, String>>>,
-    screenshot_rx: Option<crossbeam_channel::Receiver<Result<PathBuf, String>>>,
     /// Worker → main: ffmpeg child after hide delay (recording starts even if UI was minimized).
     record_spawn_rx: Option<crossbeam_channel::Receiver<Result<(Child, PathBuf), String>>>,
     
@@ -168,9 +143,17 @@ pub(crate) struct VibecapApp {
     trim_end: String,
     export_speed: String,
     edit_file: Option<PathBuf>,
+    /// Probed playtime of the loaded clip in seconds (0 = unknown).
+    clip_duration_secs: f64,
     filmstrip: Vec<egui::TextureHandle>,
+    /// Extraction rate of `filmstrip` frames (frames per second of real time).
+    filmstrip_fps: f64,
     filmstrip_loading: bool,
     filmstrip_error: Option<String>,
+    // In-app preview player state
+    player_playing: bool,
+    player_pos: f64,
+    player_last_time: Option<f64>,
 
     // Annotation & Developer Feedback Note
     is_annotating: bool,
@@ -225,6 +208,10 @@ pub(crate) struct VibecapApp {
     feedback_requests: Vec<FeedbackRequest>,
     feedback_scanned: bool,
     feedback_selected: Option<String>,
+    /// True once the user explicitly picked a thread — suppress silent auto-select.
+    feedback_user_picked: bool,
+    /// Set when a brand-new request arrives so one auto-select is allowed again.
+    feedback_new_arrived: bool,
     feedback_draft: String,
     /// Quick-choice chip selected for the open reply (maps to selected_option).
     feedback_choice: String,
@@ -294,6 +281,26 @@ pub(crate) struct VibecapApp {
     /// Last non-Vibecap frontmost app (so Fullscreen screenshots are not bare desktop).
     last_front_app: Option<String>,
     last_front_poll: Option<Instant>,
+    /// After first GUI open we probe Screen Recording once (macOS TCC dialog).
+    screen_permission_prompted: bool,
+    /// Persisted: probe produced a capture that looks allowed.
+    screen_permission_ok: bool,
+    /// Set true for one frame after open so we can run the probe off the UI thread.
+    screen_permission_pending: bool,
+    /// True while a screenshot worker is running (keep event loop alive while parked).
+    screenshot_in_flight: bool,
+    /// Geometry before parking off-screen for capture (orderOut breaks restore on macOS).
+    pre_capture_outer: Option<Pos2>,
+    pre_capture_size: Option<Vec2>,
+    /// Modal: first-run / failed Screen Recording gate (blocks until dismissed).
+    screen_perm_modal: bool,
+    /// Last observed window inner size (persisted so relaunch restores it).
+    window_size: Vec2,
+    /// Last probe result for the modal copy (None = still running).
+    screen_perm_probe_ok: Option<bool>,
+    /// One-shot receiver for async permission probe.
+    #[allow(clippy::type_complexity)]
+    screen_perm_rx: Option<std::sync::mpsc::Receiver<bool>>,
 }
 
 impl Default for AppTab {
@@ -328,7 +335,6 @@ impl VibecapApp {
         
         let default_dir = default_media_dir();
 
-        let (screenshot_tx, screenshot_rx) = crossbeam_channel::unbounded();
         let (ffmpeg_tx, ffmpeg_rx) = crossbeam_channel::unbounded();
 
         let mut app = Self {
@@ -351,8 +357,6 @@ impl VibecapApp {
             feedback_description: String::new(),
             feedback_choice: String::new(),
             step_counter: 1,
-            screenshot_tx: Some(screenshot_tx),
-            screenshot_rx: Some(screenshot_rx),
             ffmpeg_tx: Some(ffmpeg_tx),
             ffmpeg_rx: Some(ffmpeg_rx),
             library_filter: "All".to_string(),
@@ -403,7 +407,17 @@ impl VibecapApp {
         if let Some(p) = s.edit_file {
             let path = PathBuf::from(p);
             if path.exists() {
-                self.edit_file = Some(path);
+                let is_image = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp"))
+                    .unwrap_or(false);
+                if is_image || matches!(self.current_tab, AppTab::Still) {
+                    self.img_edit_file = Some(path.clone());
+                    self.latest_screenshot = Some(path.clone());
+                } else {
+                    self.edit_file = Some(path);
+                }
             }
         }
         self.wizard_done = s.wizard_done;
@@ -417,6 +431,15 @@ impl VibecapApp {
             3 | 5 => s.record_countdown_secs,
             _ => 0,
         };
+        self.screen_permission_prompted = s.screen_permission_prompted;
+        self.screen_permission_ok = s.screen_permission_ok;
+        // Re-check with a cheap, prompt-free preflight on the next frame.
+        // The modal is shown by `update` only when the preflight actually fails —
+        // never unconditionally, so granted users are not re-asked on cold start.
+        self.screen_permission_pending = true;
+        self.screen_perm_modal = false;
+        // Restore last window size (floor keeps relaunch comfortably large).
+        self.window_size = Vec2::new(s.window_w.max(1024.0), s.window_h.max(700.0));
     }
 
     pub(crate) fn persist_session(&self) {
@@ -431,18 +454,235 @@ impl VibecapApp {
         let last_region = self.last_region.map(|r| {
             [r.min.x, r.min.y, r.max.x, r.max.y]
         });
+        // Prefer the path matching the active studio tab.
+        let edit_file = match self.current_tab {
+            AppTab::Still => self
+                .img_edit_file
+                .as_ref()
+                .or(self.edit_file.as_ref())
+                .map(|p| p.display().to_string()),
+            _ => self.edit_file.as_ref().map(|p| p.display().to_string()),
+        };
         save_session(&SessionState {
             tab: tab.into(),
-            edit_file: self.edit_file.as_ref().map(|p| p.display().to_string()),
+            edit_file,
             density: density_to_str(self.density).into(),
             library_filter: self.library_filter.clone(),
-            window_w: 760.0,
-            window_h: 640.0,
+            window_w: self.window_size.x,
+            window_h: self.window_size.y,
             wizard_done: self.wizard_done,
             theme: theme::theme_mode_to_str(theme::theme_mode()).into(),
             last_region,
             record_countdown_secs: self.record_countdown_secs,
+            screen_permission_prompted: self.screen_permission_prompted,
+            screen_permission_ok: self.screen_permission_ok,
         });
+    }
+
+    /// Load a still into Still studio and select that tab.
+    fn open_still_from_path(&mut self, path: PathBuf) {
+        self.img_source_dims = image::image_dimensions(&path)
+            .map(|(w, h)| format!("{}×{}", w, h))
+            .unwrap_or_default();
+        self.img_preview_params.clear();
+        self.img_preview_on = true;
+        self.img_edit_file = Some(path.clone());
+        self.latest_screenshot = Some(path);
+        self.current_tab = AppTab::Still;
+    }
+
+    pub fn save_current_still(&mut self) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded to save");
+            return;
+        };
+        let mut dyn_img = match self.compute_edited_image() {
+            Ok(img) => img,
+            Err(_) => match image::open(&path) {
+                Ok(img) => img,
+                Err(e) => {
+                    self.show_toast(&format!("❌ Could not read image: {e}"));
+                    return;
+                }
+            },
+        };
+        app::bake_annotations(&mut dyn_img, &self.annotation_actions, self.annotation_canvas_rect);
+        match dyn_img.save(&path) {
+            Ok(_) => {
+                self.show_toast("💾 Image & annotations saved!");
+                self.refresh_library();
+            }
+            Err(e) => self.show_toast(&format!("❌ Save failed: {}", e)),
+        }
+    }
+
+    pub fn copy_current_still_to_clipboard(&mut self) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded to copy");
+            return;
+        };
+        let mut dyn_img = match self.compute_edited_image() {
+            Ok(img) => img,
+            Err(_) => match image::open(&path) {
+                Ok(img) => img,
+                Err(e) => {
+                    self.show_toast(&format!("❌ Could not read image: {e}"));
+                    return;
+                }
+            },
+        };
+        app::bake_annotations(&mut dyn_img, &self.annotation_actions, self.annotation_canvas_rect);
+
+        let rgba = dyn_img.to_rgba8();
+        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+        if let Ok(mut board) = arboard::Clipboard::new() {
+            let img_data = arboard::ImageData {
+                width: w,
+                height: h,
+                bytes: std::borrow::Cow::Borrowed(rgba.as_raw()),
+            };
+            if board.set_image(img_data).is_ok() {
+                self.show_toast("📋 Image copied to system clipboard!");
+            } else {
+                self.show_toast("❌ Clipboard copy failed");
+            }
+        }
+    }
+
+    /// Blocking overlay: Screen Recording onboarding / recovery.
+    fn draw_screen_perm_modal(&mut self, ctx: &egui::Context) {
+        let mut dismiss = false;
+        let mut retest = false;
+        let mut open_settings = false;
+
+        egui::Area::new(egui::Id::new("screen_perm_dim"))
+            .order(egui::Order::Middle)
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                let rect = ui.ctx().screen_rect();
+                ui.painter().rect_filled(rect, 0.0, theme::OVERLAY_DIM());
+            });
+
+        egui::Area::new(egui::Id::new("screen_perm_modal"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                Frame::none()
+                    .fill(theme::SURFACE())
+                    .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                    .rounding(theme::rounding_lg())
+                    .inner_margin(egui::Margin::symmetric(28.0, 24.0))
+                    .show(ui, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(
+                            RichText::new("Screen Recording")
+                                .size(20.0)
+                                .strong()
+                                .color(theme::TEXT()),
+                        );
+                        ui.add_space(theme::SP_2);
+                        match self.screen_perm_probe_ok {
+                            None => {
+                                ui.label(
+                                    RichText::new(
+                                        "Checking Screen Recording permission. If macOS shows a dialog, click Allow so Vibecap can capture windows and screens.",
+                                    )
+                                    .color(theme::TEXT_MUTED()),
+                                );
+                                ui.add_space(theme::SP_2);
+                                ui.label(
+                                    RichText::new("Waiting for system check…")
+                                        .small()
+                                        .color(theme::TEXT_DIM()),
+                                );
+                            }
+                            Some(true) => {
+                                ui.label(
+                                    RichText::new(
+                                        "Capture looks allowed. You can start screenshotting and recording.",
+                                    )
+                                    .color(theme::SUCCESS()),
+                                );
+                            }
+                            Some(false) => {
+                                ui.label(
+                                    RichText::new(
+                                        "Capture is not fully allowed yet (often looks like bare desktop wallpaper only).",
+                                    )
+                                    .color(theme::WARN()),
+                                );
+                                ui.add_space(theme::SP_2);
+                                ui.label(
+                                    RichText::new(
+                                        "1. Open Settings → enable only “Vibecap”\n\
+                                         2. Quit this app completely (tray Quit)\n\
+                                         3. Reopen from Applications, then Test again",
+                                    )
+                                    .color(theme::TEXT_MUTED()),
+                                );
+                            }
+                        }
+                        ui.add_space(theme::SP_4);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(RichText::new("Open Settings…").strong())
+                                .clicked()
+                            {
+                                open_settings = true;
+                            }
+                            if ui.button("Test again").clicked() {
+                                retest = true;
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let can_continue = matches!(self.screen_perm_probe_ok, Some(true))
+                                        || matches!(self.screen_perm_probe_ok, Some(false));
+                                    if ui
+                                        .add_enabled(
+                                            can_continue,
+                                            egui::Button::new(
+                                                RichText::new(if self.screen_perm_probe_ok == Some(true) {
+                                                    "Continue"
+                                                } else {
+                                                    "Continue anyway"
+                                                })
+                                                .strong(),
+                                            ),
+                                        )
+                                        .clicked()
+                                    {
+                                        dismiss = true;
+                                    }
+                                },
+                            );
+                        });
+                    });
+            });
+
+        if open_settings {
+            let _ = open_screen_recording_settings();
+        }
+        if retest {
+            self.screen_perm_probe_ok = None;
+            self.screen_permission_ok = false;
+            let (tx, rx) = std::sync::mpsc::channel();
+            let ctx_probe = ctx.clone();
+            std::thread::spawn(move || {
+                let ok = request_screen_recording_access().unwrap_or(false);
+                let _ = tx.send(ok);
+                ctx_probe.request_repaint();
+            });
+            self.screen_perm_rx = Some(rx);
+        }
+        if dismiss {
+            self.screen_perm_modal = false;
+            if self.screen_perm_probe_ok == Some(true) {
+                self.screen_permission_ok = true;
+            }
+            self.persist_session();
+        }
     }
 
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, mode: ThemeMode) {
@@ -518,7 +758,12 @@ impl VibecapApp {
             return;
         }
         if let Some(app) = self.capture_focus_target() {
-            let _ = focus_app(&app);
+            if let Err(e) = focus_app(&app) {
+                self.show_toast(format!(
+                    "⚠️ Could not focus “{}” — recording whatever is on screen. {}",
+                    app, e
+                ));
+            }
             // Brief settle before hide+record arm
             std::thread::sleep(Duration::from_millis(200));
         }
@@ -671,15 +916,51 @@ impl VibecapApp {
         }
     }
 
-    fn show_window(&self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    fn show_window(&mut self, ctx: &egui::Context) {
+        // If we parked off-screen for capture, restore geometry first.
+        // Visible(false)/orderOut is hard to reverse on macOS winit — we avoid it for capture.
+        if let (Some(pos), Some(size)) = (self.pre_capture_outer.take(), self.pre_capture_size.take())
+        {
+            let size = Vec2::new(size.x.max(640.0), size.y.max(480.0));
+            ctx.send_viewport_cmd(ViewportCommand::InnerSize(size));
+            ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
+        }
+        // Order matters on macOS: deminiaturize before orderFront, then focus.
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
+        ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(
+            UserAttentionType::Informational,
+        ));
+        // System-level activate — winit Focus alone is unreliable after hide/focus steal.
+        activate_own_app();
         ctx.request_repaint();
     }
 
     fn hide_to_tray(&self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        // Tray hide is intentional orderOut; user reopens via menu/dock (works).
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+        ctx.request_repaint();
+    }
+
+    /// Park window off-screen for capture. Keeps the NSWindow ordered-in so the
+    /// egui event loop keeps ticking and restore is just a position move.
+    /// (Visible(false)/orderOut often never comes back on macOS + eframe 0.28.)
+    fn hide_for_capture(&mut self, ctx: &egui::Context) {
+        let outer = ctx.input(|i| i.viewport().outer_rect);
+        if let Some(rect) = outer {
+            self.pre_capture_outer = Some(rect.min);
+            self.pre_capture_size = Some(rect.size());
+        } else if self.pre_capture_outer.is_none() {
+            // Fallback if viewport rect not ready yet.
+            self.pre_capture_outer = Some(Pos2::new(120.0, 80.0));
+            self.pre_capture_size = Some(Vec2::new(760.0, 640.0));
+        }
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+        // Far outside any display — not painted into screencapture, loop stays alive.
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(-12_000.0, -12_000.0)));
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(120.0, 80.0)));
         ctx.request_repaint();
     }
 
@@ -996,6 +1277,9 @@ impl VibecapApp {
         // Open the Inbox on the first new question so the loop feels connected.
         self.current_tab = AppTab::Feedback;
         self.feedback_selected = Some(first.id.clone());
+        // A fresh arrival re-arms one silent pick; afterwards the user drives.
+        self.feedback_user_picked = false;
+        self.feedback_new_arrived = true;
         self.feedback_draft.clear();
         self.feedback_choice.clear();
         self.show_window(ctx);
@@ -1062,6 +1346,8 @@ impl VibecapApp {
         self.feedback_draft.clear();
         self.feedback_choice.clear();
         self.feedback_selected = None;
+        // Allow the inbox to advance to the next pending thread.
+        self.feedback_user_picked = false;
         self.scan_feedback_requests();
         self.show_toast("✅ Feedback submitted — the agent can pick it up now!");
     }
@@ -1083,6 +1369,7 @@ impl VibecapApp {
         {
             self.mark_feedback_status(request_id, "dismissed");
             self.feedback_selected = None;
+            self.feedback_user_picked = false;
             self.feedback_choice.clear();
             self.feedback_draft.clear();
             self.scan_feedback_requests();
@@ -1390,7 +1677,7 @@ impl VibecapApp {
             return;
         }
 
-        if let Some(mut child) = self.child_process.take() {
+        if let Some(child) = self.child_process.take() {
             if self.is_paused {
                 cont_process(child.id());
             }
@@ -1436,9 +1723,14 @@ impl VibecapApp {
         self.filmstrip.clear();
         self.filmstrip_error = None;
         self.filmstrip_loading = true;
+        self.clip_duration_secs = platform::probe_duration(&file).unwrap_or(0.0);
+        self.player_playing = false;
+        self.player_pos = 0.0;
+        self.player_last_time = None;
 
         match extract_filmstrip_thumbs(&file) {
-            Ok((_out_dir, thumbs)) => {
+            Ok((_out_dir, thumbs, fps)) => {
+                self.filmstrip_fps = fps;
                 let file_s = file.display().to_string();
                 for (i, thumb_path) in thumbs.iter().enumerate() {
                     if let Ok(img) = image::open(thumb_path) {
@@ -1496,14 +1788,12 @@ impl VibecapApp {
         self.recording_cancel_armed = false;
         self.current_mp4_file = Some(mp4_file.clone());
 
-        // Hide main window so it is not painted into the capture. Prefer Visible(false)
-        // over Minimized — minimized windows often stop receiving update ticks on macOS.
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-        ctx.request_repaint();
+        // Park off-screen (not orderOut) so the event loop keeps running.
+        self.hide_for_capture(ctx);
 
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
-            // Let the compositor hide our UI before avfoundation/gdigrab starts.
+            // Let the compositor move our UI off-screen before avfoundation starts.
             std::thread::sleep(Duration::from_millis(350));
             let result = spawn_screen_recorder(&mp4_file, fps, with_audio, crop)
                 .map(|child| (child, mp4_file));
@@ -1565,35 +1855,110 @@ impl VibecapApp {
             return;
         }
 
-        // Screenshot: re-focus the user's previous app (or Window picker), hide Vibecap,
-        // capture, then UI reopens when the worker returns a path.
+        // Ignore a second trigger while a capture worker is already in flight
+        // (hotkey + tray + button pressed together would otherwise race on
+        // focus/hide and restore).
+        if self.screenshot_in_flight {
+            return;
+        }
+
+        // Screenshot flow:
+        // - park main window off-screen (keeps event loop; orderOut broke restore)
+        // - worker writes pending_still.path as durable handoff
+        // - main opens Still + restores geometry when marker appears
+        self.poll_frontmost_app();
+
+        // Fullscreen / Window capture restores a real app before the shot.
+        // With no known target (fresh session where Vibecap was always
+        // frontmost) the screen after hiding is bare desktop — refuse to
+        // produce a wallpaper-only shot and tell the user what to do.
+        if !matches!(self.capture_target, CaptureTarget::Region)
+            && self.capture_focus_target().is_none()
+        {
+            self.show_toast(
+                "No app to capture — click the app you want in the shot, then press S again.",
+            );
+            return;
+        }
+
         let focus_target = self.capture_focus_target();
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        self.screenshot_in_flight = true;
+        self.hide_for_capture(ctx);
 
         let ctx_clone = ctx.clone();
         let capture_target = self.capture_target;
         let save_dir = self.save_dir.clone();
-        let screenshot_tx = self.screenshot_tx.clone().unwrap();
 
         std::thread::spawn(move || {
-            if let Some(app) = focus_target {
-                let _ = focus_app(&app);
-                std::thread::sleep(Duration::from_millis(500));
+            // Wait for off-screen move to commit before capture.
+            std::thread::sleep(Duration::from_millis(450));
+            if let Some(app) = &focus_target {
+                // If focus fails, the shot would be bare desktop — abort
+                // with the reason instead of saving a useless image.
+                if let Err(e) = focus_app(app) {
+                    write_pending_still_error(&format!(
+                        "{} — click the app you want in the shot first, then capture again",
+                        e
+                    ));
+                    ctx_clone.request_repaint();
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(700));
             } else {
-                // No prior app known — wait for compositor hide only.
-                std::thread::sleep(Duration::from_millis(400));
+                std::thread::sleep(Duration::from_millis(500));
             }
             let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
             let shot_file = save_dir.join(format!("screenshot_{}.jpg", timestamp));
-            // Region uses interactive selection; Fullscreen/Window capture full display
-            // after focusing the target app (avoids empty desktop).
             let interactive = matches!(capture_target, CaptureTarget::Region);
             let result = capture_screenshot_interactive(&shot_file, interactive)
                 .map(|_| shot_file);
-            let _ = screenshot_tx.send(result);
+            match &result {
+                Ok(p) => write_pending_still(p),
+                Err(e) => write_pending_still_error(e),
+            }
+            // No activation from this worker thread: AppKit calls belong on the
+            // main thread, and the repaint below + screenshot_in_flight cadence
+            // wake `update`, which restores geometry via `finish_screenshot`.
             ctx_clone.request_repaint();
         });
-        ctx.request_repaint();
+        ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
+    /// Apply a finished screenshot (from channel or disk marker).
+    fn finish_screenshot(&mut self, ctx: &egui::Context, result: Result<PathBuf, String>) {
+        self.screenshot_in_flight = false;
+        match result {
+            Ok(shot_file) => {
+                self.open_still_from_path(shot_file.clone());
+                self.refresh_library();
+                self.toast_message = None;
+                self.capture_toast = Some((shot_file, Instant::now()));
+                self.show_window(ctx);
+                self.persist_session();
+                self.show_toast("Screenshot ready in Still");
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                self.show_window(ctx);
+                self.show_toast(format!("❌ {msg}"));
+                #[cfg(target_os = "macos")]
+                if msg.contains("Screen Recording") || msg.contains("empty") {
+                    // Capture failed on permission — surface the guidance modal,
+                    // but do not force-open System Settings (user-initiated only).
+                    self.screen_permission_ok = false;
+                    self.screen_perm_modal = true;
+                    self.screen_perm_probe_ok = Some(false);
+                    self.persist_session();
+                }
+            }
+        }
+    }
+
+    /// Disk marker wins over a missed channel — call early every frame.
+    fn poll_pending_still(&mut self, ctx: &egui::Context) {
+        if let Some(result) = take_pending_still() {
+            self.finish_screenshot(ctx, result);
+        }
     }
 
     fn show_annotation(&mut self, ui: &mut egui::Ui) {
@@ -1821,10 +2186,80 @@ impl VibecapApp {
 
 impl eframe::App for VibecapApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Track window size for session restore (skip while parked off-screen).
+        if self.pre_capture_outer.is_none() {
+            self.window_size = ctx.screen_rect().size();
+        }
+
         // First frame: honor --hidden (window already created; hide after paint setup).
         if self.start_hidden {
             self.start_hidden = false;
             self.hide_to_tray(ctx);
+        }
+
+        // Always reclaim a finished screenshot first (file marker is authoritative).
+        self.poll_pending_still(ctx);
+
+        // Startup Screen Recording check: cheap, prompt-free preflight first.
+        // Granted users are never asked again; the system dialog appears only
+        // while macOS state is still undetermined.
+        if self.screen_permission_pending {
+            self.screen_permission_pending = false;
+            if screen_capture_allowed() {
+                // Granted (or self-healed after a reinstall) — no dialog, no modal.
+                if !self.screen_permission_ok {
+                    self.show_toast("Screen Recording permission is active");
+                }
+                self.screen_permission_ok = true;
+                self.screen_permission_prompted = true;
+                self.screen_perm_modal = false;
+                self.persist_session();
+            } else {
+                #[cfg(target_os = "macos")]
+                {
+                    // Not granted: ask the system once (silent if already denied).
+                    self.screen_perm_probe_ok = None;
+                    let ctx_probe = ctx.clone();
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    std::thread::spawn(move || {
+                        let ok = request_screen_recording_access().unwrap_or(false);
+                        let _ = tx.send(ok);
+                        ctx_probe.request_repaint();
+                    });
+                    self.screen_perm_rx = Some(rx);
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    self.screen_permission_ok = true;
+                }
+            }
+        }
+
+        // Drain the permission request. Never auto-open System Settings here —
+        // the modal and Settings tab carry user-initiated buttons instead.
+        if let Some(rx) = &self.screen_perm_rx {
+            if let Ok(ok) = rx.try_recv() {
+                self.screen_perm_rx = None;
+                self.screen_perm_probe_ok = Some(ok);
+                self.screen_permission_prompted = true;
+                if ok {
+                    self.screen_permission_ok = true;
+                    self.screen_perm_modal = false;
+                    self.show_toast("Screen Recording allowed — capture is ready");
+                } else {
+                    self.screen_permission_ok = false;
+                    if self.wizard_open || !self.wizard_done {
+                        // First run: block until acknowledged so capture is not
+                        // silently broken from day one.
+                        self.screen_perm_modal = true;
+                    } else {
+                        self.show_toast(
+                            "⚠️ Screen Recording is off — captures will be empty. Fix in Settings → Permissions.",
+                        );
+                    }
+                }
+                self.persist_session();
+            }
         }
 
         // Close button → hide to tray (multi-agent + human: keep app alive in menu bar).
@@ -1862,17 +2297,17 @@ impl eframe::App for VibecapApp {
         }
 
         self.sync_tray_recording_progress();
-        // Keep pumping tray events, feedback poll, and recording timer even when hidden.
-        // Always repaint on a short cadence when tray is present so agent questions surface.
+        // Keep pumping while tray is up, capture is in flight, agents wait, etc.
         if self.tray.is_some()
             || self.is_recording
             || self.recording_arming
             || self.countdown_deadline.is_some()
             || self.feedback_pending_count > 0
+            || self.screenshot_in_flight
+            || self.screen_perm_modal
         {
             ctx.request_repaint_after(Duration::from_millis(100));
         } else if self.retro.config().enabled {
-            // Keep status strip / Capture tab live while retro is rolling.
             ctx.request_repaint_after(Duration::from_millis(500));
         }
 
@@ -2047,22 +2482,11 @@ impl eframe::App for VibecapApp {
         self.drain_ffmpeg_results();
         self.check_annotated_save(ctx);
 
-        if let Some(rx) = &self.screenshot_rx {
-            if let Ok(result) = rx.try_recv() {
-                self.show_window(ctx);
-                match result {
-                    Ok(shot_file) => {
-                        self.latest_screenshot = Some(shot_file.clone());
-                        // Do not auto-open annotation — offer post-capture actions instead.
-                        self.refresh_library();
-                        self.toast_message = None;
-                        self.capture_toast = Some((shot_file, Instant::now()));
-                    }
-                    Err(e) => {
-                        self.show_toast(format!("❌ {e}"));
-                    }
-                }
-            }
+        // While a capture is in flight the main window is parked off-screen and
+        // still receives ticks — poll the disk marker aggressively.
+        if self.screenshot_in_flight {
+            self.poll_pending_still(ctx);
+            ctx.request_repaint_after(Duration::from_millis(50));
         }
 
         if self.is_recording || self.is_recording_voice_memo || self.recording_arming {
@@ -2098,21 +2522,25 @@ impl eframe::App for VibecapApp {
         }
 
         // In-window short commands when the app is focused.
-        // S = screenshot · R = record · Z = undo delete · ⌘K/Ctrl+K = palette
+        // S = screenshot · R = record · Z = undo delete · ⌘K/Ctrl+K = palette · ⌘I = inbox
         if !self.is_annotating && !self.palette_open {
-            let (press_s, press_r, press_z, press_palette) = ctx.input(|i| {
+            let (press_s, press_r, press_z, press_palette, press_inbox) = ctx.input(|i| {
                 let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
                 (
                     i.key_pressed(egui::Key::S) && !i.modifiers.any(),
                     i.key_pressed(egui::Key::R) && !i.modifiers.any(),
                     i.key_pressed(egui::Key::Z) && !i.modifiers.any(),
                     mod_cmd && i.key_pressed(egui::Key::K),
+                    mod_cmd && i.key_pressed(egui::Key::I),
                 )
             });
             if press_palette {
                 self.palette_open = true;
                 self.palette_query.clear();
                 self.palette_selected = 0;
+            } else if press_inbox {
+                self.current_tab = AppTab::Feedback;
+                self.scan_feedback_requests();
             } else if press_s {
                 self.trigger_capture(ctx, true);
             } else if press_r {
@@ -2138,6 +2566,14 @@ impl eframe::App for VibecapApp {
 
         self.flush_expired_undo();
 
+        // Screen Recording gate (first open / failed capture) — above wizard.
+        if self.screen_perm_modal {
+            self.draw_screen_perm_modal(ctx);
+            // Keep polling probe result while modal is open.
+            ctx.request_repaint_after(Duration::from_millis(100));
+            return;
+        }
+
         // First-run wizard (blocks main chrome while open)
         if ui::wizard::show(self, ctx) {
             return;
@@ -2153,29 +2589,39 @@ impl eframe::App for VibecapApp {
             self.run_palette_action(ctx, action);
         }
 
-        // ── Loop rail (left) ─────────────────────────────────────
-        if !self.is_annotating {
-            egui::SidePanel::left("loop_rail")
-                .exact_width(76.0)
-                .resizable(false)
-                .frame(
-                    Frame::none()
-                        .fill(theme::SURFACE())
-                        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
-                        .inner_margin(0.0),
-                )
-                .show(ctx, |ui| {
-                    let rec_live = self.is_recording || self.recording_arming;
-                    if let Some(stage) = loop_rail(
-                        ui,
-                        self.current_tab.to_loop(),
-                        self.feedback_pending_count,
-                        rec_live,
-                    ) {
-                        self.current_tab = AppTab::from_loop(stage);
-                    }
-                });
-        }
+        // ── Loop rail (left) — always visible so navigation never disappears ──
+        egui::SidePanel::left("loop_rail")
+            .exact_width(76.0)
+            .resizable(false)
+            .frame(
+                Frame::none()
+                    .fill(theme::SURFACE())
+                    .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                    .inner_margin(0.0),
+            )
+            .show(ctx, |ui| {
+                let rec_live = self.is_recording || self.recording_arming;
+                if let Some(stage) = loop_rail(
+                    ui,
+                    self.current_tab.to_loop(),
+                    self.feedback_pending_count,
+                    rec_live,
+                ) {
+                    self.current_tab = AppTab::from_loop(stage);
+                }
+            });
+
+        // ── Status strip pinned to the window bottom (storage · budget · ffmpeg · inbox) ──
+        egui::TopBottomPanel::bottom("status_strip")
+            .frame(
+                Frame::none()
+                    .fill(theme::CANVAS())
+                    .inner_margin(egui::Margin::symmetric(theme::SP_2, theme::SP_1)),
+            )
+            .show(ctx, |ui| {
+                let snap = self.status_snapshot();
+                status_strip(ui, &snap);
+            });
 
         egui::CentralPanel::default()
             .frame(Frame::none().fill(theme::CANVAS()).inner_margin(theme::SP_4))
@@ -2237,11 +2683,6 @@ impl eframe::App for VibecapApp {
                 AppTab::Feedback => ui::inbox_tab::show(self, ui, ctx),
                 AppTab::Settings => ui::settings_tab::show(self, ui, ctx),
             }
-
-            // ── Status strip (storage · budget · ffmpeg · inbox) ─
-            ui.add_space(theme::SP_2);
-            let snap = self.status_snapshot();
-            status_strip(ui, &snap);
         });
 
         // Capture action toast takes priority over plain toasts.
@@ -2252,10 +2693,11 @@ impl eframe::App for VibecapApp {
                 match act {
                     CaptureToastAction::Annotate => {
                         self.capture_toast = None;
-                        self.annotate_media(ctx, path);
+                        self.open_still_from_path(path);
                     }
                     CaptureToastAction::Copy => {
-                        self.copy_image_to_clipboard(&path);
+                        self.img_edit_file = Some(path.clone());
+                        self.copy_current_still_to_clipboard();
                         self.capture_toast = None;
                     }
                     CaptureToastAction::Reveal => {
@@ -2309,12 +2751,17 @@ fn main() -> eframe::Result<()> {
     let app_icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/app_icon.png"))
         .unwrap_or_default();
 
+    // Open at the last persisted size (bigger default: 1160×800 on first run).
+    let sess = load_session();
+    let win_w = sess.window_w.clamp(1024.0, 3200.0);
+    let win_h = sess.window_h.clamp(700.0, 2200.0);
+
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_decorations(true)
             .with_transparent(false)
-            .with_inner_size([760.0, 640.0])
-            .with_min_inner_size([640.0, 560.0])
+            .with_inner_size([win_w, win_h])
+            .with_min_inner_size([760.0, 560.0])
             .with_icon(app_icon)
             // Multiple GUI instances are allowed (human + optional second window).
             .with_title(format!("Vibecap Studio · {}", std::process::id())),

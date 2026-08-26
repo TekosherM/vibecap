@@ -39,6 +39,97 @@ pub fn ffmpeg_missing_message() -> String {
         .into()
 }
 
+static FFPROBE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn ffprobe_path() -> Option<&'static Path> {
+    FFPROBE
+        .get_or_init(|| {
+            // Homebrew installs ffprobe next to ffmpeg.
+            if let Some(fp) = ffmpeg_path() {
+                if let Some(parent) = fp.parent() {
+                    let sibling = parent.join("ffprobe");
+                    if sibling.is_file() {
+                        return Some(sibling);
+                    }
+                }
+            }
+            for c in [
+                "/opt/homebrew/bin/ffprobe",
+                "/usr/local/bin/ffprobe",
+                "/usr/bin/ffprobe",
+            ] {
+                let p = PathBuf::from(c);
+                if p.is_file() {
+                    return Some(p);
+                }
+            }
+            which_on_path("ffprobe")
+        })
+        .as_deref()
+}
+
+/// Media duration in seconds (ffprobe first, `ffmpeg -i` Duration parse as fallback).
+pub fn probe_duration(file: &Path) -> Option<f64> {
+    if let Some(fp) = ffprobe_path() {
+        if let Ok(out) = Command::new(fp)
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+            ])
+            .arg(file)
+            .output()
+        {
+            if out.status.success() {
+                if let Ok(s) = std::str::from_utf8(&out.stdout) {
+                    if let Ok(d) = s.trim().parse::<f64>() {
+                        if d.is_finite() && d > 0.0 {
+                            return Some(d);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(mut cmd) = ffmpeg_command() {
+        cmd.arg("-i").arg(file);
+        if let Ok(out) = cmd.output() {
+            let text = String::from_utf8_lossy(&out.stderr);
+            if let Some(idx) = text.find("Duration: ") {
+                let rest = &text[idx + "Duration: ".len()..];
+                let t = rest.split([',', '\n', ' ']).next().unwrap_or_default();
+                return parse_timecode(t.trim());
+            }
+        }
+    }
+    None
+}
+
+/// Parse `HH:MM:SS(.ff)` / `MM:SS` into seconds.
+pub fn parse_timecode(s: &str) -> Option<f64> {
+    if s.is_empty() {
+        return None;
+    }
+    let mut secs = 0.0_f64;
+    for part in s.split(':') {
+        secs = secs * 60.0 + part.trim().parse::<f64>().ok()?;
+    }
+    if secs.is_finite() && secs >= 0.0 {
+        Some(secs)
+    } else {
+        None
+    }
+}
+
+/// Format seconds as `HH:MM:SS`.
+pub fn format_timecode(secs: f64) -> String {
+    let s = secs.max(0.0).round() as u64;
+    format!("{:02}:{:02}:{:02}", s / 3600, (s % 3600) / 60, s % 60)
+}
+
 fn discover() -> Option<PathBuf> {
     // 1) Explicit override
     if let Ok(raw) = std::env::var("VIBECAP_FFMPEG") {
@@ -177,5 +268,16 @@ mod tests {
         assert!(m.contains("ffmpeg"));
         assert!(m.contains("VIBECAP_FFMPEG"));
         assert!(m.contains("x11grab") || m.contains("brew") || m.contains("apt"));
+    }
+
+    #[test]
+    fn timecode_parse_and_format() {
+        assert_eq!(parse_timecode("00:00:05"), Some(5.0));
+        assert_eq!(parse_timecode("00:01:30"), Some(90.0));
+        assert_eq!(parse_timecode("01:00:00.5"), Some(3600.5));
+        assert_eq!(parse_timecode(""), None);
+        assert_eq!(parse_timecode("xx"), None);
+        assert_eq!(format_timecode(90.0), "00:01:30");
+        assert_eq!(format_timecode(0.4), "00:00:00");
     }
 }

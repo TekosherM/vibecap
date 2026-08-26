@@ -69,10 +69,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         return;
     }
 
-    // Auto-select first pending if nothing selected
-    if app.feedback_selected.is_none() {
+    // Auto-select first pending only while selection is untouched; an explicit
+    // user pick suppresses silent jumps until a brand-new request arrives.
+    if app.feedback_selected.is_none()
+        && (!app.feedback_user_picked || app.feedback_new_arrived)
+    {
         if let Some(first) = pending.first() {
             app.feedback_selected = Some(first.id.clone());
+            app.feedback_new_arrived = false;
         }
     }
 
@@ -275,6 +279,9 @@ fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pe
 
     if resp.clicked() {
         app.feedback_selected = Some(req.id.clone());
+        // Explicit navigation wins over auto-select.
+        app.feedback_user_picked = true;
+        app.feedback_new_arrived = false;
         if pending {
             app.feedback_choice.clear();
         }

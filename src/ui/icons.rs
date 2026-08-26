@@ -1,6 +1,6 @@
 //! Simple vector-ish icons drawn with egui shapes (no emoji, cross-platform).
 
-use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
+use egui::{Color32, Pos2, Rect, Rounding, Sense, Shape, Stroke, Ui, Vec2};
 
 use super::theme;
 
@@ -16,6 +16,8 @@ pub enum Icon {
     Camera,
     Record,
     Stop,
+    Play,
+    Pause,
     Check,
     Warn,
     Error,
@@ -53,6 +55,27 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
         }
         Icon::Record => {
             painter.circle_filled(c, s * 0.55, color);
+        }
+        Icon::Play => {
+            let tri = vec![
+                c + Vec2::new(-s * 0.35, -s * 0.5),
+                c + Vec2::new(-s * 0.35, s * 0.5),
+                c + Vec2::new(s * 0.55, 0.0),
+            ];
+            painter.add(Shape::convex_polygon(tri, color, Stroke::NONE));
+        }
+        Icon::Pause => {
+            let w = s * 0.28;
+            painter.rect_filled(
+                Rect::from_center_size(c + Vec2::new(-s * 0.28, 0.0), Vec2::new(w, s)),
+                Rounding::same(1.0),
+                color,
+            );
+            painter.rect_filled(
+                Rect::from_center_size(c + Vec2::new(s * 0.28, 0.0), Vec2::new(w, s)),
+                Rounding::same(1.0),
+                color,
+            );
         }
         Icon::Stop => {
             let r = Rect::from_center_size(c, Vec2::splat(s * 0.9));

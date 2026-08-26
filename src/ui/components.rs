@@ -134,16 +134,16 @@ pub fn show_capture_toast(
                     ui.add_space(theme::SP_2);
                     ui.horizontal(|ui| {
                         if ui
-                            .button(RichText::new("Annotate").strong())
-                            .on_hover_text("Open annotation studio")
+                            .button(RichText::new("Open in Still").strong())
+                            .on_hover_text("Open screenshot in Still studio")
                             .clicked()
                         {
                             action = Some(CaptureToastAction::Annotate);
                         }
-                        if ui.button("Copy").on_hover_text("Copy image to clipboard").clicked() {
+                        if ui.button("Copy Image").on_hover_text("Copy image to clipboard").clicked() {
                             action = Some(CaptureToastAction::Copy);
                         }
-                        if ui.button("Reveal").on_hover_text("Show in Finder/Explorer").clicked() {
+                        if ui.button("Finder").on_hover_text("Show in Finder/Explorer").clicked() {
                             action = Some(CaptureToastAction::Reveal);
                         }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -460,6 +460,173 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot) {
                 });
             });
         });
+}
+
+// ── Modern controls (rail-matching language) ────────────────────────
+//
+// Tabs compose these instead of raw egui widgets so chrome stays consistent:
+// SURFACE cards + BORDER strokes, segmented choices, switch toggles, and
+// primary/secondary buttons with the 8pt grid.
+
+/// Section card: SURFACE fill, 1px BORDER, md rounding, small strong title.
+pub fn section_card(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
+    Frame::none()
+        .fill(theme::SURFACE())
+        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+        .rounding(theme::rounding_md())
+        .inner_margin(Margin::symmetric(theme::SP_4, theme::SP_3))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(
+                RichText::new(title)
+                    .size(11.0)
+                    .strong()
+                    .color(theme::TEXT_MUTED()),
+            );
+            ui.add_space(theme::SP_2);
+            add(ui);
+        });
+    ui.add_space(theme::SP_3);
+}
+
+fn button_frame(
+    ui: &mut Ui,
+    label: &str,
+    fill: Color32,
+    stroke: Color32,
+    text: Color32,
+    small: bool,
+) -> bool {
+    let size = if small { 12.0 } else { 13.0 };
+    let mut rt = RichText::new(label).color(text).size(size);
+    if !small {
+        rt = rt.strong();
+    }
+    let b = egui::Button::new(rt)
+        .fill(fill)
+        .stroke(Stroke::new(1.0_f32, stroke))
+        .rounding(theme::rounding_md());
+    ui.add(b).clicked()
+}
+
+/// Paper-on-graphite primary action (Save, Apply). Not the live accent.
+pub fn btn_primary(ui: &mut Ui, label: &str) -> bool {
+    button_frame(ui, label, theme::PRIMARY(), theme::PRIMARY(), theme::PRIMARY_INK(), false)
+}
+
+/// Quiet surface action (Select, Open, Reveal…).
+pub fn btn_secondary(ui: &mut Ui, label: &str) -> bool {
+    button_frame(ui, label, theme::SURFACE_2(), theme::BORDER(), theme::TEXT(), false)
+}
+
+/// Compact toolbar action.
+pub fn btn_small(ui: &mut Ui, label: &str) -> bool {
+    button_frame(ui, label, theme::SURFACE_2(), theme::BORDER(), theme::TEXT_MUTED(), true)
+}
+
+/// Destructive action.
+pub fn btn_danger(ui: &mut Ui, label: &str) -> bool {
+    button_frame(ui, label, theme::DANGER_SOFT(), theme::DANGER(), theme::ON_SOLID(), false)
+}
+
+/// Segmented control for exclusive choices (replaces radio / selectable rows).
+/// Returns true when the value changed.
+pub fn segmented<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    current: &mut T,
+    options: &[(T, &str)],
+) -> bool {
+    let mut changed = false;
+    Frame::none()
+        .fill(theme::SURFACE_2())
+        .rounding(theme::rounding_md())
+        .inner_margin(Margin::same(2.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (val, label) in options {
+                    let active = current == val;
+                    let resp = Frame::none()
+                        .fill(if active { theme::SURFACE_3() } else { Color32::TRANSPARENT })
+                        .rounding(theme::rounding_sm())
+                        .inner_margin(Margin::symmetric(10.0, 5.0))
+                        .show(ui, |ui| {
+                            let mut rt = RichText::new(*label)
+                                .size(12.0)
+                                .color(if active { theme::TEXT() } else { theme::TEXT_MUTED() });
+                            if active {
+                                rt = rt.strong();
+                            }
+                            ui.label(rt);
+                        })
+                        .response
+                        .on_hover_text(*label)
+                        .interact(Sense::click());
+                    if resp.clicked() {
+                        *current = *val;
+                        changed = true;
+                    }
+                }
+            });
+        });
+    changed
+}
+
+/// iOS-style switch + label. Returns true when toggled.
+pub fn switch(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        let (rect, resp) = ui.allocate_exact_size(Vec2::new(34.0, 18.0), Sense::click());
+        if resp.clicked() {
+            *on = !*on;
+            changed = true;
+        }
+        let paint = ui.painter_at(rect);
+        let r = rect.height() / 2.0;
+        let bg = if *on { theme::PRIMARY() } else { theme::SURFACE_3() };
+        paint.rect_filled(rect, r, bg);
+        let knob_x = if *on { rect.right() - r } else { rect.left() + r };
+        let knob_c = if *on { theme::PRIMARY_INK() } else { theme::TEXT_MUTED() };
+        paint.circle_filled(egui::pos2(knob_x, rect.center().y), r - 3.0, knob_c);
+        resp.on_hover_text(label);
+        ui.add_space(theme::SP_2);
+        ui.label(RichText::new(label).size(12.0).color(theme::TEXT_MUTED()));
+    });
+    changed
+}
+
+/// Monospace key chip for shortcut listings.
+pub fn kbd(ui: &mut Ui, key: &str) {
+    Frame::none()
+        .fill(theme::SURFACE_2())
+        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+        .rounding(theme::rounding_sm())
+        .inner_margin(Margin::symmetric(6.0, 2.0))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(key)
+                    .font(egui::FontId::new(11.0, egui::FontFamily::Monospace))
+                    .color(theme::TEXT_MUTED()),
+            );
+        });
+}
+
+/// Label + control row that wraps on narrow windows.
+pub fn setting_row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
+    ui.horizontal_wrapped(|ui| {
+        ui.set_min_height(26.0);
+        ui.label(RichText::new(label).size(12.0).color(theme::TEXT_MUTED()));
+        ui.add_space(theme::SP_2);
+        add(ui);
+    });
+    ui.add_space(theme::SP_1);
+}
+
+/// Grouped control cluster with a dim caption title (tools menus).
+pub fn group(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
+    ui.label(RichText::new(title).size(10.0).color(theme::TEXT_DIM()));
+    ui.add_space(2.0);
+    ui.horizontal_wrapped(add);
+    ui.add_space(theme::SP_2);
 }
 
 // ── Shutter strip ───────────────────────────────────────────────────

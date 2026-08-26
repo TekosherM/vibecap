@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use super::paths::media_dir;
-use super::source::{resolve_grab, CaptureOpts, GrabSpec};
+use super::source::{resolve_grab, CaptureOpts};
 use super::shell::focus_app;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -186,16 +186,17 @@ pub fn capture_screenshot_interactive(out: &Path, interactive: bool) -> Result<(
 }
 
 /// Reject tiny / missing captures (common when Screen Recording is denied).
-fn validate_capture_file(out: &Path) -> Result<(), String> {
+pub fn validate_capture_file(out: &Path) -> Result<(), String> {
     let meta = std::fs::metadata(out).map_err(|e| format!("capture file missing: {e}"))?;
     let len = meta.len();
     // A real multi-display JPG is usually >> 50 KB; TCC-denied shots can be tiny or wallpaper-only.
     if len < 8_000 {
         let _ = std::fs::remove_file(out);
-        return Err(
-            "Capture looks empty ({} bytes). On macOS: System Settings → Privacy & Security → Screen Recording → enable Vibecap (and restart the app). CLI captures need Terminal/iTerm allowed too."
-                .replace("{}", &len.to_string()),
-        );
+        return Err(format!(
+            "Capture looks empty ({len} bytes). macOS Screen Recording is not granted to this Vibecap.\n\
+             Fix: System Settings → Privacy & Security → Screen Recording → enable only **Vibecap** (the app).\n\
+             Remove extra entries (old cargo/terminal copies). Then fully quit Vibecap (tray Quit) and reopen from /Applications."
+        ));
     }
     Ok(())
 }
@@ -452,6 +453,31 @@ pub fn spawn_screen_recorder_opts(
     cmd.arg("-pix_fmt").arg("yuv420p");
     cmd.arg(out_s);
     cmd.stdin(Stdio::piped());
+
+    // Detach from the caller's terminal:
+    // - stdout/stderr → sibling .ffmpeg.log so an agent's piped shell does not
+    //   block on the recorder and ffmpeg chatter stays out of agent output.
+    // - own process group (unix) so a harness killing the shell's process
+    //   group cannot take the recorder down with it.
+    let log_path = out_mp4.with_extension("ffmpeg.log");
+    match std::fs::File::create(&log_path) {
+        Ok(log) => {
+            let log_err = log
+                .try_clone()
+                .map_err(|e| format!("could not clone recorder log handle: {e}"))?;
+            cmd.stdout(Stdio::from(log));
+            cmd.stderr(Stdio::from(log_err));
+        }
+        Err(_) => {
+            cmd.stdout(Stdio::null());
+            cmd.stderr(Stdio::null());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
     cmd.spawn().map_err(|e| {
         format!(

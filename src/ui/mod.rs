@@ -15,9 +15,10 @@ pub mod wizard;
 
 pub use capture_hud::{show_countdown_bubble, show_region_selector, RegionHudResult};
 pub use components::{
-    agent_dot_color, empty_state, loop_position_badge, loop_rail, show_capture_toast,
-    show_toast_card, shutter_strip, status_strip, CaptureToastAction, LoopStage, ShutterAction,
-    StatusSnapshot, ToastLevel,
+    agent_dot_color, btn_danger, btn_primary, btn_secondary, btn_small, empty_state, group, kbd,
+    loop_position_badge, loop_rail, section_card, segmented, setting_row, show_capture_toast,
+    show_toast_card, shutter_strip, status_strip, switch, CaptureToastAction, LoopStage,
+    ShutterAction, StatusSnapshot, ToastLevel,
 };
 pub use palette::{show_palette, PaletteAction};
 pub use theme::{apply_current_theme, apply_graphite_theme, Density, ThemeMode};

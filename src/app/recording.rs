@@ -1,7 +1,7 @@
 //! Recording helpers: stop wait, filmstrip extract (no egui).
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::Child;
 use std::time::{Duration, Instant};
 
 /// Wait for ffmpeg to exit after stdin `q`, with a hard timeout.
@@ -36,8 +36,14 @@ pub fn kill_recorder(mut child: Child, was_paused: bool) {
     let _ = child.wait();
 }
 
-/// Extract up to 10 filmstrip thumbnails; returns (frames_temp dir, thumb paths that exist).
-pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>), String> {
+/// Extract preview frames sampled across the whole clip; returns
+/// (frames_temp dir, thumb paths that exist, extraction fps).
+///
+/// The fps is chosen so ~`TARGET` frames span the full duration, which lets the
+/// in-app player flipbook at a known rate and the timeline align to real time.
+pub fn extract_filmstrip_thumbs(
+    file: &Path,
+) -> Result<(PathBuf, Vec<PathBuf>, f64), String> {
     if !file.exists() {
         return Err(format!("Video file missing: {}", file.display()));
     }
@@ -47,6 +53,20 @@ pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>), 
         .join("frames_temp");
     let _ = std::fs::remove_dir_all(&out_dir);
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("Could not create frames_temp: {e}"))?;
+
+    let duration = crate::platform::probe_duration(file).unwrap_or(0.0);
+    let target = 24.0_f64;
+    let fps = if duration > 0.5 {
+        (target / duration).clamp(0.25, 4.0)
+    } else {
+        1.0
+    };
+    let vframes = if duration > 0.5 {
+        (duration * fps).ceil() as i64
+    } else {
+        10
+    }
+    .clamp(1, 96);
 
     let out = out_dir.join("thumb_%03d.jpg");
     let file_s = file
@@ -63,9 +83,9 @@ pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>), 
             "-i",
             file_s,
             "-vf",
-            "fps=1,scale=320:180:force_original_aspect_ratio=decrease",
+            &format!("fps={fps},scale=480:270:force_original_aspect_ratio=decrease"),
             "-vframes",
-            "10",
+            &vframes.to_string(),
             &out_s,
         ])
         .status()
@@ -79,7 +99,7 @@ pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>), 
     }
 
     let mut thumbs = Vec::new();
-    for i in 1..=10 {
+    for i in 1..=96 {
         let thumb_path = out_dir.join(format!("thumb_{:03}.jpg", i));
         if thumb_path.exists() {
             thumbs.push(thumb_path);
@@ -88,7 +108,7 @@ pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>), 
     if thumbs.is_empty() {
         return Err("No frames extracted — video may be corrupt or too short.".into());
     }
-    Ok((out_dir, thumbs))
+    Ok((out_dir, thumbs, fps))
 }
 
 /// Crop tuple for ffmpeg: (w, h, x, y) with even dimensions for yuv420p.

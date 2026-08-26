@@ -122,6 +122,9 @@ pub fn start_agent_record(
 
     let dir = resolve_output_dir(output_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not create output dir: {e}"))?;
+    // Persist absolute paths: record stop/status may run from any cwd, and a
+    // relative "--output-dir ." would otherwise point elsewhere later.
+    let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
     let stamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
     let pid_hint = std::process::id();
     let mp4 = dir.join(format!("video_{}_{}.mp4", stamp, pid_hint));
@@ -151,10 +154,19 @@ pub fn record_status_line() -> String {
         Some(s) => {
             let alive = pid_alive(s.pid);
             let elapsed = now_unix().saturating_sub(s.started_unix);
+            let note = if alive {
+                String::new()
+            } else {
+                // Recorder died without a stop (crash or harness kill) — the
+                // mp4 is almost certainly unfinalized (missing moov atom).
+                " (recorder exited without stop — mp4 may be unfinalized; run record stop to clear state)"
+                    .to_string()
+            };
             format!(
-                "recording={} pid={} elapsed_secs={} mp4={} output_dir={} display={} window={}",
+                "recording={} pid={}{} elapsed_secs={} mp4={} output_dir={} display={} window={}",
                 alive,
                 s.pid,
+                note,
                 elapsed,
                 s.mp4,
                 s.output_dir,
@@ -167,7 +179,8 @@ pub fn record_status_line() -> String {
 
 pub fn stop_agent_record(want_gif: bool) -> Result<(AgentRecordState, Option<PathBuf>), String> {
     let state = load_record_state().ok_or_else(|| "not recording — nothing to stop".to_string())?;
-    if pid_alive(state.pid) {
+    let was_alive = pid_alive(state.pid);
+    if was_alive {
         // SIGINT: ffmpeg finalizes the MP4. Then SIGTERM if it hangs.
         let _ = CommandKill::signal(state.pid, 2);
         let start = std::time::Instant::now();
@@ -204,6 +217,13 @@ pub fn stop_agent_record(want_gif: bool) -> Result<(AgentRecordState, Option<Pat
     } else {
         None
     };
+
+    if !was_alive {
+        eprintln!(
+            "warning: recorder pid {} had already exited — mp4 {} was never finalized and may not play",
+            state.pid, state.mp4
+        );
+    }
 
     clear_state(Some(&state));
     Ok((state, gif))
