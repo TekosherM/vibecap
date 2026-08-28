@@ -55,14 +55,6 @@ impl PaletteAction {
             (Self::OpenPaletteHelp, "Palette help", "This list"),
         ]
     }
-
-    pub fn label(self) -> &'static str {
-        Self::all()
-            .iter()
-            .find(|(a, _, _)| *a == self)
-            .map(|(_, l, _)| *l)
-            .unwrap_or("?")
-    }
 }
 
 /// Modal command palette. Returns selected action when user confirms.

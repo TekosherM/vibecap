@@ -8,14 +8,11 @@ use super::theme;
 pub enum Icon {
     Shutter,
     Media,
-    Studio,
     Clip,
     Still,
     Inbox,
     Settings,
     Camera,
-    Record,
-    Stop,
     Play,
     Pause,
     Check,
@@ -53,9 +50,6 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             );
             painter.rect_stroke(bump, 1.5, stroke);
         }
-        Icon::Record => {
-            painter.circle_filled(c, s * 0.55, color);
-        }
         Icon::Play => {
             let tri = vec![
                 c + Vec2::new(-s * 0.35, -s * 0.5),
@@ -77,10 +71,6 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
                 color,
             );
         }
-        Icon::Stop => {
-            let r = Rect::from_center_size(c, Vec2::splat(s * 0.9));
-            painter.rect_filled(r, 2.0, color);
-        }
         Icon::Media => {
             // Stacked cards
             let a = Rect::from_center_size(c + Vec2::new(-s * 0.12, -s * 0.08), Vec2::new(s * 1.35, s * 1.0));
@@ -88,7 +78,7 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             painter.rect_stroke(b, 2.0, stroke);
             painter.rect_stroke(a, 2.0, stroke);
         }
-        Icon::Studio | Icon::Clip => {
+        Icon::Clip => {
             // Film strip / trim: frame + center cut
             let frame = Rect::from_center_size(c, Vec2::new(s * 1.45, s * 1.0));
             painter.rect_stroke(frame, 2.0, stroke);

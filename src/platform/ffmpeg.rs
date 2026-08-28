@@ -33,10 +33,20 @@ pub fn ffmpeg_command() -> Result<Command, String> {
 }
 
 pub fn ffmpeg_missing_message() -> String {
-    "ffmpeg not found. Linux agent capture uses ffmpeg x11grab — install with \
-     `sudo apt install ffmpeg` (or `brew install ffmpeg` on macOS). Finder/Dock launches \
-     do not see Homebrew on PATH; set VIBECAP_FFMPEG to the full binary path if needed."
-        .into()
+    #[cfg(target_os = "windows")]
+    {
+        "ffmpeg not found. Windows capture uses ffmpeg gdigrab — install with \
+         `winget install Gyan.FFmpeg` (or scoop/choco). Set VIBECAP_FFMPEG to the full \
+         binary path if it lives somewhere unusual."
+            .into()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        "ffmpeg not found. Linux agent capture uses ffmpeg x11grab — install with \
+         `sudo apt install ffmpeg` (or `brew install ffmpeg` on macOS). Finder/Dock launches \
+         do not see Homebrew on PATH; set VIBECAP_FFMPEG to the full binary path if needed."
+            .into()
+    }
 }
 
 static FFPROBE: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -44,12 +54,19 @@ static FFPROBE: OnceLock<Option<PathBuf>> = OnceLock::new();
 fn ffprobe_path() -> Option<&'static Path> {
     FFPROBE
         .get_or_init(|| {
-            // Homebrew installs ffprobe next to ffmpeg.
+            // Homebrew installs ffprobe next to ffmpeg (ffmpeg.exe on Windows).
             if let Some(fp) = ffmpeg_path() {
                 if let Some(parent) = fp.parent() {
                     let sibling = parent.join("ffprobe");
                     if sibling.is_file() {
                         return Some(sibling);
+                    }
+                    #[cfg(target_os = "windows")]
+                    {
+                        let sibling_exe = parent.join("ffprobe.exe");
+                        if sibling_exe.is_file() {
+                            return Some(sibling_exe);
+                        }
                     }
                 }
             }
@@ -181,6 +198,13 @@ fn known_locations() -> Vec<PathBuf> {
     {
         out.push(PathBuf::from(r"C:\ffmpeg\bin\ffmpeg.exe"));
         out.push(PathBuf::from(r"C:\ProgramData\chocolatey\bin\ffmpeg.exe"));
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            // winget symlinks installed CLIs here (e.g. Gyan.FFmpeg).
+            out.push(PathBuf::from(&local).join(r"Microsoft\WinGet\Links\ffmpeg.exe"));
+        }
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            out.push(PathBuf::from(&profile).join(r"scoop\shims\ffmpeg.exe"));
+        }
     }
     out
 }
@@ -200,56 +224,77 @@ fn is_runnable_ffmpeg(p: &Path) -> bool {
 }
 
 fn which_on_path(name: &str) -> Option<PathBuf> {
-    // Prefer `which` when available; also walk PATH manually.
-    if let Ok(out) = Command::new("which").arg(name).output() {
-        if out.status.success() {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !s.is_empty() {
-                return Some(PathBuf::from(s));
+    // Prefer the platform resolver when available; also walk PATH manually.
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = Command::new("where").arg(name).output() {
+            if out.status.success() {
+                let first = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if !first.is_empty() {
+                    return Some(PathBuf::from(first));
+                }
             }
         }
+        return walk_path_env(name, None);
     }
-    walk_path_env(name, None)
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(out) = Command::new("which").arg(name).output() {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !s.is_empty() {
+                    return Some(PathBuf::from(s));
+                }
+            }
+        }
+        walk_path_env(name, None)
+    }
 }
 
 fn which_with_extra_path(name: &str) -> Option<PathBuf> {
-    let mut extras = vec![
+    let mut extras: Vec<PathBuf> = vec![
         "/opt/homebrew/bin".into(),
         "/usr/local/bin".into(),
         "/usr/local/sbin".into(),
     ];
     if let Ok(home) = std::env::var("HOME") {
-        extras.push(format!("{home}/homebrew/bin"));
-        extras.push(format!("{home}/.linuxbrew/bin"));
-        extras.push(format!("{home}/bin"));
-        extras.push(format!("{home}/.cargo/bin"));
+        extras.push(format!("{home}/homebrew/bin").into());
+        extras.push(format!("{home}/.linuxbrew/bin").into());
+        extras.push(format!("{home}/bin").into());
+        extras.push(format!("{home}/.cargo/bin").into());
     }
     let base = std::env::var("PATH").unwrap_or_default();
     let joined = {
         let mut parts = extras;
         if !base.is_empty() {
-            parts.push(base);
+            parts.extend(std::env::split_paths(&base));
         }
-        parts.join(":")
+        std::env::join_paths(parts).ok()?
     };
-    walk_path_env(name, Some(&joined))
+    walk_path_env(name, Some(joined.to_string_lossy().as_ref()))
 }
 
 fn walk_path_env(name: &str, path_override: Option<&str>) -> Option<PathBuf> {
     let path = path_override
         .map(|s| s.to_string())
         .or_else(|| std::env::var("PATH").ok())?;
-    for dir in path.split(':') {
-        if dir.is_empty() {
+    // split_paths handles the OS separator (';' on Windows, ':' elsewhere).
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() {
             continue;
         }
-        let candidate = PathBuf::from(dir).join(name);
+        let candidate = dir.join(name);
         if candidate.is_file() {
             return Some(candidate);
         }
         #[cfg(target_os = "windows")]
         {
-            let exe = PathBuf::from(dir).join(format!("{name}.exe"));
+            let exe = dir.join(format!("{name}.exe"));
             if exe.is_file() {
                 return Some(exe);
             }
@@ -267,7 +312,13 @@ mod tests {
         let m = ffmpeg_missing_message();
         assert!(m.contains("ffmpeg"));
         assert!(m.contains("VIBECAP_FFMPEG"));
-        assert!(m.contains("x11grab") || m.contains("brew") || m.contains("apt"));
+        assert!(
+            m.contains("x11grab")
+                || m.contains("brew")
+                || m.contains("apt")
+                || m.contains("gdigrab")
+                || m.contains("winget")
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@
 
 use std::cell::Cell;
 
-use egui::{Color32, FontId, Rounding, Stroke, Visuals};
+use egui::{Color32, Rounding, Stroke, Visuals};
 
 // ── Theme mode ──────────────────────────────────────────────────────
 
@@ -192,26 +192,6 @@ dual!(
 // ── Annotation / loop (shared hues) ─────────────────────────────────
 
 dual!(
-    ANNO_BUG,
-    Color32::from_rgb(0xe0, 0x55, 0x55),
-    Color32::from_rgb(0xc9, 0x2a, 0x2a)
-);
-#[inline]
-#[allow(non_snake_case)]
-pub fn ANNO_QUESTION() -> Color32 {
-    ACCENT()
-}
-#[inline]
-#[allow(non_snake_case)]
-pub fn ANNO_APPROVE() -> Color32 {
-    SUCCESS()
-}
-#[inline]
-#[allow(non_snake_case)]
-pub fn ANNO_NOTE() -> Color32 {
-    INFO()
-}
-dual!(
     LOOP_ANNOTATE,
     Color32::from_rgb(0xb4, 0x8c, 0xdc),
     Color32::from_rgb(0x7c, 0x4d, 0xbf)
@@ -285,31 +265,6 @@ pub fn rounding_md() -> Rounding {
 }
 pub fn rounding_lg() -> Rounding {
     Rounding::same(R_LG)
-}
-
-// ── Type scale ──────────────────────────────────────────────────────
-
-pub fn font_xs() -> FontId {
-    FontId::proportional(12.0)
-}
-pub fn font_sm() -> FontId {
-    FontId::proportional(13.0)
-}
-pub fn font_md() -> FontId {
-    FontId::proportional(15.0)
-}
-pub fn font_lg() -> FontId {
-    FontId::proportional(18.0)
-}
-pub fn font_xl() -> FontId {
-    FontId::proportional(24.0)
-}
-pub fn font_2xl() -> FontId {
-    FontId::proportional(32.0)
-}
-
-pub fn heading_color() -> Color32 {
-    TEXT()
 }
 
 /// Pulsing REC indicator color (`t` = sin abs 0..1).

@@ -261,6 +261,7 @@ return names as text
     }
 }
 
+#[cfg(target_os = "macos")]
 fn parse_app_lines(s: &str) -> Vec<String> {
     let mut names: Vec<String> = s
         .lines()
@@ -273,6 +274,7 @@ fn parse_app_lines(s: &str) -> Vec<String> {
     names
 }
 
+#[cfg(target_os = "macos")]
 fn should_skip_app_name(name: &str) -> bool {
     let skip = [
         "loginwindow",

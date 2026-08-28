@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::process::Command;
 
 /// Resume a paused child process (Unix SIGCONT). No-op on Windows.

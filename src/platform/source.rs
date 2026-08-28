@@ -5,6 +5,8 @@
 //! focused window; they do not get the web studio demo shutter.
 
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
+use std::process::Command;
 
 use super::paths::{media_dir, media_dir_display};
 
@@ -25,6 +27,7 @@ impl CaptureOpts {
         }
     }
 
+    #[cfg(target_os = "linux")]
     pub fn is_default(&self) -> bool {
         self.display.is_none() && self.window.is_none()
     }
@@ -113,6 +116,7 @@ pub fn default_output_dir_display() -> String {
 }
 
 /// Even dimensions for yuv420p (shared with region crop).
+#[cfg(any(target_os = "linux", test))]
 pub fn even_dim(v: i32) -> i32 {
     let v = v.abs().max(2);
     (v / 2) * 2
@@ -165,6 +169,7 @@ pub fn resolve_grab(opts: &CaptureOpts) -> GrabSpec {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowGeom {
     pub x: i32,
@@ -174,22 +179,15 @@ pub struct WindowGeom {
 }
 
 /// Best-effort window geometry (Linux X11). None when tools are missing.
+#[cfg(target_os = "linux")]
 pub fn linux_window_geometry(title: &str) -> Option<WindowGeom> {
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(g) = geometry_via_xdotool(title) {
-            return Some(g);
-        }
-        if let Some(g) = geometry_via_wmctrl(title) {
-            return Some(g);
-        }
-        None
+    if let Some(g) = geometry_via_xdotool(title) {
+        return Some(g);
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = title;
-        None
+    if let Some(g) = geometry_via_wmctrl(title) {
+        return Some(g);
     }
+    None
 }
 
 #[cfg(target_os = "linux")]
@@ -242,6 +240,7 @@ fn geometry_via_wmctrl(title: &str) -> Option<WindowGeom> {
 }
 
 /// Parse `xdotool getwindowgeometry --shell` (`X=`, `Y=`, `WIDTH=`, `HEIGHT=`).
+#[cfg(any(target_os = "linux", test))]
 pub fn parse_xdotool_shell(text: &str) -> Option<WindowGeom> {
     let mut x = None;
     let mut y = None;
@@ -285,6 +284,7 @@ fn linux_screen_size_for(display: &str) -> String {
 }
 
 /// Parse `dimensions: 1920x1080 pixels` from xdpyinfo.
+#[cfg(any(target_os = "linux", test))]
 pub fn parse_xdpyinfo_dimensions(text: &str) -> Option<String> {
     for line in text.lines() {
         if let Some(rest) = line.trim().strip_prefix("dimensions:") {
@@ -297,7 +297,8 @@ pub fn parse_xdpyinfo_dimensions(text: &str) -> Option<String> {
     None
 }
 
-/// ffmpeg x11grab argv fragment (no binary). Used by tests + web studio docs.
+/// ffmpeg x11grab argv fragment (no binary). Used by tests.
+#[cfg(test)]
 pub fn x11grab_still_args(spec: &GrabSpec, out: &str) -> Vec<String> {
     let mut args = vec![
         "-y".into(),
@@ -313,12 +314,15 @@ pub fn x11grab_still_args(spec: &GrabSpec, out: &str) -> Vec<String> {
         "1".into(),
         "-q:v".into(),
         "2".into(),
+        "-update".into(),
+        "1".into(),
         out.into(),
     ];
     let _ = &mut args;
     args
 }
 
+#[cfg(test)]
 pub fn x11grab_record_args(spec: &GrabSpec, fps: u32, out: &str) -> Vec<String> {
     vec![
         "-y".into(),

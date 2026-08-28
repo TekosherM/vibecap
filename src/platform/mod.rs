@@ -15,7 +15,7 @@ mod source;
 
 pub use capture::{
     capture_live_frame, capture_screenshot, capture_screenshot_interactive,
-    capture_to_dir, capture_to_media_dir, export_gif_clip,
+    capture_to_dir, export_gif_clip,
     record_screen_clip_opts, spawn_screen_recorder, spawn_screen_recorder_opts, spawn_voice_memo,
     LiveFormat,
 };

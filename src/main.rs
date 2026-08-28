@@ -1439,23 +1439,6 @@ impl VibecapApp {
         Ok(img)
     }
 
-    fn apply_image_edits(&mut self) {
-        let Some(path) = self.img_edit_file.clone() else { return; };
-        match self.compute_edited_image() {
-            Ok(img) => {
-                let out = path.with_file_name(format!("edited_{}", path.file_name().unwrap().to_str().unwrap()));
-                match img.save(&out) {
-                    Ok(_) => {
-                        self.show_toast("🖼 Edited image saved!");
-                        self.refresh_library();
-                    }
-                    Err(e) => self.show_toast(&format!("❌ Save failed: {}", e)),
-                }
-            }
-            Err(msg) => self.show_toast(&format!("❌ {}", msg)),
-        }
-    }
-
     fn refresh_img_preview(&mut self, ctx: &egui::Context) {
         let params = format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             self.img_rotate, self.img_flip_h, self.img_flip_v, self.img_grayscale,

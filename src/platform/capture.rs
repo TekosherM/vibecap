@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use super::paths::media_dir;
 use super::source::{resolve_grab, CaptureOpts};
 use super::shell::focus_app;
 
@@ -87,6 +86,8 @@ pub fn capture_screenshot_opts(out: &Path, opts: &CaptureOpts) -> Result<(), Str
             "1",
             "-q:v",
             "2",
+            "-update",
+            "1",
             out_s,
         ]);
         run_status(cmd, "ffmpeg gdigrab screenshot")?;
@@ -148,6 +149,8 @@ fn linux_x11grab_still(spec: &GrabSpec, out_s: &str) -> Result<(), String> {
         "1",
         "-q:v",
         "2",
+        "-update",
+        "1",
         out_s,
     ]);
     run_status(cmd, "ffmpeg x11grab screenshot")
@@ -319,11 +322,6 @@ pub fn mp4_to_gif(mp4: &Path, gif: &Path) -> Result<(), String> {
         path_str(gif)?,
     ]);
     run_status(cmd, "ffmpeg mp4→gif")
-}
-
-/// Headless screenshot into the media directory; returns the output path.
-pub fn capture_to_media_dir() -> Result<PathBuf, String> {
-    capture_to_dir(&media_dir(), &CaptureOpts::default())
 }
 
 /// Headless still into `dir`. Creates the directory. Returns the JPEG path.

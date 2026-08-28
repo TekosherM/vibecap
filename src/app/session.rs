@@ -99,15 +99,3 @@ pub fn density_to_str(d: Density) -> &'static str {
         Density::Compact => "compact",
     }
 }
-
-pub fn tab_from_str(s: &str) -> Option<&'static str> {
-    match s {
-        "capture" | "shutter" => Some("capture"),
-        "library" | "media" => Some("library"),
-        "edit" | "studio" | "clip" => Some("clip"),
-        "still" | "image" => Some("still"),
-        "feedback" | "inbox" => Some("feedback"),
-        "settings" => Some("settings"),
-        _ => None,
-    }
-}
