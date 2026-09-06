@@ -100,8 +100,8 @@ Please **run it with your agent / harness** and open issues with: OS, how you la
 
 ## Features
 
-- **Screen capture** — full / region / window; screenshots restore the previous frontmost app (macOS)
-- **Recording** — 30/60 FPS via ffmpeg; optional audio; countdown; tray live `REC mm:ss`
+- **Screen capture** — full / region / window on macOS, Windows (gdigrab), and Linux (x11grab); `vibecap doctor` for a one-shot health check
+- **Recording** — 24/30/60 FPS via ffmpeg; optional audio; countdown; tray live `REC mm:ss`
 - **Clip + Still studios** — dedicated Loop stages for video trim/GIF and image adjust/save
 - **Annotation** — pen, arrow, rect, highlight, text, blur, step badges, clipboard
 - **Agent Inbox** — HITL questions with OS notification, tray title, Dock bounce, dual-pane reply

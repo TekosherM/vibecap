@@ -1,14 +1,16 @@
 # Current state (read this on resume)
 
-Last updated: 2026-08-26. Source of truth is `master` on GitHub, not a chat transcript.
+Last updated: 2026-09-06. Source of truth is `master` on GitHub, not a chat transcript.
+
+Windows capture (2026-09-06): hide-for-capture parks off-screen (never `Visible(false)` — that killed the region overlay and REC bar). Park/restore lives in `src/app/capture_flow.rs`. ffmpeg stills detach stdio so release `windows_subsystem` builds can write JPEGs. Region pick is a dedicated viewport; last-region ghost is pixel-space. REC bar always shows while recording. `--window` never silent-fullscreen (gdigrab offsets, HWND fallback). GUI single-instance lock (`gui.lock`; MCP/CLI stay multi-process). `vibecap doctor`. Long `record stop --gif` returns `gif_pending=` and encodes in the background. See `docs/IMPROVEMENTS.md`.
 
 ## Where we are
 
 | | |
 | :--- | :--- |
 | Tag | [v0.3.0](https://github.com/TekosherM/vibecap/releases/tag/v0.3.0) |
-| Tip | `master` — web HTTP studio + `vibecap_job` + agent record start/stop |
-| Connector that works | **CLI** `record start` / `--screenshot` / `record stop`. Linux = ffmpeg x11grab. |
+| Tip | `master` — Windows capture contract + studio HITL (unreleased vs tag 0.3.0) |
+| Connector that works | **CLI** `record start` / `--screenshot` / `record stop` / `doctor`. Linux = ffmpeg x11grab. Windows = ffmpeg gdigrab. |
 | Lumen Cart connector | Open web studio tab + `vibecap_job` |
 | MCP tools (when harness surfaces them) | `vibecap_record_start/stop/status`, `vibecap_record_video`, `vibecap_capture`, `vibecap_export_gif`, live-inspection + budget + feedback tools |
 | Connector that often fails | Native `vibecap --mcp` in Cursor / Grok Bot dynamic-tool harnesses (tools never appear) |
@@ -49,9 +51,18 @@ Job records, walks Lumen Cart (coupon 422 → tax 500 → pay 402, 3 stills), in
 - Desktop UI polish pass 2026-08-25: library heading de-accented, capture live-stats row, inbox auto-select respects explicit picks, ⌘I opens Inbox, import rot pruned (cargo check clean of unused imports)
 - GUI screenshot focus hardening 2026-08-26: bare-desktop shots refused with guidance when no focus target; `focus_app` verifies + retries + reports failure
 - Agent recorder detach 2026-08-26: `record start` returns immediately, ffmpeg in own process group, stderr → `.ffmpeg.log`; honest crash status; absolute output paths (stop/status cwd-independent). Verified end-to-end on macOS: piped-shell start returns in ~140ms, mp4 finalizes, GIF companion works
-- Known gaps (do not rediscover): `record stop --gif` is a synchronous full-clip transcode — can exceed agent timeouts on long clips; `--window` focuses but does not crop on macOS (crop is Linux-only)
-- CI: Linux `libxdo-dev`, web typecheck, MCP smoke accepts 0.3.x
-- Native binaries on v0.3.0 (macOS arm/intel, Linux, Windows)
+- Windows capture repair (2026-09-06): dedicated region overlay, ordered-in park, always-on REC bar, gdigrab offsets + HWND fallback, no silent fullscreen for missing window, negative virtual-desktop coords, HiDPI overlay map, frag remux, stdio detach (`run_ffmpeg`)
+- `vibecap doctor` / `--doctor` / `--paths` prints ffmpeg path + GUI stdio + window-crop hint
+- GUI single-instance lock; second GUI focuses the first. `--mcp` / CLI stay multi-process
+- Naming tokens `{app}-{date}-{time}-{seq}`; Settings live preview; `VIBECAP_OUTPUT_DIR` “Use for CLI/agents”
+- Library: date groups, disk thumbs (`.vibecap/thumbs/`), sidecar denylist, Shift-click range, drag-in import
+- Still: crop-drag, in-place text, badge renumber, save overwrite vs copy, scroll zoom / Space pan
+- Clip: preview labeled no-audio, in/out loop, GIF fps/width, Discord/README/lossless presets, `M` chapter markers
+- Inbox: j/k, snippets, pin/snooze, composing lock, last-polled stamp, tray Approve/Deny first pending, `vibecap://feedback/<id>`
+- Pause hidden on Windows (SIGSTOP is Unix-only). Voice memo prefers a real dshow *input* device
+- Known remaining (do not rediscover): live HWND thumbnails; library hover-scrub is a poster (scrub in Clip); no OS drag-out to Explorer; no voice waveform; hotkey digit change applies on next GUI launch; macOS *record* `--window` still focuses then captures the display (stills crop via `screencapture -l`)
+- CI: Linux `libxdo-dev`, web typecheck, MCP smoke accepts 0.3.x, Windows `scripts/smoke_capture.ps1` (continue-on-error)
+- Native binaries on v0.3.0 (macOS arm/intel, Linux, Windows). Tip of `master` is unreleased capture/studio work — run `cargo build --release`, not the tag, for Windows gdigrab.
 
 ## Still true (not bugs to “fix” by pretending)
 

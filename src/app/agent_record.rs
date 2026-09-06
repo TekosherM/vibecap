@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::io::{vibecap_config_dir, write_json_atomic};
 use crate::platform::{
-    export_gif_clip, resolve_output_dir, spawn_screen_recorder_opts, CaptureOpts,
+    export_gif_clip, remux_to_clean_mp4, resolve_output_dir, spawn_screen_recorder_opts,
+    CaptureOpts,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -25,6 +26,10 @@ pub struct AgentRecordState {
     pub gif: bool,
     pub started_at: String,
     pub started_unix: u64,
+    /// Fragmented MP4 (kill-safe); remuxed to a regular MP4 on stop.
+    /// `default` keeps pre-frag state files readable.
+    #[serde(default)]
+    pub frag: bool,
 }
 
 impl AgentRecordState {
@@ -84,15 +89,80 @@ fn pid_alive(pid: u32) -> bool {
         // signal 0 = existence check
         CommandKill::signal(pid, 0).unwrap_or(false)
     }
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
+    {
+        windows_pid_alive(pid)
+    }
+    #[cfg(not(any(unix, target_os = "windows")))]
     {
         // Best-effort: if we cannot probe, assume alive so stop still tries.
         true
     }
 }
 
+/// Windows existence check via `tasklist` (`kill -0` does not exist there).
+#[cfg(target_os = "windows")]
+fn windows_pid_alive(pid: u32) -> bool {
+    let out = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .any(|l| l.contains(&format!("\"{pid}\""))),
+        // If the probe itself fails, assume alive so stop still tries.
+        _ => true,
+    }
+}
+
+/// Cross-platform graceful terminate: SIGINT on unix (ffmpeg finalizes the
+/// MP4), plain `taskkill` on Windows (close request so ffmpeg can finalize),
+/// escalating to SIGTERM/SIGKILL or `taskkill /F`.
+fn terminate_pid(pid: u32) {
+    #[cfg(unix)]
+    {
+        // SIGINT: ffmpeg finalizes the MP4. Then SIGTERM if it hangs.
+        let _ = CommandKill::signal(pid, 2);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string()])
+            .output();
+    }
+}
+
+fn force_kill_pid(pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = CommandKill::signal(pid, 15);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .output();
+    }
+}
+
+fn kill_pid(pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = CommandKill::signal(pid, 9);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .output();
+    }
+}
+
 /// Tiny kill helper so we do not take a libc crate.
+#[cfg(unix)]
 struct CommandKill;
+#[cfg(unix)]
 impl CommandKill {
     fn signal(pid: u32, sig: i32) -> Result<bool, String> {
         let status = std::process::Command::new("kill")
@@ -129,7 +199,7 @@ pub fn start_agent_record(
     let pid_hint = std::process::id();
     let mp4 = dir.join(format!("video_{}_{}.mp4", stamp, pid_hint));
 
-    let child = spawn_screen_recorder_opts(&mp4, 30, false, None, opts)?;
+    let child = spawn_screen_recorder_opts(&mp4, 30, false, None, opts, true)?;
     let rec_pid = child.id();
     // Detach: leak the Child so dropping this process does not SIGKILL ffmpeg.
     std::mem::forget(child);
@@ -143,6 +213,7 @@ pub fn start_agent_record(
         gif: want_gif,
         started_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         started_unix: now_unix(),
+        frag: true,
     };
     persist_state(&state)?;
     Ok(state)
@@ -177,22 +248,30 @@ pub fn record_status_line() -> String {
     }
 }
 
-pub fn stop_agent_record(want_gif: bool) -> Result<(AgentRecordState, Option<PathBuf>), String> {
+/// Companion GIF from `record stop --gif`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GifOutcome {
+    None,
+    Ready(PathBuf),
+    /// Encoding in the background (long clips). MP4 is already playable.
+    Pending(PathBuf),
+}
+
+pub fn stop_agent_record(want_gif: bool) -> Result<(AgentRecordState, GifOutcome), String> {
     let state = load_record_state().ok_or_else(|| "not recording — nothing to stop".to_string())?;
     let was_alive = pid_alive(state.pid);
     if was_alive {
-        // SIGINT: ffmpeg finalizes the MP4. Then SIGTERM if it hangs.
-        let _ = CommandKill::signal(state.pid, 2);
+        terminate_pid(state.pid);
         let start = std::time::Instant::now();
         while pid_alive(state.pid) && start.elapsed() < std::time::Duration::from_secs(8) {
             std::thread::sleep(std::time::Duration::from_millis(80));
         }
         if pid_alive(state.pid) {
-            let _ = CommandKill::signal(state.pid, 15);
+            force_kill_pid(state.pid);
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
         if pid_alive(state.pid) {
-            let _ = CommandKill::signal(state.pid, 9);
+            kill_pid(state.pid);
         }
     }
 
@@ -206,16 +285,54 @@ pub fn stop_agent_record(want_gif: bool) -> Result<(AgentRecordState, Option<Pat
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
+    // Killed recorders never write a `moov` atom; fragmented recordings remux
+    // into a regular playable MP4 (stream copy, no re-encode). A cleanly
+    // stopped recorder remuxes losslessly too. Keep the original on failure.
+    if state.frag && state.mp4_path().exists() {
+        let clean = state.mp4_path().with_extension("clean.mp4");
+        match remux_to_clean_mp4(&state.mp4_path(), &clean) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(state.mp4_path());
+                if std::fs::rename(&clean, state.mp4_path()).is_err() {
+                    let _ = std::fs::remove_file(&clean);
+                } else {
+                    let log = state.mp4_path().with_extension("ffmpeg.log");
+                    let _ = std::fs::remove_file(log);
+                }
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&clean);
+                let log = state.mp4_path().with_extension("ffmpeg.log");
+                if let Some(tail) = crate::platform::ffmpeg_log_tail(&log, 800) {
+                    eprintln!("warning: remux failed: {e}\n--- ffmpeg.log ---\n{tail}");
+                }
+            }
+        }
+    }
+
     let make_gif = want_gif || state.gif;
     let gif = if make_gif && state.mp4_path().exists() {
         let gif_path = state.mp4_path().with_extension("gif");
         let gif_s = gif_path.display().to_string();
-        match export_gif_clip(&state.mp4, "00:00:00", "99:00:00", &gif_s) {
-            Ok(()) => Some(gif_path),
-            Err(_) => None,
+        let bytes = std::fs::metadata(state.mp4_path())
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let dur = crate::platform::probe_duration(&state.mp4_path()).unwrap_or(0.0);
+        if bytes > 8_000_000 || dur > 12.0 {
+            let mp4 = state.mp4.clone();
+            let dest = gif_s.clone();
+            std::thread::spawn(move || {
+                let _ = export_gif_clip(&mp4, "00:00:00", "99:00:00", &dest);
+            });
+            GifOutcome::Pending(gif_path)
+        } else {
+            match export_gif_clip(&state.mp4, "00:00:00", "99:00:00", &gif_s) {
+                Ok(()) => GifOutcome::Ready(gif_path),
+                Err(_) => GifOutcome::None,
+            }
         }
     } else {
-        None
+        GifOutcome::None
     };
 
     if !was_alive {
@@ -244,11 +361,21 @@ mod tests {
             gif: true,
             started_at: "now".into(),
             started_unix: 100,
+            frag: true,
         };
         let json = serde_json::to_string(&s).unwrap();
         let back: AgentRecordState = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
         assert_eq!(back.mp4_path(), PathBuf::from("/tmp/video.mp4"));
+    }
+
+    #[test]
+    fn old_state_without_frag_still_parses() {
+        let back: AgentRecordState = serde_json::from_str(
+            r#"{"pid":7,"mp4":"/tmp/v.mp4","output_dir":"/tmp","display":null,"window":null,"gif":false,"started_at":"x","started_unix":1}"#,
+        )
+        .unwrap();
+        assert!(!back.frag);
     }
 
     #[test]

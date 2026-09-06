@@ -1,6 +1,11 @@
 #[cfg(unix)]
 use std::process::Command;
 
+/// Pause via SIGSTOP exists on Unix only. Windows GUI hides the Pause control.
+pub fn pause_supported() -> bool {
+    cfg!(unix)
+}
+
 /// Resume a paused child process (Unix SIGCONT). No-op on Windows.
 pub fn cont_process(pid: u32) {
     #[cfg(unix)]

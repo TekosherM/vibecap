@@ -40,13 +40,42 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     if btn_small(ui, "Open") {
                         let _ = crate::platform::open_path(&dir);
                     }
+                    if btn_small(ui, "Use for CLI/agents") {
+                        std::env::set_var("VIBECAP_OUTPUT_DIR", dir.display().to_string());
+                        app.show_toast("This folder is VIBECAP_OUTPUT_DIR for this process");
+                    }
                 });
+                ui.add_space(theme::SP_2);
+                ui.label(
+                    RichText::new("Filename pattern ({app} {date} {time} {seq})")
+                        .size(11.0)
+                        .color(theme::TEXT_MUTED()),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.name_pattern)
+                        .desired_width(280.0)
+                        .hint_text("{app}-{date}-{seq}"),
+                );
+                let preview = crate::app::format_capture_stem(&app.name_pattern, Some("chrome"), 1);
+                ui.label(
+                    RichText::new(format!("Preview: {preview}.jpg"))
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
             });
 
             // ── Recording ────────────────────────────────────────
             section_card(ui, "RECORDING", |ui| {
                 setting_row(ui, "Framerate", |ui| {
-                    segmented(ui, &mut app.fps_target, &[(30, "30 FPS · balanced"), (60, "60 FPS · pro")]);
+                    segmented(
+                        ui,
+                        &mut app.fps_target,
+                        &[
+                            (24, "24 FPS · light"),
+                            (30, "30 FPS · balanced"),
+                            (60, "60 FPS · pro"),
+                        ],
+                    );
                 });
                 switch(ui, "Include audio when recording", &mut app.capture_audio);
                 ui.label(
@@ -67,9 +96,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         ui.label(RichText::new("ok").size(11.0).color(theme::SUCCESS()));
                     } else {
                         ui.label(
-                            RichText::new("missing — brew install ffmpeg")
-                                .size(11.0)
-                                .color(theme::WARN()),
+                            RichText::new(if cfg!(target_os = "windows") {
+                                "missing — winget install Gyan.FFmpeg"
+                            } else {
+                                "missing — brew install ffmpeg"
+                            })
+                            .size(11.0)
+                            .color(theme::WARN()),
                         );
                     }
                 });
@@ -96,6 +129,26 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 if btn_secondary(ui, "Bug report pack") {
                     app.bug_report_pack(ctx);
                 }
+            });
+
+            #[cfg(target_os = "windows")]
+            section_card(ui, "WINDOWS CAPTURE", |ui| {
+                ui.label(
+                    RichText::new(
+                        "Stills and recordings use ffmpeg gdigrab. GPU apps (Chrome) are brought to the front so the shot is not black. Pause is unavailable on Windows.",
+                    )
+                    .size(12.0)
+                    .color(theme::TEXT_MUTED()),
+                );
+                ui.add_space(theme::SP_1);
+                if btn_secondary(ui, "Test screenshot") {
+                    app.trigger_capture(ctx, true);
+                }
+                ui.label(
+                    RichText::new("winget install Gyan.FFmpeg  ·  tray icon is in the notification area")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
             });
 
             // ── macOS permissions ─────────────────────────────────
@@ -212,10 +265,52 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ui.add_space(2.0);
                 }
                 ui.label(
-                    RichText::new("Close window hides to the menu bar; tray Quit exits.")
-                        .size(11.0)
-                        .color(theme::TEXT_DIM()),
+                    RichText::new(if cfg!(target_os = "windows") {
+                        "Close window hides to the notification area / system tray; tray Quit exits."
+                    } else {
+                        "Close window hides to the menu bar; tray Quit exits."
+                    })
+                    .size(11.0)
+                    .color(theme::TEXT_DIM()),
                 );
+                ui.add_space(theme::SP_2);
+                ui.label(
+                    RichText::new("Global hotkey digits (Ctrl+Shift+N) — applies next launch")
+                        .size(12.0)
+                        .color(theme::TEXT_MUTED()),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Screenshot");
+                    ui.add(egui::Slider::new(&mut app.hotkey_shot_digit, 0..=9).prefix("#"));
+                    ui.label("Record");
+                    ui.add(egui::Slider::new(&mut app.hotkey_rec_digit, 0..=9).prefix("#"));
+                });
+                if btn_small(ui, "Save hotkeys") {
+                    app.persist_session();
+                    app.show_toast("Hotkeys saved — restart the GUI to rebind");
+                }
+                ui.add_space(theme::SP_2);
+                ui.horizontal(|ui| {
+                    if btn_secondary(ui, "Check for updates") {
+                        match crate::app::update::check_latest_release() {
+                            Ok(msg) => {
+                                app.update_status = msg.clone();
+                                app.show_toast(msg);
+                            }
+                            Err(e) => {
+                                app.update_status = e.clone();
+                                app.show_toast(e);
+                            }
+                        }
+                    }
+                    if !app.update_status.is_empty() {
+                        ui.label(
+                            RichText::new(&app.update_status)
+                                .size(11.0)
+                                .color(theme::TEXT_DIM()),
+                        );
+                    }
+                });
                 ui.add_space(theme::SP_3);
                 setting_row(ui, "Density", |ui| {
                     if segmented(

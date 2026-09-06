@@ -17,6 +17,10 @@ pub struct CaptureOpts {
     pub display: Option<String>,
     /// Window title / app name to focus and, on Linux, crop to.
     pub window: Option<String>,
+    /// Draw the cursor into stills/recordings (`gdigrab -draw_mouse`).
+    pub draw_mouse: bool,
+    /// 0-based monitor index on the virtual desktop (Windows/Linux).
+    pub monitor: Option<u32>,
 }
 
 impl CaptureOpts {
@@ -24,12 +28,24 @@ impl CaptureOpts {
         Self {
             display: empty_to_none(display),
             window: empty_to_none(window),
+            draw_mouse: false,
+            monitor: None,
         }
+    }
+
+    pub fn with_draw_mouse(mut self, on: bool) -> Self {
+        self.draw_mouse = on;
+        self
+    }
+
+    pub fn with_monitor(mut self, monitor: Option<u32>) -> Self {
+        self.monitor = monitor;
+        self
     }
 
     #[cfg(target_os = "linux")]
     pub fn is_default(&self) -> bool {
-        self.display.is_none() && self.window.is_none()
+        self.display.is_none() && self.window.is_none() && self.monitor.is_none()
     }
 }
 

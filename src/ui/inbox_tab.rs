@@ -21,6 +21,28 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         app.feedback_scanned = true;
     }
 
+    // j/k move the thread list; a selects the first pending.
+    let jump = ctx.input(|i| {
+        if i.key_pressed(egui::Key::J) {
+            1
+        } else if i.key_pressed(egui::Key::K) {
+            -1
+        } else {
+            0
+        }
+    });
+    if jump != 0 && !app.feedback_requests.is_empty() {
+        let ids: Vec<String> = app.feedback_requests.iter().map(|r| r.id.clone()).collect();
+        let cur = app
+            .feedback_selected
+            .as_ref()
+            .and_then(|id| ids.iter().position(|x| x == id))
+            .unwrap_or(0);
+        let next = (cur as i32 + jump).clamp(0, ids.len() as i32 - 1) as usize;
+        app.feedback_selected = Some(ids[next].clone());
+        app.feedback_user_picked = true;
+    }
+
     ui.horizontal(|ui| {
         ui.heading(
             RichText::new("Inbox")
@@ -37,25 +59,72 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
         });
     });
+    let poll_note = crate::app::feedback_last_poll_secs()
+        .map(|s| format!("Agent last polled {s}s ago"))
+        .unwrap_or_else(|| "Agent has not polled yet".into());
     ui.label(
-        RichText::new(
-            "Agent questions land here. Reply with chips, text, voice, or mark-up. Agents poll — nothing is pushed into chat.",
-        )
+        RichText::new(format!(
+            "Agent questions land here. Reply with chips, text, voice, or mark-up. {poll_note}."
+        ))
         .small()
         .color(theme::TEXT_MUTED()),
     );
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Search").small().color(theme::TEXT_DIM()));
+        ui.add(
+            egui::TextEdit::singleline(&mut app.inbox_search)
+                .hint_text("question or answer")
+                .desired_width(220.0),
+        );
+    });
+    if !app.inbox_snippets.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Snippets").small().color(theme::TEXT_DIM()));
+            let snaps = app.inbox_snippets.clone();
+            for s in snaps {
+                if ui.small_button(&s).clicked() {
+                    if !app.feedback_draft.is_empty() {
+                        app.feedback_draft.push(' ');
+                    }
+                    app.feedback_draft.push_str(&s);
+                }
+            }
+        });
+    }
     ui.add_space(theme::SP_2);
 
+    let q = app.inbox_search.trim().to_ascii_lowercase();
+    let now = std::time::Instant::now();
     let pending: Vec<FeedbackRequest> = app
         .feedback_requests
         .iter()
         .filter(|r| r.status == "pending")
+        .filter(|r| {
+            app.feedback_snooze_until
+                .get(&r.id)
+                .map(|t| *t <= now)
+                .unwrap_or(true)
+        })
+        .filter(|r| q.is_empty() || r.question.to_ascii_lowercase().contains(&q) || r.id.to_ascii_lowercase().contains(&q))
         .cloned()
         .collect();
+    let mut pending = pending;
+    pending.sort_by_key(|r| {
+        if app.feedback_pinned.contains(&r.id) {
+            0
+        } else {
+            1
+        }
+    });
     let closed: Vec<FeedbackRequest> = app
         .feedback_requests
         .iter()
         .filter(|r| r.status != "pending")
+        .filter(|r| {
+            q.is_empty()
+                || r.question.to_ascii_lowercase().contains(&q)
+                || r.id.to_ascii_lowercase().contains(&q)
+        })
         .cloned()
         .collect();
 
@@ -71,8 +140,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
     // Auto-select first pending only while selection is untouched; an explicit
     // user pick suppresses silent jumps until a brand-new request arrives.
+    let composing = !app.feedback_draft.trim().is_empty() || !app.feedback_choice.is_empty();
     if app.feedback_selected.is_none()
         && (!app.feedback_user_picked || app.feedback_new_arrived)
+        && !composing
     {
         if let Some(first) = pending.first() {
             app.feedback_selected = Some(first.id.clone());
@@ -378,6 +449,26 @@ fn show_conversation_detail(
                             .color(theme::TEXT_DIM()),
                     );
                 });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let id = req.id.clone();
+                    let pinned = app.feedback_pinned.contains(&id);
+                    if ui
+                        .small_button(if pinned { "Unpin" } else { "Pin" })
+                        .clicked()
+                    {
+                        if pinned {
+                            app.feedback_pinned.remove(&id);
+                        } else {
+                            app.feedback_pinned.insert(id.clone());
+                        }
+                    }
+                    if ui.small_button("Snooze 15m").clicked() {
+                        app.feedback_snooze_until.insert(
+                            id,
+                            std::time::Instant::now() + std::time::Duration::from_secs(15 * 60),
+                        );
+                    }
+                });
             });
             ui.add_space(theme::SP_2);
             ui.label(RichText::new(&req.question).size(15.0).color(theme::TEXT()));
@@ -490,8 +581,13 @@ fn show_conversation_detail(
             }
             ui.add(
                 egui::TextEdit::multiline(&mut app.feedback_draft)
-                    .hint_text("Reply to the agent…")
+                    .hint_text("Reply to the agent… (`code`, https://link)")
                     .desired_width(f32::INFINITY),
+            );
+            ui.label(
+                RichText::new("Markdown-lite: backticks and one URL are passed through as-is.")
+                    .small()
+                    .color(theme::TEXT_DIM()),
             );
             ui.add_space(theme::SP_2);
             ui.horizontal(|ui| {

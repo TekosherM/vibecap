@@ -12,7 +12,12 @@ cargo build --release
 ./target/release/vibecap --help
 ./target/release/vibecap --version
 ./target/release/vibecap --paths
+./target/release/vibecap doctor
 ./target/release/vibecap --record-status
+cargo test --offline -- --test-threads=1
+
+# Windows capture (needs a desktop session + ffmpeg)
+pwsh -File scripts/smoke_capture.ps1
 
 # MCP protocol smoke (no screen capture required for budget/feedback tools)
 ./scripts/smoke_mcp.sh
@@ -68,7 +73,7 @@ Run once before a release:
 | 4 | Screenshot from UI | Image lands via post-capture toast (Annotate optional) |
 | 3 | Draw pen + step badge + save | File under `~/Movies/Vibecap/` |
 | 4 | Record ~3s fullscreen | MP4 appears in Library |
-| 5 | Edit → export GIF range | GIF plays, ~15 FPS |
+| 5 | Clip → export GIF range | GIF plays; fps/width shown before encode |
 | 6 | Settings → set budget caps | Caps visible; MCP `get_spending` matches |
 | 7 | MCP `request_feedback` while app open | **🤖 Agent Inbox** shows request (priority / options / agent label) |
 | 8 | Answer with text / choice / mark-up + poll MCP | Agent sees text, choice, and/or annotated path |
@@ -80,7 +85,8 @@ Run once before a release:
 
 - Pixel-perfect annotation rendering
 - Global hotkey registration on CI runners
-- Cross-platform capture (not implemented)
+- Pixel-accurate Windows GPU HWND stills without focusing (Chrome HWND is black; we crop desktop instead)
+- Live window-picker thumbnails
 
 ## Regression tips
 

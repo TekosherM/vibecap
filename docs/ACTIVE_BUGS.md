@@ -4,7 +4,7 @@ Unresolved production issues. Move to resolved notes / CHANGELOG when fixed.
 
 | ID | Severity | Status | Summary |
 | ---: | :--- | :--- | :--- |
-| — | — | — | None open after retro contract fix (2026-08-06 review remediation). |
+| — | — | — | None open after Windows capture repair (2026-09-06). Remaining IMPROVEMENTS.md items are product depth, not production blockers. |
 
 ## Resolved in review remediation (2026-08-06)
 

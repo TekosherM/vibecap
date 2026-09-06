@@ -88,7 +88,9 @@ pub fn show_toast_card(ctx: &egui::Context, message: &str, level: ToastLevel) {
 pub enum CaptureToastAction {
     Annotate,
     Copy,
+    CopyPath,
     Reveal,
+    Discard,
     Dismiss,
 }
 
@@ -143,8 +145,18 @@ pub fn show_capture_toast(
                         if ui.button("Copy Image").on_hover_text("Copy image to clipboard").clicked() {
                             action = Some(CaptureToastAction::Copy);
                         }
-                        if ui.button("Finder").on_hover_text("Show in Finder/Explorer").clicked() {
+                        if ui.button("Copy Path").on_hover_text("Copy file path").clicked() {
+                            action = Some(CaptureToastAction::CopyPath);
+                        }
+                        if ui
+                            .button("Reveal")
+                            .on_hover_text("Show in Finder / Explorer")
+                            .clicked()
+                        {
                             action = Some(CaptureToastAction::Reveal);
+                        }
+                        if ui.button("Discard").on_hover_text("Move to undo trash").clicked() {
+                            action = Some(CaptureToastAction::Discard);
                         }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if ui.small_button("✕").on_hover_text("Dismiss").clicked() {
@@ -253,6 +265,7 @@ pub fn loop_rail(
     active: LoopStage,
     inbox_badge: usize,
     rec_live: bool,
+    logo: Option<&egui::TextureHandle>,
 ) -> Option<LoopStage> {
     let mut picked = None;
     let rail_w = 72.0;
@@ -262,13 +275,23 @@ pub fn loop_rail(
         Layout::top_down(Align::Center),
         |ui| {
             ui.add_space(theme::SP_3);
-            // Brand mark
-            ui.label(
-                RichText::new("VC")
-                    .color(theme::TEXT_MUTED())
-                    .size(11.0)
-                    .strong(),
-            );
+            // Brand mark — texture so Windows (and everyone) sees the real logo.
+            if let Some(logo) = logo {
+                let (r, _) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::hover());
+                ui.painter_at(r).image(
+                    logo.id(),
+                    r,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            } else {
+                ui.label(
+                    RichText::new("VC")
+                        .color(theme::TEXT_MUTED())
+                        .size(11.0)
+                        .strong(),
+                );
+            }
             ui.add_space(theme::SP_4);
 
             for stage in LoopStage::all() {
@@ -635,6 +658,7 @@ pub fn group(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
 pub enum ShutterAction {
     Screenshot,
     RecordToggle,
+    Gif,
 }
 
 /// Persistent capture dock: screenshot + record (or stop / arming).
@@ -706,6 +730,24 @@ pub fn shutter_strip(
                     .clicked()
                 {
                     action = Some(ShutterAction::RecordToggle);
+                }
+
+                ui.add_space(theme::SP_2);
+                let gif = egui::Button::new(
+                    RichText::new("  GIF  3s  ")
+                        .color(theme::TEXT())
+                        .size(14.0)
+                        .strong(),
+                )
+                .fill(theme::SURFACE_2())
+                .stroke(Stroke::new(1.0_f32, theme::TEXT_MUTED()))
+                .rounding(theme::rounding_md());
+                if ui
+                    .add_sized([100.0, 44.0], gif)
+                    .on_hover_text("Record 3 seconds and export a GIF")
+                    .clicked()
+                {
+                    action = Some(ShutterAction::Gif);
                 }
             });
         });

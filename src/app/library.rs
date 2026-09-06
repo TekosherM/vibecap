@@ -25,6 +25,7 @@ impl MediaCategory {
         }
     }
 
+    #[allow(dead_code)]
     pub fn icon(self) -> &'static str {
         match self {
             MediaCategory::Screenshot => "📸",
@@ -52,6 +53,7 @@ pub struct MediaItem {
     pub path: PathBuf,
     pub name: String,
     pub size_str: String,
+    pub size_bytes: u64,
     pub category: MediaCategory,
     /// Unix secs for sort (newest first).
     pub modified_secs: u64,
@@ -135,6 +137,18 @@ pub fn scan_media_dir(save_dir: &Path) -> Vec<MediaItem> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("?")
                 .to_string();
+            if name.starts_with('.')
+                || name.starts_with("vibecap_region_snap_")
+                || name.ends_with(".ffmpeg.log")
+                || name.ends_with(".clean.mp4")
+                || name.contains("frames_temp")
+                || ext == "log"
+            {
+                continue;
+            }
+            if category == MediaCategory::Note && is_sidecar_note(&path) {
+                continue;
+            }
             let meta = entry.metadata().ok();
             let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
             let size_str = format_size(size_bytes);
@@ -149,6 +163,7 @@ pub fn scan_media_dir(save_dir: &Path) -> Vec<MediaItem> {
                 path,
                 name,
                 size_str,
+                size_bytes,
                 category,
                 modified_secs,
             });
@@ -184,4 +199,63 @@ pub fn filter_items<'a>(items: &'a [MediaItem], filter: &str) -> Vec<&'a MediaIt
         .iter()
         .filter(|item| filter == "All" || item.category.label() == filter)
         .collect()
+}
+
+/// Hide `.txt` notes that sit next to a capture (sidecar clutter).
+fn is_sidecar_note(path: &Path) -> bool {
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    for ext in ["jpg", "jpeg", "png", "gif", "webp", "mp4", "mov", "webm", "mkv", "m4a"] {
+        if parent.join(format!("{stem}.{ext}")).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Bucket a unix mtime into Today / Yesterday / This week / Earlier (rolling).
+pub fn date_group_label(modified_secs: u64) -> &'static str {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(modified_secs);
+    let age = now.saturating_sub(modified_secs);
+    if age < 86_400 {
+        "Today"
+    } else if age < 172_800 {
+        "Yesterday"
+    } else if age < 86_400 * 7 {
+        "This week"
+    } else {
+        "Earlier"
+    }
+}
+
+pub fn category_bytes(items: &[MediaItem], cat: MediaCategory) -> u64 {
+    items
+        .iter()
+        .filter(|i| i.category == cat)
+        .map(|i| i.size_bytes)
+        .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn date_group_recent_is_today() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(date_group_label(now), "Today");
+        assert_eq!(date_group_label(now.saturating_sub(100_000)), "Yesterday");
+        assert_eq!(date_group_label(now.saturating_sub(400_000)), "This week");
+        assert_eq!(date_group_label(now.saturating_sub(2_000_000)), "Earlier");
+    }
 }

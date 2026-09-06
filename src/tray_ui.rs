@@ -26,6 +26,8 @@ pub enum TrayAction {
     GoInbox,
     GoSettings,
     BugReport,
+    ApproveFirst,
+    DenyFirst,
     Quit,
 }
 
@@ -54,6 +56,8 @@ pub struct TrayController {
     inbox_id: tray_icon::menu::MenuId,
     settings_id: tray_icon::menu::MenuId,
     bug_id: tray_icon::menu::MenuId,
+    approve_id: tray_icon::menu::MenuId,
+    deny_id: tray_icon::menu::MenuId,
     quit_id: tray_icon::menu::MenuId,
     last_progress_key: String,
 }
@@ -67,7 +71,15 @@ impl TrayController {
 
         // ── Window ──────────────────────────────────────────────
         let show_item = MenuItem::new("Show Window", true, None);
-        let hide_item = MenuItem::new("Hide to Menu Bar", true, None);
+        let hide_item = MenuItem::new(
+            if cfg!(target_os = "macos") {
+                "Hide to Menu Bar"
+            } else {
+                "Hide to tray"
+            },
+            true,
+            None,
+        );
 
         // ── Capture ─────────────────────────────────────────────
         let screenshot_item = MenuItem::new("Screenshot\t⌃⇧3", true, None);
@@ -83,6 +95,8 @@ impl TrayController {
 
         // ── Tools ───────────────────────────────────────────────
         let bug_item = MenuItem::new("Bug Report Pack", true, None);
+        let approve_item = MenuItem::new("Approve first pending", true, None);
+        let deny_item = MenuItem::new("Deny first pending", true, None);
 
         // ── App ─────────────────────────────────────────────────
         let quit_item = MenuItem::new("Quit Vibecap", true, None);
@@ -98,6 +112,8 @@ impl TrayController {
         let inbox_id = inbox_item.id().clone();
         let settings_id = settings_item.id().clone();
         let bug_id = bug_item.id().clone();
+        let approve_id = approve_item.id().clone();
+        let deny_id = deny_item.id().clone();
         let quit_id = quit_item.id().clone();
 
         let menu = Menu::new();
@@ -117,6 +133,9 @@ impl TrayController {
             &inbox_item,
             &settings_item,
             &PredefinedMenuItem::separator(),
+            &approve_item,
+            &deny_item,
+            &PredefinedMenuItem::separator(),
             &bug_item,
             &PredefinedMenuItem::separator(),
             &quit_item,
@@ -127,7 +146,9 @@ impl TrayController {
             .with_menu(Box::new(menu))
             .with_tooltip(tooltip)
             .with_icon(icon)
-            .with_icon_as_template(true)
+            // Template tinting is macOS-only. On Windows it produces an empty
+            // (black-on-dark / fully masked) notification-area glyph.
+            .with_icon_as_template(cfg!(target_os = "macos"))
             .with_title("") // idle: icon only
             .build()
             .map_err(|e| format!("tray build: {e}"))?;
@@ -148,6 +169,8 @@ impl TrayController {
             inbox_id,
             settings_id,
             bug_id,
+            approve_id,
+            deny_id,
             quit_id,
             last_progress_key: String::new(),
         })
@@ -201,7 +224,9 @@ impl TrayController {
                 self.record_item
                     .set_text(format!("Stop Recording  [{clock}]\t⌃⇧2"));
                 if let Ok(icon) = make_tray_icon(true) {
-                    let _ = self.tray.set_icon_with_as_template(Some(icon), false);
+                    let _ = self
+                        .tray
+                        .set_icon_with_as_template(Some(icon), false);
                 }
             }
             TrayLiveState::Arming => {
@@ -236,7 +261,9 @@ impl TrayController {
                     self.status_item.set_text("Vibecap · Ready");
                 }
                 if let Ok(icon) = make_tray_icon(false) {
-                    let _ = self.tray.set_icon_with_as_template(Some(icon), true);
+                    let _ = self
+                        .tray
+                        .set_icon_with_as_template(Some(icon), cfg!(target_os = "macos"));
                 }
             }
         }
@@ -281,6 +308,10 @@ impl TrayController {
                 actions.push(TrayAction::GoSettings);
             } else if id == self.bug_id {
                 actions.push(TrayAction::BugReport);
+            } else if id == self.approve_id {
+                actions.push(TrayAction::ApproveFirst);
+            } else if id == self.deny_id {
+                actions.push(TrayAction::DenyFirst);
             } else if id == self.quit_id {
                 actions.push(TrayAction::Quit);
             }
@@ -298,9 +329,48 @@ fn format_clock(secs: u64) -> String {
 
 /// 32×32 tray icon — brand aperture shutter (Safelight mark).
 ///
-/// * Idle (`recording = false`): black ink + alpha for macOS **template** images.
-/// * Recording: light aperture ring + solid red REC disc (non-template color).
+/// * macOS idle: black ink + alpha for **template** images (menu bar tints it).
+/// * Windows / recording: full-color brand glyph so the taskbar isn't empty.
 fn make_tray_icon(recording: bool) -> Result<Icon, String> {
+    if cfg!(target_os = "macos") && !recording {
+        return make_aperture_icon(false);
+    }
+    make_brand_tray_icon(recording)
+}
+
+fn make_brand_tray_icon(recording: bool) -> Result<Icon, String> {
+    const SIZE: u32 = 32;
+    let img = image::load_from_memory(include_bytes!("../assets/app_icon.png"))
+        .map_err(|e| format!("tray brand png: {e}"))?
+        .resize_exact(SIZE, SIZE, image::imageops::FilterType::Triangle)
+        .into_rgba8();
+    let mut rgba = img.into_raw();
+    if recording {
+        // Solid red REC disc in the lower-right so recording is obvious in the tray.
+        let rec_r = 0xe8_u8;
+        let rec_g = 0x3b_u8;
+        let rec_b = 0x3b_u8;
+        let cx = 24.0_f32;
+        let cy = 24.0_f32;
+        let rad = 5.5_f32;
+        for y in 0..SIZE {
+            for x in 0..SIZE {
+                let dx = x as f32 - cx;
+                let dy = y as f32 - cy;
+                if (dx * dx + dy * dy).sqrt() <= rad {
+                    let i = ((y * SIZE + x) * 4) as usize;
+                    rgba[i] = rec_r;
+                    rgba[i + 1] = rec_g;
+                    rgba[i + 2] = rec_b;
+                    rgba[i + 3] = 255;
+                }
+            }
+        }
+    }
+    Icon::from_rgba(rgba, SIZE, SIZE).map_err(|e| e.to_string())
+}
+
+fn make_aperture_icon(recording: bool) -> Result<Icon, String> {
     let size = 32u32;
     let mut rgba = vec![0u8; (size * size * 4) as usize];
     let cx = (size as f32 - 1.0) * 0.5;

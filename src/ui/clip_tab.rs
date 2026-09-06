@@ -21,10 +21,6 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         if let Some(last) = app.player_last_time {
             app.player_pos = (app.player_pos + (now - last)).min(duration);
         }
-        if app.player_pos >= duration {
-            app.player_pos = duration;
-            app.player_playing = false;
-        }
         ctx.request_repaint();
     }
     app.player_last_time = Some(now);
@@ -54,7 +50,7 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "Preparing preview frames…",
+            "Extracting preview (~24 frames)…",
             egui::FontId::proportional(13.0),
             theme::TEXT_MUTED(),
         );
@@ -78,6 +74,32 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
             app.player_playing = n > 0;
         }
     }
+    ctx.input(|i| {
+        if i.key_pressed(egui::Key::ArrowLeft) {
+            app.player_pos = (app.player_pos - 1.0 / app.filmstrip_fps.max(1.0)).max(0.0);
+            app.player_playing = false;
+        }
+        if i.key_pressed(egui::Key::ArrowRight) {
+            app.player_pos = (app.player_pos + 1.0 / app.filmstrip_fps.max(1.0)).min(duration);
+            app.player_playing = false;
+        }
+        if i.key_pressed(egui::Key::L) {
+            app.clip_loop = !app.clip_loop;
+        }
+    });
+    let in_s = parse_timecode(&app.trim_start).unwrap_or(0.0);
+    let out_s = parse_timecode(&app.trim_end).unwrap_or(duration).min(duration);
+    if app.clip_loop && app.player_playing {
+        if app.player_pos < in_s {
+            app.player_pos = in_s;
+        }
+        if app.player_pos >= out_s.max(in_s + 0.05) {
+            app.player_pos = in_s;
+        }
+    } else if app.player_playing && app.player_pos >= duration {
+        app.player_pos = duration;
+        app.player_playing = false;
+    }
     // Paused → centered play badge so the canvas reads as a player.
     if !app.player_playing && n > 0 {
         let c = rect.center();
@@ -90,6 +112,11 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         );
     }
     resp.on_hover_text("Click to play / pause (preview flipbook, no audio)");
+    ui.label(
+        RichText::new("Preview (no audio) — Open for full-fidelity playback")
+            .small()
+            .color(theme::TEXT_DIM()),
+    );
 
     // Transport bar: play/pause · scrubber · timecode · open externally.
     ui.add_space(theme::SP_2);
@@ -141,6 +168,7 @@ fn timeline(
     duration: f64,
     start_s: f64,
     end_s: f64,
+    markers: &[f64],
 ) -> (f64, f64) {
     let (rect, resp) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), 56.0),
@@ -195,6 +223,15 @@ fn timeline(
         painter.rect_filled(grip, theme::rounding_sm(), theme::PRIMARY());
     }
     painter.rect_stroke(rect, rounding, Stroke::new(1.0_f32, theme::BORDER()));
+    if duration > 0.05 {
+        for t in markers {
+            let px = x(*t);
+            painter.line_segment(
+                [Pos2::new(px, rect.top()), Pos2::new(px, rect.bottom())],
+                Stroke::new(1.5_f32, theme::WARN()),
+            );
+        }
+    }
 
     let mut ns = start_s;
     let mut ne = end_s;
@@ -266,6 +303,91 @@ fn export_card(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path) 
             );
             app.export_speed = speed.to_string();
         });
+        ui.add_space(theme::SP_2);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("GIF").size(12.0).color(theme::TEXT_MUTED()));
+            ui.add(egui::Slider::new(&mut app.gif_fps, 8..=24).text("fps"));
+            ui.add(egui::Slider::new(&mut app.gif_width, 320..=1280).text("width"));
+            let dur = (parse_timecode(&app.trim_end).unwrap_or(5.0)
+                - parse_timecode(&app.trim_start).unwrap_or(0.0))
+            .max(0.2);
+            let est = (dur * app.gif_fps as f64 * (app.gif_width as f64 / 400.0) * 18.0) as u64;
+            ui.label(
+                RichText::new(format!("~{} KB", est.max(20)))
+                    .small()
+                    .color(theme::TEXT_DIM()),
+            );
+        });
+        ui.add_space(theme::SP_2);
+        ui.horizontal_wrapped(|ui| {
+            let file_clone = file.to_path_buf();
+            if btn_small(ui, "Discord 8 MB") {
+                let out = file_clone.with_file_name(format!(
+                    "discord_{}",
+                    file_clone.file_name().unwrap().to_str().unwrap()
+                ));
+                app.spawn_ffmpeg_job(
+                    vec![
+                        "-y".into(),
+                        "-i".into(),
+                        file_clone.to_str().unwrap().into(),
+                        "-fs".into(),
+                        "8000000".into(),
+                        "-c:v".into(),
+                        "libx264".into(),
+                        "-crf".into(),
+                        "28".into(),
+                        "-preset".into(),
+                        "fast".into(),
+                        "-vf".into(),
+                        "scale=1280:-2".into(),
+                        "-c:a".into(),
+                        "aac".into(),
+                        "-b:a".into(),
+                        "96k".into(),
+                        out.to_str().unwrap().into(),
+                    ],
+                    "Discord 8 MB export",
+                );
+            }
+            if btn_small(ui, "README 480p 3s") {
+                let out = file_clone.with_file_name("readme_480p.gif");
+                app.spawn_ffmpeg_job(
+                    vec![
+                        "-y".into(),
+                        "-t".into(),
+                        "3".into(),
+                        "-i".into(),
+                        file_clone.to_str().unwrap().into(),
+                        "-vf".into(),
+                        "fps=12,scale=854:-1:flags=lanczos".into(),
+                        out.to_str().unwrap().into(),
+                    ],
+                    "README 480p 3s GIF",
+                );
+            }
+            if btn_small(ui, "Full lossless") {
+                let out = file_clone.with_file_name(format!(
+                    "lossless_{}",
+                    file_clone.file_name().unwrap().to_str().unwrap()
+                ));
+                app.spawn_ffmpeg_job(
+                    vec![
+                        "-y".into(),
+                        "-i".into(),
+                        file_clone.to_str().unwrap().into(),
+                        "-c:v".into(),
+                        "libx264".into(),
+                        "-crf".into(),
+                        "0".into(),
+                        "-c:a".into(),
+                        "copy".into(),
+                        out.to_str().unwrap().into(),
+                    ],
+                    "Lossless copy",
+                );
+            }
+        });
         ui.add_space(theme::SP_3);
         ui.horizontal_wrapped(|ui| {
             let file_clone = file.to_path_buf();
@@ -306,7 +428,11 @@ fn export_card(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path) 
                         "-i".into(),
                         file_clone.to_str().unwrap().into(),
                         "-vf".into(),
-                        "fps=15,scale=800:-1:flags=lanczos".into(),
+                        format!(
+                            "fps={},scale={}:-1:flags=lanczos",
+                            app.gif_fps.clamp(4, 30),
+                            app.gif_width.clamp(160, 1920)
+                        ),
                         "-y".into(),
                         gif_out.to_str().unwrap().into(),
                     ],
@@ -561,7 +687,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         let end_s = parse_timecode(&app.trim_end)
             .unwrap_or(duration.min(5.0))
             .clamp(0.0, duration);
-        let (ns, ne) = timeline(ui, &app.filmstrip, duration, start_s, end_s);
+        let markers = app.record_markers.clone();
+        let (ns, ne) = timeline(ui, &app.filmstrip, duration, start_s, end_s, &markers);
         if (ns - start_s).abs() > 0.4 {
             app.trim_start = format_timecode(ns);
         }

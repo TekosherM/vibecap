@@ -97,3 +97,19 @@ pub fn feedback_responses_dir() -> PathBuf {
     dir
 }
 
+fn last_poll_path() -> PathBuf {
+    vibecap_config_dir().join("feedback.last_poll")
+}
+
+/// Agents call this from `vibecap_get_feedback` so the GUI can show “last polled”.
+pub fn touch_feedback_poll() {
+    let _ = std::fs::write(last_poll_path(), b"1");
+}
+
+/// Seconds since an agent last polled a feedback request. None = never.
+pub fn feedback_last_poll_secs() -> Option<u64> {
+    let meta = std::fs::metadata(last_poll_path()).ok()?;
+    let modified = meta.modified().ok()?;
+    Some(modified.elapsed().ok()?.as_secs())
+}
+

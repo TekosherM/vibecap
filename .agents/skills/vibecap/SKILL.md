@@ -10,6 +10,7 @@ Install once, then start → still → stop. **Do not** use the web studio demo 
 ```bash
 cargo install --path .          # or ./target/release/vibecap
 # Linux: ffmpeg on PATH; echo $DISPLAY  (backend = ffmpeg x11grab)
+# Windows: winget install Gyan.FFmpeg; vibecap doctor  (backend = ffmpeg gdigrab)
 
 OUT=/workspace/search-review/run4/frames
 mkdir -p "$OUT"
@@ -18,14 +19,16 @@ vibecap record start --output-dir "$OUT" --display "$DISPLAY"
 # drive the signed-in flow (unbounded — hours are fine)
 vibecap --screenshot --output-dir "$OUT" --display "$DISPLAY"
 # optional crop: --window "Chrome"
-vibecap record stop             # MP4 in $OUT; add --gif for a companion GIF
+vibecap record stop             # MP4 in $OUT; add --gif (long clips → gif_pending=)
 ```
+
+`vibecap doctor` — ffmpeg, monitors, GUI stdio, window crop.
 
 | | |
 | :--- | :--- |
 | Files | `--output-dir` (required for agent jobs). Default if omitted: `vibecap --paths` |
 | Display | `--display` / `$DISPLAY` / `VIBECAP_DISPLAY` |
-| Window | `--window` / `--app` (Linux x11grab crop when geometry is found) |
+| Window | `--window` / `--app` (Linux x11grab; Windows gdigrab offsets; macOS stills `-l`) |
 | MCP | `./scripts/vibecap-mcp.sh` via `.cursor/mcp.json` — `record_start` / `capture` / `record_stop` |
 | No MCP | This CLI. Cursor / Grok Bot dynamic tools often never list MCP tools. |
 | HTTP | `POST /api/agent/call` with `args.display` or `args.output_dir` uses the **same** capturer. Omit them and you get the Lumen Cart shutter. |

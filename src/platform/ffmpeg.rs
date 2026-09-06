@@ -9,7 +9,7 @@
 //! Override: set env `VIBECAP_FFMPEG` to an absolute path.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
 static FFMPEG: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -24,12 +24,124 @@ pub fn ffmpeg_available() -> bool {
     ffmpeg_path().is_some()
 }
 
+/// Hide the extra console window ffmpeg opens on Windows GUI launches.
+pub(crate) fn silence_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _ = cmd;
+}
+
 /// Build a `Command` for the resolved binary.
 pub fn ffmpeg_command() -> Result<Command, String> {
     match ffmpeg_path() {
-        Some(p) => Ok(Command::new(p)),
+        Some(p) => {
+            let mut cmd = Command::new(p);
+            silence_console(&mut cmd);
+            Ok(cmd)
+        }
         None => Err(ffmpeg_missing_message()),
     }
+}
+
+/// Run ffmpeg without inheriting the GUI's null stdio (release Windows subsystem).
+pub fn run_ffmpeg(mut cmd: Command, what: &str) -> Result<(), String> {
+    silence_console(&mut cmd);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::piped());
+    let output = cmd
+        .output()
+        .map_err(|e| format!("could not start {what}: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let err = err.trim();
+        if err.is_empty() {
+            Err(format!("{what} failed (exit {:?})", output.status.code()))
+        } else {
+            Err(format!(
+                "{what} failed (exit {:?}): {err}",
+                output.status.code()
+            ))
+        }
+    }
+}
+
+/// Last bytes of a sibling `.ffmpeg.log` (agent remux / record failures).
+pub fn ffmpeg_log_tail(log_path: &Path, max_bytes: usize) -> Option<String> {
+    let data = std::fs::read(log_path).ok()?;
+    if data.is_empty() {
+        return None;
+    }
+    let start = data.len().saturating_sub(max_bytes);
+    let slice = &data[start..];
+    let s = String::from_utf8_lossy(slice).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+/// DirectShow audio capture device names (Windows). Empty elsewhere.
+pub fn list_audio_input_devices() -> Vec<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let Ok(mut cmd) = ffmpeg_command() else {
+            return Vec::new();
+        };
+        silence_console(&mut cmd);
+        cmd.args(["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"]);
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        let Ok(out) = cmd.output() else {
+            return Vec::new();
+        };
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        parse_dshow_audio_devices(&text)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+pub fn parse_dshow_audio_devices(ffmpeg_list: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut in_audio = false;
+    for line in ffmpeg_list.lines() {
+        let l = line.trim();
+        if l.contains("DirectShow audio devices") {
+            in_audio = true;
+            continue;
+        }
+        if l.contains("DirectShow video devices") {
+            in_audio = false;
+            continue;
+        }
+        if in_audio {
+            if let Some(start) = l.find('"') {
+                if let Some(end) = l[start + 1..].find('"') {
+                    let name = &l[start + 1..start + 1 + end];
+                    if !name.is_empty() {
+                        names.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    names
 }
 
 pub fn ffmpeg_missing_message() -> String {
@@ -88,7 +200,9 @@ fn ffprobe_path() -> Option<&'static Path> {
 /// Media duration in seconds (ffprobe first, `ffmpeg -i` Duration parse as fallback).
 pub fn probe_duration(file: &Path) -> Option<f64> {
     if let Some(fp) = ffprobe_path() {
-        if let Ok(out) = Command::new(fp)
+        let mut probe = Command::new(fp);
+        silence_console(&mut probe);
+        if let Ok(out) = probe
             .args([
                 "-v",
                 "error",
@@ -214,8 +328,9 @@ fn is_runnable_ffmpeg(p: &Path) -> bool {
         return false;
     }
     // Quick probe — avoids picking a stale symlink.
-    Command::new(p)
-        .arg("-version")
+    let mut cmd = Command::new(p);
+    silence_console(&mut cmd);
+    cmd.arg("-version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -227,7 +342,9 @@ fn which_on_path(name: &str) -> Option<PathBuf> {
     // Prefer the platform resolver when available; also walk PATH manually.
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = Command::new("where").arg(name).output() {
+        let mut where_cmd = Command::new("where");
+        silence_console(&mut where_cmd);
+        if let Ok(out) = where_cmd.arg(name).output() {
             if out.status.success() {
                 let first = String::from_utf8_lossy(&out.stdout)
                     .lines()
@@ -330,5 +447,18 @@ mod tests {
         assert_eq!(parse_timecode("xx"), None);
         assert_eq!(format_timecode(90.0), "00:01:30");
         assert_eq!(format_timecode(0.4), "00:00:00");
+    }
+
+    #[test]
+    fn parse_dshow_audio_picks_quoted_names() {
+        let sample = r#"
+[dshow @ 0] DirectShow video devices
+[dshow @ 0]  "Integrated Camera"
+[dshow @ 0] DirectShow audio devices
+[dshow @ 0]  "Microphone (Realtek)"
+[dshow @ 0]  "Stereo Mix"
+"#;
+        let names = parse_dshow_audio_devices(sample);
+        assert_eq!(names, vec!["Microphone (Realtek)", "Stereo Mix"]);
     }
 }

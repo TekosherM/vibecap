@@ -14,7 +14,8 @@ driving.
 # once
 cargo install --path .          # or: cargo build --release
 # Linux: ffmpeg on PATH, DISPLAY set (agent backend = ffmpeg x11grab)
-echo "$DISPLAY"                 # e.g. :0 or :1
+# Windows: winget install Gyan.FFmpeg  (agent backend = ffmpeg gdigrab)
+echo "$DISPLAY"                 # Linux; omit on Windows
 
 OUT=./frames                    # caller-specified; always pass this
 mkdir -p "$OUT"
@@ -27,15 +28,20 @@ vibecap --screenshot --output-dir "$OUT" --display "$DISPLAY"
 vibecap record stop             # MP4 in $OUT; add --gif for a companion GIF
 ```
 
-Same verbs as flags: `--record-start`, `--record-stop`, `--record-status`, `--paths`.
+Diagnose first: `vibecap doctor` (ffmpeg, monitors, GUI stdio, window crop).
+
+Same verbs as flags: `--record-start`, `--record-stop`, `--record-status`, `--paths`, `doctor`.
+
+Long `--gif` stops print `gif_pending=PATH` and encode in the background; the MP4 is ready immediately.
 
 | Flag | Meaning |
 | :--- | :--- |
 | `--output-dir`, `-o` | Where stills / MP4 land. Also `VIBECAP_OUTPUT_DIR`. |
 | `--display`, `-d` | X11 `DISPLAY` (also `VIBECAP_DISPLAY` / `$DISPLAY`). |
-| `--window`, `--app` | Focus + Linux crop to that window title. |
-| `--gif` | Companion GIF on stop. |
-| `--paths` | Print the **one** default media dir for this OS. |
+| `--window`, `--app` | Focus + crop. Linux: x11grab. Windows: gdigrab offsets (never silent fullscreen). macOS stills: `screencapture -l`. |
+| `--gif` | Companion GIF on stop (long clips → `gif_pending=`). |
+| `--paths` | Default media dir, ffmpeg path, backend, window-crop hint. |
+| `doctor`, `--doctor` | One-shot diagnostics. |
 
 Default when `--output-dir` is omitted: `dirs::video_dir()/Vibecap`, else
 `~/Movies/Vibecap` on macOS, else `~/Vibecap`. Do not guess. Use `--paths`.

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Windows capture contract + studio HITL (2026-09-06)
+
+Do not run the v0.3.0 tag for Windows gdigrab — use `master` / `cargo build --release`.
+
+- **Capture:** hide parks off-screen (`src/app/capture_flow.rs`); never `Visible(false)` (kills region overlay + REC bar). ffmpeg jobs use `run_ffmpeg` so GUI-subsystem stdio cannot yield `Could not open file`. `--window` uses gdigrab offsets (HWND fallback); missing window is a loud error, never silent fullscreen. `even_screen_rect` keeps negative virtual-desktop `x,y`.
+- **CLI:** `vibecap doctor`; `--paths` prints ffmpeg path + window-crop hint + GUI stdio. Long `record stop --gif` prints `gif_pending=` and encodes in the background. Clean remux deletes `.ffmpeg.log`.
+- **macOS window stills:** `screencapture -l <CGWindowID>`. Recordings still focus then capture the display.
+- **GUI:** single-instance lock; naming tokens; 24 FPS; cursor draw on stills; display picker; last-region pixel ghost; loupe samples frozen-snap pixels; Pause hidden on Windows.
+- **Library / Still / Clip / Inbox:** date groups, disk thumbs, sidecar denylist, crop-drag, in-place text, badge renumber, GIF fps/width + export presets, chapter markers (`M`), j/k + pin/snooze, tray Approve/Deny, `vibecap://feedback/<id>`.
+- **CI:** Windows `scripts/smoke_capture.ps1` (continue-on-error).
+- Docs: `docs/STATE.md`, `docs/PLATFORMS.md`, `docs/AGENTS.md`, `docs/IMPROVEMENTS.md`.
+
 ### Agent capture path (Linux field report)
 
 Agents on Cursor / Grok Bot often never see MCP tools and got demo-shutter stills plus a 5s `record_video` cap. This cut makes the **CLI the attachable path** and aligns docs.

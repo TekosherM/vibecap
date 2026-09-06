@@ -32,6 +32,26 @@ pub struct SessionState {
     /// Pre-record countdown: 0 | 3 | 5.
     #[serde(default)]
     pub record_countdown_secs: u8,
+    /// Filename pattern with `{app}` `{date}` `{time}` `{seq}`.
+    #[serde(default = "default_name_pattern")]
+    pub name_pattern: String,
+    /// Last pixel crop (w,h,x,y) for region re-record.
+    #[serde(default)]
+    pub last_screen_rect: Option<[i32; 4]>,
+    #[serde(default)]
+    pub draw_mouse: bool,
+    #[serde(default = "default_fps")]
+    pub fps: u32,
+    #[serde(default)]
+    pub monitor: Option<u32>,
+    #[serde(default)]
+    pub inbox_snippets: Vec<String>,
+    /// Global screenshot hotkey digit (Ctrl+Shift+N). Default 3.
+    #[serde(default = "default_hotkey_shot")]
+    pub hotkey_shot_digit: u8,
+    /// Global record hotkey digit (Ctrl+Shift+N). Default 2.
+    #[serde(default = "default_hotkey_rec")]
+    pub hotkey_rec_digit: u8,
     /// True after we have triggered the macOS Screen Recording permission probe once.
     #[serde(default)]
     pub screen_permission_prompted: bool,
@@ -42,6 +62,22 @@ pub struct SessionState {
 
 fn default_theme_dark() -> String {
     "dark".into()
+}
+
+fn default_name_pattern() -> String {
+    crate::app::naming::DEFAULT_PATTERN.to_string()
+}
+
+fn default_fps() -> u32 {
+    30
+}
+
+fn default_hotkey_shot() -> u8 {
+    3
+}
+
+fn default_hotkey_rec() -> u8 {
+    2
 }
 
 /// Existing installs without the field skip the wizard.
@@ -63,6 +99,18 @@ impl Default for SessionState {
             theme: "dark".into(),
             last_region: None,
             record_countdown_secs: 0,
+            name_pattern: default_name_pattern(),
+            last_screen_rect: None,
+            draw_mouse: false,
+            fps: 30,
+            monitor: None,
+            inbox_snippets: vec![
+                "Looks good".into(),
+                "Blur the token".into(),
+                "Re-record 16:9".into(),
+            ],
+            hotkey_shot_digit: 3,
+            hotkey_rec_digit: 2,
             screen_permission_prompted: false,
             screen_permission_ok: false,
         }

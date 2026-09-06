@@ -44,7 +44,7 @@ cargo build --release
 cd web && npm install && npm run typecheck
 ```
 
-Native needs: Rust (edition 2021), ffmpeg, macOS Screen Recording for capture tests.
+Native needs: Rust (edition 2021), ffmpeg. macOS Screen Recording for capture tests. Windows: `winget install Gyan.FFmpeg` then `vibecap doctor` / `scripts/smoke_capture.ps1`.
 
 ## Before you open a PR
 
@@ -74,7 +74,7 @@ Native needs: Rust (edition 2021), ffmpeg, macOS Screen Recording for capture te
 | Path | Role |
 | :--- | :--- |
 | `src/main.rs` | Native eframe shell, tray, hotkeys |
-| `src/app/` | Budget, feedback, library, MCP, recording |
+| `src/app/` | Budget, feedback, library, MCP, recording, doctor, capture_flow |
 | `src/ui/` | Safelight tabs, theme |
 | `src/platform/` | Capture, ffmpeg, notify, OS |
 | `web/` | HTTP evidence studio |

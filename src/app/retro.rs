@@ -575,33 +575,25 @@ fn frames_to_gif(
         .to_str()
         .ok_or_else(|| "output path not utf-8".to_string())?;
 
-    let status = crate::platform::ffmpeg_command()?
-        .args([
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-framerate",
-            &format!("{:.2}", fps),
-            "-i",
-            pattern_s,
-            "-vf",
-            "fps=10,scale=960:-1:flags=lanczos:force_original_aspect_ratio=decrease",
-            "-loop",
-            "0",
-            out_s,
-        ])
-        .status()
-        .map_err(|e| format!("Could not run ffmpeg: {e}"))?;
-
+    let mut cmd = crate::platform::ffmpeg_command()?;
+    cmd.args([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-framerate",
+        &format!("{:.2}", fps),
+        "-i",
+        pattern_s,
+        "-vf",
+        "fps=10,scale=960:-1:flags=lanczos:force_original_aspect_ratio=decrease",
+        "-loop",
+        "0",
+        out_s,
+    ]);
+    let run = crate::platform::run_ffmpeg(cmd, "ffmpeg retro GIF");
     let _ = std::fs::remove_dir_all(&seq_dir);
-
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg retro GIF failed (exit {:?})",
-            status.code()
-        ));
-    }
+    run?;
     if !out.exists() {
         return Err("ffmpeg finished but GIF is missing".into());
     }

@@ -58,7 +58,7 @@ No machine-specific absolute path.
 | :--- | :--- | :--- |
 | **`vibecap_capture`** | `output_dir?`, `display?`, `window?`, `app_name?` | Still of the **named display / window** (Linux: ffmpeg x11grab). JPEG → `output_dir` or the default from `vibecap --paths`. |
 | **`vibecap_record_start`** | `output_dir?`, `display?`, `window?`, `gif?` | Start **unbounded** MP4. Drive the flow; then `record_stop`. |
-| **`vibecap_record_stop`** | `gif?` | Stop and finalize the MP4 (optional companion GIF). |
+| **`vibecap_record_stop`** | `gif?` | Stop and finalize the MP4. Optional companion GIF; long clips return `gif_pending=` and encode in the background. |
 | **`vibecap_record_status`** | — | Live? pid, elapsed, path. |
 | **`vibecap_record_video`** | `duration_secs?`, `output_dir?`, `display?`, `window?`, `gif?` | **Omit** `duration_secs` → same as start (unbounded). Set it (max 600) for a short clip + GIF. |
 | **`vibecap_export_gif`** | `video_path`, `start_time`, `end_time` | Timeline GIF via ffmpeg (`fps=15,scale=800:-1:flags=lanczos`). |

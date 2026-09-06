@@ -22,6 +22,7 @@ pub enum CliAction {
     Help,
     Version,
     Paths,
+    Doctor,
     Screenshot,
     RecordStart,
     RecordStop,
@@ -110,6 +111,8 @@ pub fn parse_args(args: &[String]) -> CliArgs {
         CliAction::Version
     } else if has("--paths") || has("paths") {
         CliAction::Paths
+    } else if has("--doctor") || has("doctor") {
+        CliAction::Doctor
     } else if has("--mcp") || has("mcp") {
         CliAction::Mcp
     } else if has("--screenshot") || has("screenshot") {
@@ -155,6 +158,7 @@ Usage:
   vibecap record status
   vibecap --mcp
   vibecap --paths
+  vibecap doctor
 
 Capture-only agent (no MCP, no mcp.json):
   1. vibecap record start --output-dir ./frames --display \"$DISPLAY\"
@@ -175,6 +179,7 @@ Flags:
   --window, --app     Focus and, on Linux, crop to this window title
   --gif               Also write a companion GIF on record stop
   --paths             Print default media dir, config dir, backend
+  doctor, --doctor    Diagnostics: ffmpeg, monitors, audio, stdio, window crop
   --no-tray           Disable system tray (window close quits the app)
   --hidden            Start hidden in the tray (implies tray)
   --version, -v       Print version
@@ -202,15 +207,22 @@ Docs: README.md  ·  docs/AGENTS.md  ·  docs/USAGE.md  ·  docs/MCP.md  ·  doc
 }
 
 pub fn paths_text() -> String {
+    let ffmpeg = crate::platform::ffmpeg_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| if ffmpeg_available() { "yes".into() } else { "no".into() });
+    let extra = crate::platform::window_tools_hint()
+        .map(|h| format!("window_crop={h}\n"))
+        .unwrap_or_default();
     format!(
-        "media_dir={}\nconfig_dir={}\noutput_dir_default={}\nbackend={}\nffmpeg={}\nDISPLAY={}\nVIBECAP_OUTPUT_DIR={}\n",
+        "media_dir={}\nconfig_dir={}\noutput_dir_default={}\nbackend={}\nffmpeg={}\nDISPLAY={}\nVIBECAP_OUTPUT_DIR={}\n{extra}",
         media_dir_display(),
         crate::platform::config_dir().display(),
         resolve_output_dir(None).display(),
         capture_backend_label(),
-        if ffmpeg_available() { "yes" } else { "no" },
+        ffmpeg,
         std::env::var("DISPLAY").unwrap_or_else(|_| "(unset)".into()),
         std::env::var("VIBECAP_OUTPUT_DIR").unwrap_or_else(|_| "(unset)".into()),
+        extra = extra,
     )
 }
 
@@ -228,6 +240,10 @@ pub fn run_headless(cli: &CliArgs) -> Option<i32> {
         }
         CliAction::Paths => {
             print!("{}", paths_text());
+            Some(0)
+        }
+        CliAction::Doctor => {
+            print!("{}", crate::app::doctor_text());
             Some(0)
         }
         CliAction::Screenshot => {
@@ -267,8 +283,14 @@ pub fn run_headless(cli: &CliArgs) -> Option<i32> {
                     .map(|m| m.len())
                     .unwrap_or(0);
                 print!("recording stopped mp4={} bytes={}", s.mp4, bytes);
-                if let Some(g) = gif {
-                    print!(" gif={}", g.display());
+                match gif {
+                    crate::app::agent_record::GifOutcome::Ready(g) => {
+                        print!(" gif={}", g.display());
+                    }
+                    crate::app::agent_record::GifOutcome::Pending(g) => {
+                        print!(" gif_pending={}", g.display());
+                    }
+                    crate::app::agent_record::GifOutcome::None => {}
                 }
                 println!();
                 Some(0)
@@ -329,11 +351,14 @@ mod tests {
         assert_eq!(parse_args(&argv("--help")).action, CliAction::Help);
         assert_eq!(parse_args(&argv("--mcp")).action, CliAction::Mcp);
         assert_eq!(parse_args(&argv("--paths")).action, CliAction::Paths);
+        assert_eq!(parse_args(&argv("doctor")).action, CliAction::Doctor);
+        assert_eq!(parse_args(&argv("--doctor")).action, CliAction::Doctor);
     }
 
     #[test]
     fn help_mentions_output_dir_and_x11_and_start_stop() {
         let h = help_text();
+        assert!(h.contains("doctor"), "{h}");
         assert!(h.contains("--output-dir"), "{h}");
         assert!(h.contains("--record-start"), "{h}");
         assert!(h.contains("--record-stop"), "{h}");

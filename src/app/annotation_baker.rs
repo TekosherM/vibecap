@@ -134,6 +134,18 @@ pub fn bake_annotations(
     *img = image::DynamicImage::ImageRgba8(rgba);
 }
 
+/// After deleting a badge, keep remaining numbers contiguous from 1.
+pub fn renumber_step_badges(actions: &mut [AnnotationAction]) -> usize {
+    let mut n = 1usize;
+    for action in actions {
+        if action.tool == AnnotationTool::StepBadge {
+            action.badge_number = n;
+            n += 1;
+        }
+    }
+    n
+}
+
 fn draw_line_thick(
     rgba: &mut image::RgbaImage,
     x0: i32,
@@ -346,5 +358,31 @@ fn get_5x7_glyph(ch: char) -> Option<[u8; 7]> {
         ':' => Some([0x00, 0x0C, 0x0C, 0x00, 0x0C, 0x0C, 0x00]),
         '.' => Some([0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C]),
         _ => Some([0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn badge(n: usize) -> AnnotationAction {
+        AnnotationAction {
+            tool: AnnotationTool::StepBadge,
+            color: Color32::WHITE,
+            stroke_width: 1.0,
+            points: vec![Pos2::new(1.0, 1.0)],
+            text_content: String::new(),
+            badge_number: n,
+        }
+    }
+
+    #[test]
+    fn deleting_a_badge_renumbers_the_rest() {
+        let mut acts = vec![badge(1), badge(2), badge(3)];
+        acts.remove(1);
+        let next = renumber_step_badges(&mut acts);
+        assert_eq!(acts[0].badge_number, 1);
+        assert_eq!(acts[1].badge_number, 2);
+        assert_eq!(next, 3);
     }
 }

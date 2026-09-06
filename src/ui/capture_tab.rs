@@ -46,6 +46,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         app.trigger_capture(ctx, false);
                                     }
                                 }
+                                ShutterAction::Gif => app.trigger_gif_clip(ctx),
                             }
                         }
 
@@ -78,8 +79,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     );
                                 });
                                 if app.capture_target == CaptureTarget::Window {
-                                    if !app.window_list_scanned {
+                                    if !app.window_list_scanned
+                                        || app
+                                            .window_list_at
+                                            .map(|t| t.elapsed().as_secs() >= 2)
+                                            .unwrap_or(true)
+                                    {
                                         app.refresh_window_list();
+                                        app.window_list_at = Some(std::time::Instant::now());
                                     }
                                     crate::ui::group(ui, "WINDOW", |ui| {
                                         egui::ComboBox::from_id_source("window_app_picker")
@@ -90,12 +97,34 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             })
                                             .width(220.0)
                                             .show_ui(ui, |ui| {
-                                                for name in app.window_app_list.clone() {
-                                                    ui.selectable_value(
-                                                        &mut app.window_app,
-                                                        name.clone(),
-                                                        name,
-                                                    );
+                                                let wins = crate::platform::list_capture_windows();
+                                                if wins.is_empty() {
+                                                    for name in app.window_app_list.clone() {
+                                                        ui.selectable_value(
+                                                            &mut app.window_app,
+                                                            name.clone(),
+                                                            name,
+                                                        );
+                                                    }
+                                                } else {
+                                                    for w in wins {
+                                                        if w.is_self() {
+                                                            continue;
+                                                        }
+                                                        let mut lab = w.label();
+                                                        if w.minimized {
+                                                            lab.push_str(" (minimized)");
+                                                        }
+                                                        lab.push_str(&format!(
+                                                            "  {}×{} @{},{}",
+                                                            w.w, w.h, w.x, w.y
+                                                        ));
+                                                        ui.selectable_value(
+                                                            &mut app.window_app,
+                                                            w.label(),
+                                                            lab,
+                                                        );
+                                                    }
                                                 }
                                             });
                                         if btn_small(ui, "↻") {
@@ -108,9 +137,75 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         );
                                     });
                                 }
+                                crate::ui::group(ui, "POINTER", |ui| {
+                                    switch(ui, "Draw cursor on stills", &mut app.draw_mouse);
+                                });
                                 crate::ui::group(ui, "AUDIO", |ui| {
                                     switch(ui, "Include audio", &mut app.capture_audio);
+                                    if cfg!(target_os = "windows") {
+                                        if app.audio_devices.is_empty() {
+                                            app.audio_devices =
+                                                crate::platform::list_audio_input_devices();
+                                        }
+                                        if app.capture_audio && app.audio_devices.is_empty() {
+                                            ui.label(
+                                                RichText::new(
+                                                    "No DirectShow audio device — set VIBECAP_AUDIO_DEVICE or the recording will be silent.",
+                                                )
+                                                .size(10.0)
+                                                .color(theme::WARN()),
+                                            );
+                                        }
+                                    }
                                 });
+                                let monitors = crate::platform::list_monitors();
+                                if monitors.len() > 1 {
+                                    crate::ui::group(ui, "DISPLAY", |ui| {
+                                        let mut idx = app.capture_monitor.unwrap_or(0);
+                                        for m in &monitors {
+                                            let lab = format!(
+                                                "{} {}×{}{}",
+                                                m.index + 1,
+                                                m.w,
+                                                m.h,
+                                                if m.primary { " · primary" } else { "" }
+                                            );
+                                            if ui
+                                                .selectable_label(idx == m.index, lab)
+                                                .clicked()
+                                            {
+                                                idx = m.index;
+                                            }
+                                        }
+                                        app.capture_monitor = Some(idx);
+                                    });
+                                }
+                                if app.capture_target == CaptureTarget::Region {
+                                    if let Some((w, h, x, y)) = app.selected_screen_rect {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "Last region {w}×{h} at {x},{y}"
+                                                ))
+                                                .size(10.0)
+                                                .color(theme::TEXT_MUTED()),
+                                            );
+                                            if btn_small(ui, "Clear") {
+                                                app.selected_screen_rect = None;
+                                                app.selected_region = None;
+                                            }
+                                        });
+                                    }
+                                }
+                                if app.capture_target == CaptureTarget::Window {
+                                    ui.label(
+                                        RichText::new(
+                                            "GPU apps (Chrome, Electron) will be brought to the front so the shot is not black.",
+                                        )
+                                        .size(10.0)
+                                        .color(theme::TEXT_DIM()),
+                                    );
+                                }
                                 ui.label(
                                     RichText::new(
                                         "S / R in app · Ctrl+Shift+3 / 2 global · FPS & countdown in Settings",

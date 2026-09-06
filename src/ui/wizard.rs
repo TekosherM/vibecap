@@ -397,5 +397,21 @@ fn step_shortcuts(ui: &mut egui::Ui) {
             .small()
             .color(theme::TEXT_DIM()),
     );
+    ui.label(
+        RichText::new(
+            if cfg!(target_os = "windows") {
+                "Windows: winget install Gyan.FFmpeg · then `vibecap doctor` and a test still in Settings."
+            } else {
+                "Agents: `vibecap doctor` then `record start` / `--screenshot` / `record stop` (MCP often never lists tools)."
+            },
+        )
+        .small()
+        .color(theme::TEXT_DIM()),
+    );
+    ui.label(
+        RichText::new("MCP snippet: { \"command\": \"vibecap\", \"args\": [\"--mcp\"] }")
+            .small()
+            .color(theme::TEXT_DIM()),
+    );
 }
 

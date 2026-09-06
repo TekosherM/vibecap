@@ -44,6 +44,41 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         {
             app.save_current_still();
         }
+        if i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::C,
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+            egui::Key::C,
+        )) {
+            if let Some(p) = &app.img_edit_file {
+                if let Ok(mut board) = arboard::Clipboard::new() {
+                    let _ = board.set_text(p.display().to_string());
+                    app.show_toast("Path copied");
+                }
+            }
+        }
+        if i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Z))
+            || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Z))
+        {
+            if let Some(prev) = app.annotation_undo.pop() {
+                app.annotation_actions = prev;
+                app.step_counter = crate::app::renumber_step_badges(&mut app.annotation_actions);
+            }
+        }
+        if i.key_pressed(egui::Key::Num0) {
+            app.still_zoom = 1.0;
+            app.still_pan = Vec2::ZERO;
+        }
+        if i.key_pressed(egui::Key::Escape) {
+            app.text_edit_at = None;
+            app.still_crop_mode = false;
+            app.crop_drag = None;
+        }
+        let scroll = i.raw_scroll_delta.y;
+        if scroll.abs() > 0.1 {
+            app.still_zoom = (app.still_zoom * (1.0 + scroll * 0.001)).clamp(0.25, 4.0);
+        }
     });
 
     // ── Header Toolbar ──────────────────────────────────────────────
@@ -90,10 +125,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             }
             if let Some(p) = app.img_edit_file.clone() {
-                if btn_primary(ui, "💾 Save (⌘S)") {
+                if btn_primary(ui, "Save (overwrite)") {
                     app.save_current_still();
                 }
-                if btn_secondary(ui, "📋 Copy Image (⌘C)") {
+                if btn_secondary(ui, "Save as copy") {
+                    app.save_current_still_copy();
+                }
+                if btn_secondary(ui, "Copy Image (⌘C)") {
                     app.copy_current_still_to_clipboard();
                 }
                 if btn_small(ui, "🔄 Reset") {
@@ -155,10 +193,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
 
             ui.separator();
-            if btn_small(ui, "↩ Undo") {
+            if btn_small(ui, "Undo") {
                 app.annotation_actions.pop();
+                app.step_counter = crate::app::renumber_step_badges(&mut app.annotation_actions);
             }
-            if btn_small(ui, "🗑 Clear Annotations") {
+            if btn_small(ui, "Clear annotations") {
                 app.annotation_actions.clear();
                 app.step_counter = 1;
             }
@@ -194,19 +233,25 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
         if let Some(tex) = tex_opt {
             let size = tex.size_vec2();
-            let scale = (max_w / size.x).min(max_h / size.y).min(1.0);
-            let canvas_size = size * scale;
-
+            let scale = (max_w / size.x).min(max_h / size.y).min(1.0) * app.still_zoom;
+            let canvas_size = Vec2::new(max_w, max_h);
             let (response, painter) = ui.allocate_painter(canvas_size, egui::Sense::drag());
-            app.annotation_canvas_rect = Some(response.rect);
+            let img_rect = Rect::from_min_size(response.rect.min + app.still_pan, size * scale);
+            app.annotation_canvas_rect = Some(img_rect);
 
-            // 1. Draw base image
             painter.image(
                 tex.id(),
-                response.rect,
+                img_rect,
                 Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                 theme::ON_SOLID(),
             );
+            if let Some((a, b)) = app.crop_drag {
+                painter.rect_stroke(
+                    Rect::from_two_pos(a, b),
+                    0.0,
+                    Stroke::new(1.5_f32, theme::ACCENT()),
+                );
+            }
 
             // 2. Draw annotation actions helper
             let draw_action = |painter: &egui::Painter, action: &AnnotationAction| {
@@ -295,9 +340,51 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 draw_action(&painter, action);
             }
 
-            // Interactive mouse input handling
-            if response.drag_started() {
+            let space = ctx.input(|i| i.key_down(egui::Key::Space));
+            if space && response.dragged() {
+                app.still_pan += response.drag_delta();
+            } else if app.still_crop_mode {
+                if response.drag_started() {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        app.crop_drag = Some((pos, pos));
+                    }
+                }
+                if response.dragged() {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        if let Some((a, _)) = app.crop_drag {
+                            app.crop_drag = Some((a, pos));
+                        }
+                    }
+                }
+                if response.drag_stopped() {
+                    if let Some((a, b)) = app.crop_drag.take() {
+                        let r = Rect::from_two_pos(a, b);
+                        let (iw, ih) = image::image_dimensions(&path).unwrap_or((1, 1));
+                        let map = |p: Pos2| -> (u32, u32) {
+                            let u = ((p.x - img_rect.min.x) / img_rect.width()).clamp(0.0, 1.0);
+                            let v = ((p.y - img_rect.min.y) / img_rect.height()).clamp(0.0, 1.0);
+                            ((u * iw as f32) as u32, (v * ih as f32) as u32)
+                        };
+                        let (x0, y0) = map(r.min);
+                        let (x1, y1) = map(r.max);
+                        app.img_crop_x = x0.min(x1).to_string();
+                        app.img_crop_y = y0.min(y1).to_string();
+                        app.img_crop_w = x0.abs_diff(x1).max(2).to_string();
+                        app.img_crop_h = y0.abs_diff(y1).max(2).to_string();
+                    }
+                }
+            } else if app.current_tool == AnnotationTool::Text {
+                if response.clicked() {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        app.text_edit_at = Some(pos);
+                    }
+                }
+            } else if response.drag_started() {
                 if let Some(pos) = response.interact_pointer_pos() {
+                    app.annotation_undo.push(app.annotation_actions.clone());
+                    if app.annotation_undo.len() > 40 {
+                        app.annotation_undo.remove(0);
+                    }
                     let action = AnnotationAction {
                         tool: app.current_tool,
                         color: app.current_color,
@@ -306,30 +393,47 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         text_content: app.pending_text.clone(),
                         badge_number: app.step_counter,
                     };
-
-                    if app.current_tool == AnnotationTool::Text
-                        || app.current_tool == AnnotationTool::StepBadge
-                    {
-                        if app.current_tool == AnnotationTool::StepBadge {
-                            app.step_counter += 1;
-                        }
+                    if app.current_tool == AnnotationTool::StepBadge {
+                        app.step_counter += 1;
                         app.annotation_actions.push(action);
                     } else {
                         app.current_action = Some(action);
                     }
                 }
             }
-            if response.dragged() {
+            if !space && !app.still_crop_mode && response.dragged() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     if let Some(action) = &mut app.current_action {
                         action.points.push(pos);
                     }
                 }
             }
-            if response.drag_stopped() {
+            if !app.still_crop_mode && response.drag_stopped() {
                 if let Some(action) = app.current_action.take() {
                     app.annotation_actions.push(action);
                 }
+            }
+            if let Some(pos) = app.text_edit_at {
+                egui::Area::new(egui::Id::new("still_inplace_text"))
+                    .fixed_pos(pos)
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        ui.set_min_width(180.0);
+                        let r = ui.text_edit_singleline(&mut app.pending_text);
+                        r.request_focus();
+                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            app.annotation_undo.push(app.annotation_actions.clone());
+                            app.annotation_actions.push(AnnotationAction {
+                                tool: AnnotationTool::Text,
+                                color: app.current_color,
+                                stroke_width: app.current_stroke_width,
+                                points: vec![pos],
+                                text_content: app.pending_text.clone(),
+                                badge_number: app.step_counter,
+                            });
+                            app.text_edit_at = None;
+                        }
+                    });
             }
         } else {
             ui.vertical_centered(|ui| {
@@ -373,6 +477,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             ui.label(RichText::new("Resize %").size(11.0).color(theme::TEXT_DIM()));
             ui.add(egui::Slider::new(&mut app.img_resize_pct, 10..=200).show_value(false));
             ui.add_space(theme::SP_3);
+            switch(ui, "Drag on canvas to crop", &mut app.still_crop_mode);
             ui.label(RichText::new("Crop px").size(11.0).color(theme::TEXT_DIM()));
             ui.add(
                 egui::TextEdit::singleline(&mut app.img_crop_x)
@@ -397,8 +502,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         });
         ui.add_space(theme::SP_1);
         ui.horizontal(|ui| {
-            if btn_primary(ui, "Save edited & annotated image") {
+            if btn_primary(ui, "Save overwrite") {
                 app.save_current_still();
+            }
+            if btn_secondary(ui, "Save as copy") {
+                app.save_current_still_copy();
             }
         });
     });

@@ -20,7 +20,8 @@ vibecap                      →  eframe/egui desktop app
 vibecap --mcp                 →  stdio JSON-RPC MCP server (no window)
 vibecap --screenshot          →  one-shot still (--output-dir / --display / --window)
 vibecap record start|stop     →  unbounded agent recording
-vibecap --paths               →  print default media dir + backend
+vibecap --paths               →  print default media dir + backend + ffmpeg
+vibecap doctor                →  one-shot diagnostics (ffmpeg, monitors, stdio)
 ```
 
 Mode is chosen in `main()` before any UI init.
@@ -36,9 +37,10 @@ Mode is chosen in `main()` before any UI init.
                   │
 ┌─────────────────▼──────────────────────────┐
 │  Capture & media jobs                      │
-│  macOS: screencapture, open -a             │
-│  ffmpeg: record (avfoundation), GIF, trim, │
-│  wardrobe transforms (background threads)  │
+│  macOS: screencapture (-l window stills)   │
+│  Windows: ffmpeg gdigrab (stdio detached)  │
+│  Linux: ffmpeg x11grab                     │
+│  GIF, trim, wardrobe (background threads)  │
 └─────────────────┬──────────────────────────┘
                   │
 ┌─────────────────▼──────────────────────────┐
@@ -72,7 +74,8 @@ Mode is chosen in `main()` before any UI init.
 | `image` | Annotation / image wardrobe |
 | `arboard` | Clipboard |
 | `rfd` | File dialogs |
-| `global-hotkey` | Ctrl+Shift+2 |
+| `global-hotkey` | Ctrl+Shift+2 / 3 (digits configurable) |
+| `tray-icon` | Notification area / menu bar |
 | `crossbeam-channel` | UI ↔ worker jobs |
 | `serde` / `serde_json` | MCP + config |
 | `chrono` | Timestamps |
@@ -107,15 +110,25 @@ See [WEB.md](WEB.md) and [HOOKS.md](HOOKS.md).
 ## Platform module
 
 ```text
+src/app/
+  capture_flow.rs  # park off-screen / restore (never Visible(false) for capture)
+  doctor.rs        # vibecap doctor
+  instance.rs      # GUI single-instance lock
+  naming.rs        # {app}-{date}-{seq} stems
+  thumbs.rs        # .vibecap/thumbs cache
+  update.rs        # opt-in GitHub Releases check
 src/platform/
   mod.rs      # re-exports + capture_backend_label()
   paths.rs    # dirs::video_dir / config_dir
-  capture.rs  # screenshot, record, live, voice, gif
-  shell.rs    # focus_app, open_path, reveal_in_file_manager
-  process.rs  # SIGSTOP/CONT (Unix)
+  capture.rs  # screenshot, record, live, voice, gif, remux
+  ffmpeg.rs   # path resolve + run_ffmpeg (GUI stdio detach)
+  shell.rs    # focus_app, windows EnumWindows, monitors
+  process.rs  # SIGSTOP/CONT (Unix); pause_supported()
 ```
 
 macOS uses `screencapture` + avfoundation; Windows `gdigrab`; Linux `x11grab`/grim. See [PLATFORMS.md](PLATFORMS.md).
+
+GUI+GUI is single-instance (second launch focuses the first). GUI+MCP remains multi-process.
 
 ## Binary size
 

@@ -13,24 +13,29 @@ mod process;
 mod shell;
 mod source;
 
+// Re-exported capture surface (binary crate: some helpers are only used by
+// headless/embedding call sites, not the GUI — keep them warning-free).
+#[allow(unused_imports)]
 pub use capture::{
     capture_live_frame, capture_screenshot, capture_screenshot_interactive,
-    capture_to_dir, export_gif_clip,
-    record_screen_clip_opts, spawn_screen_recorder, spawn_screen_recorder_opts, spawn_voice_memo,
-    LiveFormat,
+    capture_screenshot_opts, capture_screenshot_region, capture_to_dir, crop_image_file,
+    even_screen_rect, export_gif_clip, export_gif_clip_ex, record_screen_clip_opts, remux_to_clean_mp4,
+    spawn_screen_recorder, spawn_screen_recorder_opts, spawn_voice_memo, LiveFormat, ScreenRect,
 };
 pub use ffmpeg::{
-    ffmpeg_available, ffmpeg_command, ffmpeg_path, format_timecode,
-    parse_timecode, probe_duration,
+    ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path, format_timecode,
+    list_audio_input_devices, parse_timecode, probe_duration, run_ffmpeg,
 };
 pub use notify::notify_agent_question;
 pub use paths::{config_dir, live_dir, live_session_dir, media_dir, media_dir_display};
-pub use process::{cont_process, stop_process};
+pub use process::{cont_process, pause_supported, stop_process};
 pub use shell::{
-    activate_own_app, focus_app, frontmost_app_name, list_running_apps, open_path,
-    open_screen_recording_settings, request_screen_recording_access, reveal_in_file_manager,
-    screen_capture_allowed,
+    activate_own_app, focus_app, frontmost_app_name, list_capture_windows, list_monitors,
+    list_running_apps, open_path, open_screen_recording_settings, request_screen_recording_access,
+    reveal_in_file_manager, screen_capture_allowed, window_tools_hint,
 };
+#[cfg(target_os = "windows")]
+pub use shell::window_rect_on_screen;
 pub use source::{
     default_output_dir_display, resolve_output_dir, CaptureOpts,
 };

@@ -478,9 +478,15 @@ pub fn run_mcp_server() {
                         match stop_agent_record(gif) {
                             Ok((s, gif_path)) => {
                                 let bytes = std::fs::metadata(s.mp4_path()).map(|m| m.len()).unwrap_or(0);
-                                let gif_note = gif_path
-                                    .map(|p| format!(" gif={}", p.display()))
-                                    .unwrap_or_default();
+                                let gif_note = match gif_path {
+                                    crate::app::agent_record::GifOutcome::Ready(p) => {
+                                        format!(" gif={}", p.display())
+                                    }
+                                    crate::app::agent_record::GifOutcome::Pending(p) => {
+                                        format!(" gif_pending={} (encoding in background; MP4 is ready)", p.display())
+                                    }
+                                    crate::app::agent_record::GifOutcome::None => String::new(),
+                                };
                                 (
                                     format!(
                                         "Recording stopped. mp4={} bytes={}{}",
@@ -865,6 +871,7 @@ pub fn run_mcp_server() {
                         }
                     }
                     "vibecap_get_feedback" => {
+                        crate::app::touch_feedback_poll();
                         let args = parsed.get("params").and_then(|p| p.get("arguments"));
                         let request_id = args
                             .and_then(|a| a.get("request_id"))

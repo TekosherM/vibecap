@@ -13,7 +13,9 @@ pub mod still_tab;
 pub mod theme;
 pub mod wizard;
 
-pub use capture_hud::{show_countdown_bubble, show_region_selector, RegionHudResult};
+pub use capture_hud::{
+    overlay_rect_to_pixels, show_countdown_bubble, show_region_selector, RegionHudResult,
+};
 pub use components::{
     agent_dot_color, btn_danger, btn_primary, btn_secondary, btn_small, empty_state, group, kbd,
     loop_position_badge, loop_rail, section_card, segmented, setting_row, show_capture_toast,

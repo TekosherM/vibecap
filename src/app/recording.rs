@@ -74,29 +74,22 @@ pub fn extract_filmstrip_thumbs(
         .ok_or_else(|| "Video path is not valid UTF-8".to_string())?;
     let out_s = out.to_string_lossy().to_string();
 
-    let status = crate::platform::ffmpeg_command()?
-        .args([
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            file_s,
-            "-vf",
-            &format!("fps={fps},scale=480:270:force_original_aspect_ratio=decrease"),
-            "-vframes",
-            &vframes.to_string(),
-            &out_s,
-        ])
-        .status()
-        .map_err(|e| format!("Could not run ffmpeg for filmstrip: {e}"))?;
-
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg filmstrip failed (exit {}). File still editable below.",
-            status.code().unwrap_or(-1)
-        ));
-    }
+    let mut cmd = crate::platform::ffmpeg_command()?;
+    cmd.args([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        file_s,
+        "-vf",
+        &format!("fps={fps},scale=480:-2:flags=fast_bilinear"),
+        "-vframes",
+        &vframes.to_string(),
+        &out_s,
+    ]);
+    crate::platform::run_ffmpeg(cmd, "ffmpeg filmstrip")
+        .map_err(|e| format!("{e}. File still editable below."))?;
 
     let mut thumbs = Vec::new();
     for i in 1..=96 {
@@ -111,11 +104,41 @@ pub fn extract_filmstrip_thumbs(
     Ok((out_dir, thumbs, fps))
 }
 
+/// Decode filmstrip JPEGs to RGBA on a worker thread (keeps the UI loop alive).
+///
+/// Returns `(frames, fps, duration_secs)` where each frame is `(w, h, rgba)`.
+pub fn extract_filmstrip_rgba(
+    file: &Path,
+) -> Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String> {
+    let duration = crate::platform::probe_duration(file).unwrap_or(0.0);
+    let (_out_dir, thumbs, fps) = extract_filmstrip_thumbs(file)?;
+    let mut frames = Vec::with_capacity(thumbs.len());
+    for thumb_path in &thumbs {
+        match image::open(thumb_path) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                if w > 0 && h > 0 {
+                    frames.push((w, h, rgba.into_raw()));
+                }
+            }
+            Err(_) => {}
+        }
+        let _ = std::fs::remove_file(thumb_path);
+    }
+    let _ = std::fs::remove_dir_all(&_out_dir);
+    if frames.is_empty() {
+        return Err("No frames extracted — video may be corrupt or too short.".into());
+    }
+    Ok((frames, fps, duration))
+}
+
 /// Crop tuple for ffmpeg: (w, h, x, y) with even dimensions for yuv420p.
+///
+/// Shared helper for recorder call sites.
+#[allow(dead_code)]
 pub fn even_crop(w: i32, h: i32, x: i32, y: i32) -> (i32, i32, i32, i32) {
-    let w = (w.abs().max(2) / 2) * 2;
-    let h = (h.abs().max(2) / 2) * 2;
-    (w.max(2), h.max(2), x.max(0), y.max(0))
+    crate::platform::even_screen_rect(x, y, w, h).as_whxy()
 }
 
 #[cfg(test)]
@@ -123,8 +146,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn even_crop_forces_even_positive() {
-        assert_eq!(even_crop(801, 601, -4, 3), (800, 600, 0, 3));
+    fn even_crop_forces_even_dimensions() {
+        // Negative origin is valid (virtual desktop left of primary).
+        assert_eq!(even_crop(801, 601, -4, 3), (800, 600, -4, 3));
         assert_eq!(even_crop(2, 2, 0, 0), (2, 2, 0, 0));
     }
 }

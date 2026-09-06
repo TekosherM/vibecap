@@ -16,11 +16,11 @@ Capture-only agent: [AGENTS.md](AGENTS.md). Inbox is optional.
 
 | Requirement | Why |
 | :--- | :--- |
-| **OS** | macOS primary; Windows/Linux via ffmpeg (see [PLATFORMS.md](PLATFORMS.md)) |
-| **ffmpeg** installed | Screen record, GIF export, filmstrip (GUI also searches Homebrew paths; override with `VIBECAP_FFMPEG`) |
+| **OS** | macOS, Windows, Linux via ffmpeg (see [PLATFORMS.md](PLATFORMS.md)) |
+| **ffmpeg** installed | Screen record, GIF export, filmstrip (override with `VIBECAP_FFMPEG`) |
 | **Screen Recording** permission (macOS) | System Settings → Privacy & Security → Screen Recording → enable **one** Vibecap (the app) |
 
-Install ffmpeg (Homebrew): `brew install ffmpeg`
+Install ffmpeg: macOS `brew install ffmpeg` · Windows `winget install Gyan.FFmpeg` · Linux `sudo apt install ffmpeg`. Then `vibecap doctor`.
 
 ### macOS Screen Recording (bare desktop / duplicates)
 
@@ -58,7 +58,8 @@ Prefer the install script above so MCP uses the app binary.
 | `vibecap --screenshot` | Headless still of `--display` / `--window`; prints path |
 | `vibecap record start` / `stop` / `status` | Unbounded MP4 (also `--record-start` …) |
 | `--output-dir`, `--display`, `--window`, `--gif` | Agent targeting + output |
-| `vibecap --paths` | Default media dir + backend |
+| `vibecap --paths` | Default media dir, ffmpeg path, backend, window-crop hint |
+| `vibecap doctor` | Diagnostics: ffmpeg, monitors, GUI stdio, crop tools |
 | `vibecap --hidden` | Start GUI hidden in the tray |
 | `vibecap --no-tray` | No tray; window close quits the app |
 | `vibecap --version` | Print version |
@@ -74,10 +75,10 @@ Vibecap is designed so **several processes can run at once**:
 | `vibecap --mcp` (agent A) | Cursor / Claude / etc. MCP client #1 |
 | `vibecap --mcp` (agent B) | Another client or second workspace |
 
-- There is **no single-instance lock**.
+- **GUI+GUI** is single-instance (`gui.lock`): a second GUI focuses the first. `--mcp` / `--screenshot` / `record` stay multi-process.
 - Each MCP process writes live frames under `…/live/session-<pid>/`.
 - Budget + feedback stay **shared** via the config directory so the human sees all agent requests.
-- Window close **hides to tray** (Quit from the tray menu fully exits).
+- Window close **hides to tray** (Windows: notification area; macOS: menu bar). Quit from the tray menu fully exits.
 - **S** / **R** in the focused app take a screenshot or toggle recording; **Ctrl+Shift+3** / **Ctrl+Shift+2** work globally (including from the tray).
 - While recording, the tray shows a live **● mm:ss** timer and the menu item becomes **Stop Recording**.
 - Screen recording is **video-only by default** (audio off until you enable it).

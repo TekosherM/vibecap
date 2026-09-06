@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod app;
 mod platform;
 mod tray_ui;
@@ -18,22 +20,25 @@ use egui::{
 use std::time::{Duration, Instant};
 
 use platform::{
-activate_own_app, capture_screenshot, capture_screenshot_interactive, cont_process,
-    focus_app, frontmost_app_name, list_running_apps, notify_agent_question, open_screen_recording_settings, request_screen_recording_access,
-    reveal_in_file_manager, screen_capture_allowed, spawn_screen_recorder, spawn_voice_memo,
-    stop_process,
+capture_screenshot, capture_screenshot_interactive,
+    capture_screenshot_opts, cont_process, crop_image_file, even_screen_rect, focus_app,
+    frontmost_app_name, list_running_apps, notify_agent_question, open_screen_recording_settings,
+    request_screen_recording_access, reveal_in_file_manager, screen_capture_allowed,
+    spawn_screen_recorder_opts, spawn_voice_memo, stop_process, CaptureOpts, ScreenRect,
+    record_screen_clip_opts, export_gif_clip,
 };
 use tray_ui::{TrayAction, TrayController, TrayLiveState};
 use ui::{
     apply_current_theme, apply_graphite_theme, loop_rail, show_capture_toast,
-    show_countdown_bubble, show_palette, show_region_selector, show_toast_card,
-    status_strip, CaptureToastAction, Density, LoopStage, PaletteAction, RegionHudResult, StatusSnapshot, ThemeMode, ToastLevel,
+    overlay_rect_to_pixels, show_countdown_bubble, show_palette, show_region_selector,
+    show_toast_card, status_strip, CaptureToastAction, Density, LoopStage, PaletteAction,
+    RegionHudResult, StatusSnapshot, ThemeMode, ToastLevel,
 };
 use ui::theme;
 
 use app::{
-default_live_dir, default_media_dir, even_crop,
-    extract_filmstrip_thumbs, feedback_requests_dir, feedback_responses_dir, filter_items,
+default_live_dir, default_media_dir,
+    budget_exceeded_reason, extract_filmstrip_rgba, feedback_requests_dir, feedback_responses_dir, filter_items,
     finalize_recorder, get_dir_size_bytes, kill_recorder,
     live_usage_snapshot, load_budget, mcp_live_dir, parse_args, run_headless, run_mcp_server, scan_media_dir, take_pending_still, write_json_atomic, write_pending_still,
     write_pending_still_error, CliAction, FeedbackRequest,
@@ -97,12 +102,35 @@ pub(crate) enum CaptureTarget {
     Window,
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum RegionPickKind {
+    Screenshot,
+    Record,
+}
+
 #[derive(Default)]
 pub(crate) struct VibecapApp {
     current_tab: AppTab,
     capture_target: CaptureTarget,
     capture_audio: bool,
     fps_target: u32,
+    draw_mouse: bool,
+    capture_monitor: Option<u32>,
+    name_pattern: String,
+    inbox_snippets: Vec<String>,
+    library_search: String,
+    library_last_click: Option<PathBuf>,
+    annotation_undo: Vec<Vec<AnnotationAction>>,
+    still_zoom: f32,
+    clip_loop: bool,
+    gif_fps: u32,
+    gif_width: u32,
+    record_markers: Vec<f64>,
+    shutter_flash_until: Option<Instant>,
+    #[allow(dead_code)]
+    region_await_enter: bool,
+    audio_devices: Vec<String>,
+    window_list_at: Option<Instant>,
     is_recording: bool,
     /// Hide UI then spawn ffmpeg on a worker — true while countdown / spawn in flight.
     recording_arming: bool,
@@ -190,6 +218,27 @@ pub(crate) struct VibecapApp {
     selected_region: Option<Rect>,
     /// Ghost outline for next region select (session-persisted).
     last_region: Option<Rect>,
+    pending_region_kind: Option<RegionPickKind>,
+    /// Pixel crop (w,h,x,y) mapped from the region overlay / snapshot.
+    selected_screen_rect: Option<(i32, i32, i32, i32)>,
+    region_backdrop: Option<egui::TextureHandle>,
+    region_backdrop_px: (u32, u32),
+    region_backdrop_rgba: Option<(u32, u32, Vec<u8>)>,
+    still_crop_mode: bool,
+    still_pan: Vec2,
+    text_edit_at: Option<Pos2>,
+    crop_drag: Option<(Pos2, Pos2)>,
+    feedback_pinned: std::collections::HashSet<String>,
+    feedback_snooze_until: std::collections::HashMap<String, Instant>,
+    inbox_search: String,
+    budget_warned: bool,
+    update_status: String,
+    hotkey_shot_digit: u8,
+    hotkey_rec_digit: u8,
+    region_snap_path: Option<PathBuf>,
+    region_snap_rx: Option<Receiver<Result<(PathBuf, u32, u32, Vec<u8>), String>>>,
+    brand_logo: Option<egui::TextureHandle>,
+    filmstrip_rx: Option<Receiver<Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String>>>,
 
     // Notification toast (message, shown_at, severity)
     toast_message: Option<(String, Instant, ToastLevel)>,
@@ -317,19 +366,9 @@ impl VibecapApp {
         apply_graphite_theme(&cc.egui_ctx);
 
         // Hotkeys are best-effort: a second GUI may fail to claim them.
-        // Ctrl+Shift+2 = record toggle · Ctrl+Shift+3 = screenshot
-        let mut hotkey_id_record = 0u32;
-        let mut hotkey_id_screenshot = 0u32;
+        // Ctrl+Shift+2 = record toggle · Ctrl+Shift+3 = screenshot (digits from session).
         let (hotkey_manager, hotkey_receiver) = match GlobalHotKeyManager::new() {
-            Ok(manager) => {
-                let hk_rec = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Digit2);
-                let hk_shot = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Digit3);
-                hotkey_id_record = hk_rec.id();
-                hotkey_id_screenshot = hk_shot.id();
-                let _ = manager.register(hk_rec);
-                let _ = manager.register(hk_shot);
-                (Some(manager), Some(GlobalHotKeyEvent::receiver().clone()))
-            }
+            Ok(manager) => (Some(manager), Some(GlobalHotKeyEvent::receiver().clone())),
             Err(_) => (None, None),
         };
         
@@ -342,11 +381,23 @@ impl VibecapApp {
             capture_target: CaptureTarget::Fullscreen,
             capture_audio: false, // video-only by default; user can enable audio
             fps_target: 30,
+            draw_mouse: false,
+            name_pattern: app::DEFAULT_PATTERN.to_string(),
+            inbox_snippets: vec![
+                "Looks good".into(),
+                "Blur the token".into(),
+                "Re-record 16:9".into(),
+            ],
+            still_zoom: 1.0,
+            gif_fps: 15,
+            gif_width: 800,
+            hotkey_shot_digit: 3,
+            hotkey_rec_digit: 2,
             save_dir: default_dir,
             hotkey_receiver,
             hotkey_manager,
-            hotkey_id_record,
-            hotkey_id_screenshot,
+            hotkey_id_record: 0,
+            hotkey_id_screenshot: 0,
             trim_start: "00:00:00".to_string(),
             trim_end: "00:00:05".to_string(),
             export_speed: "1.0".to_string(),
@@ -385,10 +436,42 @@ impl VibecapApp {
 
         let session = load_session();
         app.apply_session(session);
+        app.bind_global_hotkeys();
         // Re-apply visuals if session asked for light (graphite was applied above).
         apply_current_theme(&cc.egui_ctx);
+        app.brand_logo = load_brand_logo(&cc.egui_ctx);
         app.refresh_library();
         app
+    }
+
+    fn digit_code(d: u8) -> Code {
+        match d {
+            1 => Code::Digit1,
+            2 => Code::Digit2,
+            3 => Code::Digit3,
+            4 => Code::Digit4,
+            5 => Code::Digit5,
+            6 => Code::Digit6,
+            7 => Code::Digit7,
+            8 => Code::Digit8,
+            9 => Code::Digit9,
+            0 => Code::Digit0,
+            _ => Code::Digit2,
+        }
+    }
+
+    fn bind_global_hotkeys(&mut self) {
+        let Some(manager) = self.hotkey_manager.as_ref() else {
+            return;
+        };
+        let rec = self.hotkey_rec_digit.clamp(0, 9);
+        let shot = self.hotkey_shot_digit.clamp(0, 9);
+        let hk_rec = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Self::digit_code(rec));
+        let hk_shot = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Self::digit_code(shot));
+        self.hotkey_id_record = hk_rec.id();
+        self.hotkey_id_screenshot = hk_shot.id();
+        let _ = manager.register(hk_rec);
+        let _ = manager.register(hk_shot);
     }
 
     fn apply_session(&mut self, s: SessionState) {
@@ -431,6 +514,26 @@ impl VibecapApp {
             3 | 5 => s.record_countdown_secs,
             _ => 0,
         };
+        if !s.name_pattern.trim().is_empty() {
+            self.name_pattern = s.name_pattern;
+        }
+        if let Some([w, h, x, y]) = s.last_screen_rect {
+            self.selected_screen_rect = Some((w, h, x, y));
+        }
+        self.draw_mouse = s.draw_mouse;
+        if s.fps == 24 || s.fps == 30 || s.fps == 60 {
+            self.fps_target = s.fps;
+        }
+        self.capture_monitor = s.monitor;
+        if !s.inbox_snippets.is_empty() {
+            self.inbox_snippets = s.inbox_snippets;
+        }
+        if s.hotkey_shot_digit <= 9 {
+            self.hotkey_shot_digit = s.hotkey_shot_digit;
+        }
+        if s.hotkey_rec_digit <= 9 {
+            self.hotkey_rec_digit = s.hotkey_rec_digit;
+        }
         self.screen_permission_prompted = s.screen_permission_prompted;
         self.screen_permission_ok = s.screen_permission_ok;
         // Re-check with a cheap, prompt-free preflight on the next frame.
@@ -474,6 +577,14 @@ impl VibecapApp {
             theme: theme::theme_mode_to_str(theme::theme_mode()).into(),
             last_region,
             record_countdown_secs: self.record_countdown_secs,
+            name_pattern: self.name_pattern.clone(),
+            last_screen_rect: self.selected_screen_rect.map(|(w, h, x, y)| [w, h, x, y]),
+            draw_mouse: self.draw_mouse,
+            fps: self.fps_target,
+            monitor: self.capture_monitor,
+            inbox_snippets: self.inbox_snippets.clone(),
+            hotkey_shot_digit: self.hotkey_shot_digit,
+            hotkey_rec_digit: self.hotkey_rec_digit,
             screen_permission_prompted: self.screen_permission_prompted,
             screen_permission_ok: self.screen_permission_ok,
         });
@@ -492,10 +603,28 @@ impl VibecapApp {
     }
 
     pub fn save_current_still(&mut self) {
+        self.save_still_to(None);
+    }
+
+    pub fn save_current_still_copy(&mut self) {
         let Some(path) = self.img_edit_file.clone() else {
             self.show_toast("No image loaded to save");
             return;
         };
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "still".into());
+        let dest = path.with_file_name(format!("{stem}_annotated.jpg"));
+        self.save_still_to(Some(dest));
+    }
+
+    fn save_still_to(&mut self, dest: Option<PathBuf>) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded to save");
+            return;
+        };
+        let out = dest.unwrap_or_else(|| path.clone());
         let mut dyn_img = match self.compute_edited_image() {
             Ok(img) => img,
             Err(_) => match image::open(&path) {
@@ -507,9 +636,19 @@ impl VibecapApp {
             },
         };
         app::bake_annotations(&mut dyn_img, &self.annotation_actions, self.annotation_canvas_rect);
-        match dyn_img.save(&path) {
+        match dyn_img.save(&out) {
             Ok(_) => {
-                self.show_toast("💾 Image & annotations saved!");
+                if out == path {
+                    self.show_toast("Image & annotations saved (overwrite)");
+                } else {
+                    self.show_toast(format!(
+                        "Saved copy · {}",
+                        out.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| out.display().to_string())
+                    ));
+                    self.img_edit_file = Some(out);
+                }
                 self.refresh_library();
             }
             Err(e) => self.show_toast(&format!("❌ Save failed: {}", e)),
@@ -724,9 +863,11 @@ impl VibecapApp {
 
     /// Track the app the user was in before focusing Vibecap (for Fullscreen capture).
     fn poll_frontmost_app(&mut self) {
+        // Windows resolves this via PowerShell (~100-300 ms spawn); poll rarely.
+        let throttle_ms = if cfg!(target_os = "windows") { 2000 } else { 400 };
         let due = self
             .last_front_poll
-            .map(|t| t.elapsed() > Duration::from_millis(400))
+            .map(|t| t.elapsed() > Duration::from_millis(throttle_ms))
             .unwrap_or(true);
         if !due {
             return;
@@ -757,6 +898,13 @@ impl VibecapApp {
         if self.is_recording || self.recording_arming || self.countdown_deadline.is_some() {
             return;
         }
+        // Window target with no app chosen would silently become fullscreen —
+        // refuse instead so the user picks a real target.
+        if self.capture_target == CaptureTarget::Window && self.capture_focus_target().is_none()
+        {
+            self.show_toast("Pick a window app first — or switch to Full.");
+            return;
+        }
         if let Some(app) = self.capture_focus_target() {
             if let Err(e) = focus_app(&app) {
                 self.show_toast(format!(
@@ -764,8 +912,6 @@ impl VibecapApp {
                     app, e
                 ));
             }
-            // Brief settle before hide+record arm
-            std::thread::sleep(Duration::from_millis(200));
         }
         let secs = self.record_countdown_secs;
         if secs == 0 {
@@ -917,24 +1063,11 @@ impl VibecapApp {
     }
 
     fn show_window(&mut self, ctx: &egui::Context) {
-        // If we parked off-screen for capture, restore geometry first.
-        // Visible(false)/orderOut is hard to reverse on macOS winit — we avoid it for capture.
-        if let (Some(pos), Some(size)) = (self.pre_capture_outer.take(), self.pre_capture_size.take())
-        {
-            let size = Vec2::new(size.x.max(640.0), size.y.max(480.0));
-            ctx.send_viewport_cmd(ViewportCommand::InnerSize(size));
-            ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
-        }
-        // Order matters on macOS: deminiaturize before orderFront, then focus.
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(ViewportCommand::Focus);
-        ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(
-            UserAttentionType::Informational,
-        ));
-        // System-level activate — winit Focus alone is unreliable after hide/focus steal.
-        activate_own_app();
-        ctx.request_repaint();
+        app::capture_flow::restore_parked(
+            ctx,
+            &mut self.pre_capture_outer,
+            &mut self.pre_capture_size,
+        );
     }
 
     fn hide_to_tray(&self, ctx: &egui::Context) {
@@ -943,25 +1076,18 @@ impl VibecapApp {
         ctx.request_repaint();
     }
 
-    /// Park window off-screen for capture. Keeps the NSWindow ordered-in so the
-    /// egui event loop keeps ticking and restore is just a position move.
-    /// (Visible(false)/orderOut often never comes back on macOS + eframe 0.28.)
+    /// Hide the studio window so it is not in the shot.
+    ///
+    /// Park off-screen and keep the window ordered-in. `Visible(false)` is
+    /// reserved for tray hide: on Windows it also destroys child viewports
+    /// (region overlay, REC bar), which is how capture "fixed" the grab and
+    /// broke the app.
     fn hide_for_capture(&mut self, ctx: &egui::Context) {
-        let outer = ctx.input(|i| i.viewport().outer_rect);
-        if let Some(rect) = outer {
-            self.pre_capture_outer = Some(rect.min);
-            self.pre_capture_size = Some(rect.size());
-        } else if self.pre_capture_outer.is_none() {
-            // Fallback if viewport rect not ready yet.
-            self.pre_capture_outer = Some(Pos2::new(120.0, 80.0));
-            self.pre_capture_size = Some(Vec2::new(760.0, 640.0));
-        }
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-        // Far outside any display — not painted into screencapture, loop stays alive.
-        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(-12_000.0, -12_000.0)));
-        ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(120.0, 80.0)));
-        ctx.request_repaint();
+        app::capture_flow::park_offscreen(
+            ctx,
+            &mut self.pre_capture_outer,
+            &mut self.pre_capture_size,
+        );
     }
 
     fn handle_tray_actions(&mut self, ctx: &egui::Context) {
@@ -1013,6 +1139,8 @@ impl VibecapApp {
                     self.current_tab = AppTab::Settings;
                     self.show_window(ctx);
                 }
+                TrayAction::ApproveFirst => self.reply_first_pending("approve"),
+                TrayAction::DenyFirst => self.reply_first_pending("deny"),
                 TrayAction::BugReport => {
                     self.show_window(ctx);
                     self.bug_report_pack(ctx);
@@ -1078,10 +1206,31 @@ impl VibecapApp {
     fn refresh_library(&mut self) {
         self.library_selected.retain(|p| p.exists());
         self.library_items = scan_media_dir(&self.save_dir);
+        app::thumbs::cleanup_frames_temp(&self.save_dir);
+        let warmup: Vec<PathBuf> = self
+            .library_items
+            .iter()
+            .take(40)
+            .map(|i| i.path.clone())
+            .collect();
+        app::thumbs::warmup_thumbs(warmup);
     }
 
     fn library_filtered(&self) -> Vec<&MediaItem> {
+        let q = self.library_search.trim().to_ascii_lowercase();
         filter_items(&self.library_items, &self.library_filter)
+            .into_iter()
+            .filter(|i| {
+                q.is_empty()
+                    || i.name.to_ascii_lowercase().contains(&q)
+                    || i.path
+                        .with_extension("txt")
+                        .exists()
+                        && std::fs::read_to_string(i.path.with_extension("txt"))
+                            .map(|t| t.to_ascii_lowercase().contains(&q))
+                            .unwrap_or(false)
+            })
+            .collect()
     }
 
     /// Chrome-only snapshot for the bottom status strip (no new backends).
@@ -1198,6 +1347,7 @@ impl VibecapApp {
             }
         }
         // High priority first, then newest.
+        self.feedback_last_poll = Some(Instant::now());
         self.feedback_requests.sort_by(|a, b| {
             let rank = |p: &str| match p {
                 "high" => 0,
@@ -1274,15 +1424,16 @@ impl VibecapApp {
             UserAttentionType::Critical,
         ));
 
-        // Open the Inbox on the first new question so the loop feels connected.
-        self.current_tab = AppTab::Feedback;
-        self.feedback_selected = Some(first.id.clone());
-        // A fresh arrival re-arms one silent pick; afterwards the user drives.
-        self.feedback_user_picked = false;
-        self.feedback_new_arrived = true;
-        self.feedback_draft.clear();
-        self.feedback_choice.clear();
-        self.show_window(ctx);
+        let composing = !self.feedback_draft.trim().is_empty() || !self.feedback_choice.is_empty();
+        if !composing {
+            self.current_tab = AppTab::Feedback;
+            self.feedback_selected = Some(first.id.clone());
+            self.feedback_user_picked = false;
+            self.feedback_new_arrived = true;
+            self.show_window(ctx);
+        } else {
+            self.feedback_new_arrived = true;
+        }
 
         self.feedback_pending_count = pending_ids.len();
         // Force tray title refresh immediately (don't wait for next tick).
@@ -1312,6 +1463,24 @@ impl VibecapApp {
                 }
             }
         }
+    }
+
+    fn reply_first_pending(&mut self, choice: &str) {
+        self.scan_feedback_requests();
+        let id = self
+            .feedback_requests
+            .iter()
+            .find(|r| r.status == "pending")
+            .map(|r| r.id.clone());
+        let Some(id) = id else {
+            self.show_toast("No pending agent question");
+            return;
+        };
+        self.feedback_choice = choice.to_string();
+        if self.feedback_draft.trim().is_empty() {
+            self.feedback_draft = choice.to_string();
+        }
+        self.submit_feedback_response(&id);
     }
 
     fn submit_feedback_response(&mut self, request_id: &str) {
@@ -1676,9 +1845,15 @@ impl VibecapApp {
         self.show_window(ctx);
 
         if let Some(mp4) = self.current_mp4_file.clone() {
-            // Brief settle so the filesystem sees a complete file.
-            if !mp4.exists() || std::fs::metadata(&mp4).map(|m| m.len()).unwrap_or(0) < 512 {
-                std::thread::sleep(Duration::from_millis(150));
+            if !self.record_markers.is_empty() {
+                let side = mp4.with_extension("markers.txt");
+                let body = self
+                    .record_markers
+                    .iter()
+                    .map(|t| format!("{t:.3}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let _ = std::fs::write(side, body);
             }
             let bytes = std::fs::metadata(&mp4).map(|m| m.len()).unwrap_or(0);
             self.edit_file = Some(mp4.clone());
@@ -1706,30 +1881,50 @@ impl VibecapApp {
         self.filmstrip.clear();
         self.filmstrip_error = None;
         self.filmstrip_loading = true;
-        self.clip_duration_secs = platform::probe_duration(&file).unwrap_or(0.0);
+        self.clip_duration_secs = 0.0;
         self.player_playing = false;
         self.player_pos = 0.0;
         self.player_last_time = None;
+        self.record_markers = load_marker_sidecar(&file);
 
-        match extract_filmstrip_thumbs(&file) {
-            Ok((_out_dir, thumbs, fps)) => {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.filmstrip_rx = Some(rx);
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            // Let ffmpeg finish the moov atom before probing / extracting.
+            std::thread::sleep(Duration::from_millis(200));
+            let result = extract_filmstrip_rgba(&file);
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+        ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
+    fn drain_filmstrip(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.filmstrip_rx.as_ref() else {
+            return;
+        };
+        let Ok(result) = rx.try_recv() else {
+            return;
+        };
+        self.filmstrip_rx = None;
+        match result {
+            Ok((frames, fps, duration)) => {
                 self.filmstrip_fps = fps;
-                let file_s = file.display().to_string();
-                for (i, thumb_path) in thumbs.iter().enumerate() {
-                    if let Ok(img) = image::open(thumb_path) {
-                        let size = [img.width() as _, img.height() as _];
-                        let image_buffer = img.to_rgba8();
-                        let pixels = image_buffer.as_flat_samples();
-                        let color_image =
-                            egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
-                        let tex = ctx.load_texture(
-                            format!("thumb_{}_{}", i + 1, file_s),
-                            color_image,
-                            Default::default(),
-                        );
-                        self.filmstrip.push(tex);
+                self.clip_duration_secs = duration;
+                for (i, (w, h, pixels)) in frames.into_iter().enumerate() {
+                    let expected = w as usize * h as usize * 4;
+                    if w == 0 || h == 0 || pixels.len() != expected {
+                        continue;
                     }
-                    let _ = std::fs::remove_file(thumb_path);
+                    let color_image =
+                        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
+                    let tex = ctx.load_texture(
+                        format!("thumb_{i}"),
+                        color_image,
+                        Default::default(),
+                    );
+                    self.filmstrip.push(tex);
                 }
                 if self.filmstrip.is_empty() {
                     self.filmstrip_error = Some(
@@ -1752,17 +1947,32 @@ impl VibecapApp {
         let mp4_file = self.save_dir.join(format!("video_{}.mp4", timestamp));
         let fps = self.fps_target.max(1);
         let with_audio = self.capture_audio;
+        // Region recordings use the pixel rect mapped from the region overlay
+        // (`selected_screen_rect`). The raw overlay points are egui units, not
+        // desktop pixels (HiDPI), so they must never be used directly here.
         let crop = if self.capture_target == CaptureTarget::Region {
-            self.selected_region.map(|rect| {
-                even_crop(
-                    rect.width() as i32,
-                    rect.height() as i32,
-                    rect.min.x as i32,
-                    rect.min.y as i32,
-                )
-            })
+            match self.selected_screen_rect {
+                Some(rect) => Some(rect),
+                None => {
+                    self.show_toast("Select a region first — drag a rectangle, then record.");
+                    return;
+                }
+            }
         } else {
             None
+        };
+        // Window recordings resolve the window rectangle inside the recorder;
+        // pass the target through so they never silently become fullscreen.
+        let record_opts = match self.capture_target {
+            CaptureTarget::Window => CaptureOpts::from_parts(
+                None,
+                Some(
+                    self.capture_focus_target()
+                        .unwrap_or_else(|| self.window_app.clone()),
+                ),
+            )
+            .with_monitor(self.capture_monitor),
+            _ => CaptureOpts::default().with_monitor(self.capture_monitor),
         };
 
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -1771,15 +1981,16 @@ impl VibecapApp {
         self.recording_cancel_armed = false;
         self.current_mp4_file = Some(mp4_file.clone());
 
-        // Park off-screen (not orderOut) so the event loop keeps running.
         self.hide_for_capture(ctx);
 
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
-            // Let the compositor move our UI off-screen before avfoundation starts.
-            std::thread::sleep(Duration::from_millis(350));
-            let result = spawn_screen_recorder(&mp4_file, fps, with_audio, crop)
-                .map(|child| (child, mp4_file));
+            // Let the compositor hide our UI before the grabber starts.
+            let wait_ms = if cfg!(target_os = "windows") { 350 } else { 350 };
+            std::thread::sleep(Duration::from_millis(wait_ms));
+            let result =
+                spawn_screen_recorder_opts(&mp4_file, fps, with_audio, crop, &record_opts, false)
+                    .map(|child| (child, mp4_file));
             let _ = tx.send(result);
             ctx_clone.request_repaint();
         });
@@ -1815,7 +2026,10 @@ impl VibecapApp {
                 self.is_paused = false;
                 self.accumulated_duration = Duration::ZERO;
                 self.segment_start = Some(Instant::now());
-                // Keep main hidden; floating REC bar is the control surface.
+                // Keep main hidden; floating REC bar (macOS) or tray (Windows) is the control surface.
+                if cfg!(target_os = "windows") {
+                    self.show_toast("Recording — stop from the REC bar, tray, or Ctrl+Shift+2");
+                }
                 ctx.request_repaint();
             }
             Err(e) => {
@@ -1829,10 +2043,10 @@ impl VibecapApp {
     fn trigger_capture(&mut self, ctx: &egui::Context, is_screenshot: bool) {
         if !is_screenshot {
             if self.capture_target == CaptureTarget::Region {
-                self.selected_region = None;
-                self.is_selecting_region = true;
-                self.show_window(ctx);
-                return;
+                if self.selected_screen_rect.is_none() {
+                    self.start_region_pick(ctx, RegionPickKind::Record);
+                    return;
+                }
             }
             self.begin_recording(ctx);
             return;
@@ -1845,19 +2059,28 @@ impl VibecapApp {
             return;
         }
 
+        if self.capture_target == CaptureTarget::Region {
+            // macOS stills use the native interactive picker; elsewhere we freeze a
+            // snapshot and crop in-app (Windows cannot host a transparent overlay HUD).
+            if cfg!(target_os = "macos") {
+                self.start_macos_interactive_still(ctx);
+            } else {
+                self.start_region_pick(ctx, RegionPickKind::Screenshot);
+            }
+            return;
+        }
+
         // Screenshot flow:
-        // - park main window off-screen (keeps event loop; orderOut broke restore)
+        // - hide main window so it is not in the shot
         // - worker writes pending_still.path as durable handoff
         // - main opens Still + restores geometry when marker appears
         self.poll_frontmost_app();
 
         // Fullscreen / Window capture restores a real app before the shot.
-        // With no known target (fresh session where Vibecap was always
-        // frontmost) the screen after hiding is bare desktop — refuse to
-        // produce a wallpaper-only shot and tell the user what to do.
-        if !matches!(self.capture_target, CaptureTarget::Region)
-            && self.capture_focus_target().is_none()
-        {
+        // On macOS a shot with no known target is bare-desktop wallpaper
+        // (TCC-gated capture yields wallpaper-only) — refuse with guidance.
+        // On Windows/Linux a desktop grab is still a real capture, so proceed.
+        if cfg!(target_os = "macos") && self.capture_focus_target().is_none() {
             self.show_toast(
                 "No app to capture — click the app you want in the shot, then press S again.",
             );
@@ -1865,16 +2088,47 @@ impl VibecapApp {
         }
 
         let focus_target = self.capture_focus_target();
+        let is_window = self.capture_target == CaptureTarget::Window;
+        if is_window && focus_target.is_none() {
+            self.show_toast("Pick a window app first — or switch to Full.");
+            return;
+        }
         self.screenshot_in_flight = true;
         self.hide_for_capture(ctx);
 
         let ctx_clone = ctx.clone();
-        let capture_target = self.capture_target;
         let save_dir = self.save_dir.clone();
+        let draw_mouse = self.draw_mouse;
+        let monitor = self.capture_monitor;
+        let pattern = self.name_pattern.clone();
+        let app_token = focus_target.clone();
 
         std::thread::spawn(move || {
-            // Wait for off-screen move to commit before capture.
-            std::thread::sleep(Duration::from_millis(450));
+            // Give DWM / the compositor time to hide our window before the
+            // grabber reads the screen. Too short ⇒ our own UI is in the shot.
+            let hide_ms = if cfg!(target_os = "windows") { 350 } else { 450 };
+            std::thread::sleep(Duration::from_millis(hide_ms));
+            if is_window {
+                // Window path focuses + crops inside capture_screenshot_opts;
+                // do not pre-focus here (double focus races the grab).
+                let name = focus_target.clone().unwrap_or_default();
+                let seq = app::naming::next_seq(&save_dir, "");
+                let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
+                let shot_file = save_dir.join(format!("{stem}.jpg"));
+                let result = capture_screenshot_opts(
+                    &shot_file,
+                    &CaptureOpts::from_parts(None, Some(name))
+                        .with_draw_mouse(draw_mouse)
+                        .with_monitor(monitor),
+                )
+                .map(|_| shot_file);
+                match &result {
+                    Ok(p) => write_pending_still(p),
+                    Err(e) => write_pending_still_error(e),
+                }
+                ctx_clone.request_repaint();
+                return;
+            }
             if let Some(app) = &focus_target {
                 // If focus fails, the shot would be bare desktop — abort
                 // with the reason instead of saving a useless image.
@@ -1886,15 +2140,21 @@ impl VibecapApp {
                     ctx_clone.request_repaint();
                     return;
                 }
-                std::thread::sleep(Duration::from_millis(700));
-            } else {
+                let focus_ms = if cfg!(target_os = "windows") { 600 } else { 700 };
+                std::thread::sleep(Duration::from_millis(focus_ms));
+            } else if !cfg!(target_os = "windows") {
                 std::thread::sleep(Duration::from_millis(500));
             }
-            let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-            let shot_file = save_dir.join(format!("screenshot_{}.jpg", timestamp));
-            let interactive = matches!(capture_target, CaptureTarget::Region);
-            let result = capture_screenshot_interactive(&shot_file, interactive)
-                .map(|_| shot_file);
+            let seq = app::naming::next_seq(&save_dir, "");
+            let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
+            let shot_file = save_dir.join(format!("{stem}.jpg"));
+            let result = capture_screenshot_opts(
+                &shot_file,
+                &CaptureOpts::from_parts(None, None)
+                    .with_draw_mouse(draw_mouse)
+                    .with_monitor(monitor),
+            )
+            .map(|_| shot_file);
             match &result {
                 Ok(p) => write_pending_still(p),
                 Err(e) => write_pending_still_error(e),
@@ -1907,18 +2167,230 @@ impl VibecapApp {
         ctx.request_repaint_after(Duration::from_millis(50));
     }
 
+    pub(crate) fn trigger_gif_clip(&mut self, ctx: &egui::Context) {
+        if self.screenshot_in_flight || self.is_recording || self.recording_arming {
+            return;
+        }
+        self.hide_for_capture(ctx);
+        let ctx_clone = ctx.clone();
+        let save_dir = self.save_dir.clone();
+        let pattern = self.name_pattern.clone();
+        let app_token = self.capture_focus_target();
+        let opts = CaptureOpts::from_parts(None, app_token.clone())
+            .with_monitor(self.capture_monitor);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(350));
+            let seq = app::naming::next_seq(&save_dir, "");
+            let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
+            let mp4 = save_dir.join(format!("{stem}.mp4"));
+            let gif = save_dir.join(format!("{stem}.gif"));
+            let result = record_screen_clip_opts(&mp4, 3, &opts).and_then(|_| {
+                export_gif_clip(
+                    &mp4.display().to_string(),
+                    "00:00:00",
+                    "00:00:03",
+                    &gif.display().to_string(),
+                )
+                .map(|_| gif)
+            });
+            match &result {
+                Ok(p) => write_pending_still(p),
+                Err(e) => write_pending_still_error(e),
+            }
+            ctx_clone.request_repaint();
+        });
+        self.screenshot_in_flight = true;
+        ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
+    fn start_macos_interactive_still(&mut self, ctx: &egui::Context) {
+        if self.screenshot_in_flight {
+            return;
+        }
+        self.screenshot_in_flight = true;
+        self.hide_for_capture(ctx);
+        let ctx_clone = ctx.clone();
+        let save_dir = self.save_dir.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let shot_file = save_dir.join(format!("screenshot_{}.jpg", timestamp));
+            let result = capture_screenshot_interactive(&shot_file, true).map(|_| shot_file);
+            match &result {
+                Ok(p) => write_pending_still(p),
+                Err(e) => write_pending_still_error(e),
+            }
+            ctx_clone.request_repaint();
+        });
+        ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
+    fn start_region_pick(&mut self, ctx: &egui::Context, kind: RegionPickKind) {
+        if self.region_snap_rx.is_some() || self.screenshot_in_flight {
+            return;
+        }
+        self.pending_region_kind = Some(kind);
+        self.selected_region = None;
+        self.selected_screen_rect = None;
+        self.region_start = None;
+        self.region_end = None;
+        self.region_backdrop = None;
+        self.is_selecting_region = false;
+
+        // macOS: live transparent overlay. Windows/Linux: freeze a still first
+        // (transparent overlays do not composite; the overlay viewport is opaque).
+        if cfg!(target_os = "macos") {
+            self.is_selecting_region = true;
+            ctx.request_repaint();
+            return;
+        }
+
+        self.hide_for_capture(ctx);
+        self.screenshot_in_flight = true;
+
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.region_snap_rx = Some(rx);
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let wait_ms = if cfg!(target_os = "windows") { 350 } else { 350 };
+            std::thread::sleep(Duration::from_millis(wait_ms));
+            let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let snap = std::env::temp_dir().join(format!("vibecap_region_snap_{}.jpg", timestamp));
+            let result = capture_screenshot(&snap).and_then(|_| {
+                let img = image::open(&snap).map_err(|e| format!("could not read snap: {e}"))?;
+                let rgba = img.to_rgba8();
+                Ok((snap, rgba.width(), rgba.height(), rgba.into_raw()))
+            });
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+        ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
+    fn drain_region_snap(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.region_snap_rx.as_ref() else {
+            return;
+        };
+        let Ok(result) = rx.try_recv() else {
+            return;
+        };
+        self.region_snap_rx = None;
+        self.screenshot_in_flight = false;
+        match result {
+            Ok((path, w, h, pixels)) => {
+                let expected = w as usize * h as usize * 4;
+                if w == 0 || h == 0 || pixels.len() != expected {
+                    let _ = std::fs::remove_file(&path);
+                    self.pending_region_kind = None;
+                    self.show_window(ctx);
+                    self.show_toast("❌ Region snap was empty");
+                    return;
+                }
+                let color_image =
+                    egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
+                let tex = ctx.load_texture("region_backdrop", color_image, Default::default());
+                self.region_backdrop = Some(tex);
+                self.region_backdrop_px = (w, h);
+                self.region_backdrop_rgba = Some((w, h, pixels));
+                self.region_snap_path = Some(path);
+                self.is_selecting_region = true;
+                // Main window stays parked. The overlay is a child viewport.
+                ctx.request_repaint();
+            }
+            Err(e) => {
+                self.pending_region_kind = None;
+                self.show_window(ctx);
+                self.show_toast(format!("❌ {e}"));
+            }
+        }
+    }
+
+    fn exit_region_overlay(&mut self, ctx: &egui::Context) {
+        self.is_selecting_region = false;
+        self.region_start = None;
+        self.region_end = None;
+        self.region_backdrop = None;
+        self.region_backdrop_rgba = None;
+        self.show_window(ctx);
+    }
+
+    fn confirm_region_pick(&mut self, ctx: &egui::Context, selected: Rect, overlay: Rect) {
+        let (img_w, img_h) = self.region_backdrop_px;
+        let crop = if img_w > 0 && img_h > 0 {
+            overlay_rect_to_pixels(selected, overlay, img_w, img_h)
+        } else {
+            // Live overlay (macOS): map points to physical pixels.
+            let ppp = ctx.pixels_per_point();
+            even_screen_rect(
+                (selected.min.x * ppp).round() as i32,
+                (selected.min.y * ppp).round() as i32,
+                (selected.width() * ppp).round() as i32,
+                (selected.height() * ppp).round() as i32,
+            )
+            .as_whxy()
+        };
+        self.selected_region = Some(selected);
+        self.last_region = Some(selected);
+        self.selected_screen_rect = Some(crop);
+        self.persist_session();
+
+        let kind = self.pending_region_kind.take();
+        self.exit_region_overlay(ctx);
+
+        match kind {
+            Some(RegionPickKind::Screenshot) => {
+                if let Some(snap) = self.region_snap_path.clone() {
+                    let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+                    let dest = self.save_dir.join(format!("screenshot_{}.jpg", timestamp));
+                    let (w, h, x, y) = crop;
+                    let region = ScreenRect { x, y, w, h };
+                    // Crop from the hidden-window snap only. A live re-grab
+                    // here would include our own restored window.
+                    match crop_image_file(&snap, &dest, region) {
+                        Ok(()) => {
+                            let _ = std::fs::remove_file(&snap);
+                            self.region_snap_path = None;
+                            self.finish_screenshot(ctx, Ok(dest));
+                        }
+                        Err(e) => {
+                            self.show_window(ctx);
+                            self.show_toast(format!("❌ {e}"));
+                        }
+                    }
+                } else {
+                    self.show_toast("❌ Region snap missing");
+                }
+            }
+            Some(RegionPickKind::Record) => {
+                if let Some(snap) = self.region_snap_path.take() {
+                    let _ = std::fs::remove_file(snap);
+                }
+                self.pending_arm_record = true;
+                ctx.request_repaint();
+            }
+            None => {}
+        }
+    }
+
     /// Apply a finished screenshot (from channel or disk marker).
     fn finish_screenshot(&mut self, ctx: &egui::Context, result: Result<PathBuf, String>) {
         self.screenshot_in_flight = false;
         match result {
             Ok(shot_file) => {
-                self.open_still_from_path(shot_file.clone());
+                self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
+                if !self.is_annotating {
+                    self.open_still_from_path(shot_file.clone());
+                }
                 self.refresh_library();
                 self.toast_message = None;
                 self.capture_toast = Some((shot_file, Instant::now()));
                 self.show_window(ctx);
                 self.persist_session();
-                self.show_toast("Screenshot ready in Still");
+                if self.is_annotating {
+                    self.show_toast("Screenshot saved — finish this markup first");
+                } else {
+                    self.show_toast("Screenshot ready in Still");
+                }
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -1945,6 +2417,15 @@ impl VibecapApp {
     }
 
     fn show_annotation(&mut self, ui: &mut egui::Ui) {
+        if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.is_annotating = false;
+            self.current_tab = if self.img_edit_file.is_some() {
+                AppTab::Still
+            } else {
+                AppTab::Capture
+            };
+            return;
+        }
         ui.horizontal(|ui| {
             ui.heading(RichText::new("Annotation Studio").color(theme::ACCENT()).strong());
             ui.separator();
@@ -1969,6 +2450,7 @@ impl VibecapApp {
             ui.separator();
             if ui.button("↩ Undo").clicked() {
                 self.annotation_actions.pop();
+                self.step_counter = app::renumber_step_badges(&mut self.annotation_actions);
             }
             if ui.button("🗑 Clear").clicked() {
                 self.annotation_actions.clear();
@@ -2132,6 +2614,10 @@ impl VibecapApp {
 
             if response.drag_started() {
                 if let Some(pos) = response.interact_pointer_pos() {
+                    self.annotation_undo.push(self.annotation_actions.clone());
+                    if self.annotation_undo.len() > 40 {
+                        self.annotation_undo.remove(0);
+                    }
                     let action = AnnotationAction {
                         tool: self.current_tool,
                         color: self.current_color,
@@ -2168,6 +2654,12 @@ impl VibecapApp {
 }
 
 impl eframe::App for VibecapApp {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        app::thumbs::cleanup_frames_temp(&self.save_dir);
+        self.persist_session();
+        app::instance::release_gui_lock();
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Track window size for session restore (skip while parked off-screen).
         if self.pre_capture_outer.is_none() {
@@ -2251,13 +2743,33 @@ impl eframe::App for VibecapApp {
             if self.tray.is_some() && !self.allow_exit {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.hide_to_tray(ctx);
-                self.show_toast("Hidden to tray — click the menu bar icon to show again.");
+                self.show_toast(if cfg!(target_os = "macos") {
+                    "Hidden to tray — click the menu bar icon to show again."
+                } else {
+                    "Hidden to tray — click the system tray icon to show again."
+                });
+            }
+        }
+
+        if let Some(until) = self.shutter_flash_until {
+            if Instant::now() < until {
+                let rect = ctx.screen_rect();
+                ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("shutter_flash"),
+                ))
+                .rect_filled(rect, 0.0, Color32::from_white_alpha(90));
+                ctx.request_repaint();
+            } else {
+                self.shutter_flash_until = None;
             }
         }
 
         self.handle_tray_actions(ctx);
         self.poll_frontmost_app();
         self.drain_record_spawn(ctx);
+        self.drain_region_snap(ctx);
+        self.drain_filmstrip(ctx);
         if self.pending_arm_record {
             self.pending_arm_record = false;
             self.begin_recording(ctx);
@@ -2279,6 +2791,52 @@ impl eframe::App for VibecapApp {
             }
         }
 
+        if let Ok(id) = std::env::var("VIBECAP_OPEN_FEEDBACK") {
+            if !id.trim().is_empty() {
+                std::env::remove_var("VIBECAP_OPEN_FEEDBACK");
+                self.current_tab = AppTab::Feedback;
+                self.feedback_selected = Some(id.trim().to_string());
+                self.feedback_user_picked = true;
+                self.scan_feedback_requests();
+            }
+        }
+
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        for src in dropped {
+            if let Some(name) = src.file_name() {
+                let dest = self.save_dir.join(name);
+                if std::fs::copy(&src, &dest).is_ok() {
+                    self.show_toast(format!("Imported {}", name.to_string_lossy()));
+                    self.refresh_library();
+                }
+            }
+        }
+
+        if self.is_recording
+            && !self.is_annotating
+            && ctx.input(|i| i.key_pressed(egui::Key::M) && !i.modifiers.any())
+        {
+            let t = self.recording_elapsed_secs() as f64;
+            self.record_markers.push(t);
+            self.show_toast(format!("Marker @ {t:.1}s"));
+        }
+
+        if !self.budget_warned {
+            if let Some(reason) = budget_exceeded_reason(&default_live_dir().display().to_string()) {
+                self.budget_warned = true;
+                self.show_toast(format!("Budget cap: {reason}"));
+                if let Some(tray) = self.tray.as_mut() {
+                    tray.force_live_state(TrayLiveState::Idle, self.feedback_pending_count);
+                }
+            }
+        }
+
         self.sync_tray_recording_progress();
         // Keep pumping while tray is up, capture is in flight, agents wait, etc.
         if self.tray.is_some()
@@ -2288,10 +2846,25 @@ impl eframe::App for VibecapApp {
             || self.feedback_pending_count > 0
             || self.screenshot_in_flight
             || self.screen_perm_modal
+            || self.filmstrip_rx.is_some()
+            || self.region_snap_rx.is_some()
+            || self.is_selecting_region
         {
             ctx.request_repaint_after(Duration::from_millis(100));
         } else if self.retro.config().enabled {
             ctx.request_repaint_after(Duration::from_millis(500));
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            let in_flight = app::capture_flow::capture_in_flight(
+                self.screenshot_in_flight,
+                self.is_recording,
+                self.recording_arming,
+                self.is_selecting_region,
+                self.region_snap_rx.is_some(),
+            );
+            app::capture_flow::assert_unparked(&self.pre_capture_outer, in_flight);
         }
 
         
@@ -2301,23 +2874,22 @@ impl eframe::App for VibecapApp {
                 ctx,
                 &mut self.region_start,
                 &mut self.region_end,
+                self.selected_screen_rect,
                 self.last_region,
+                self.region_backdrop.as_ref(),
+                self.region_backdrop_rgba.as_ref(),
             ) {
                 RegionHudResult::Continue => {}
-                RegionHudResult::Confirmed { selected } => {
-                    self.selected_region = Some(selected);
-                    self.last_region = Some(selected);
-                    self.persist_session();
-                    self.is_selecting_region = false;
-                    self.region_start = None;
-                    self.region_end = None;
-                    self.pending_arm_record = true;
-                    ctx.request_repaint();
+                RegionHudResult::Confirmed { selected, overlay } => {
+                    self.confirm_region_pick(ctx, selected, overlay);
                 }
                 RegionHudResult::Cancelled => {
-                    self.is_selecting_region = false;
-                    self.region_start = None;
-                    self.region_end = None;
+                    if let Some(snap) = self.region_snap_path.take() {
+                        let _ = std::fs::remove_file(snap);
+                    }
+                    self.pending_region_kind = None;
+                    self.exit_region_overlay(ctx);
+                    self.show_toast("Region select cancelled");
                 }
             }
             return;
@@ -2325,6 +2897,8 @@ impl eframe::App for VibecapApp {
 
         // --- Floating controller: arming countdown + active recording ---
         // Immediate viewport keeps the event loop awake while the main window is hidden.
+        // Windows: opaque (transparent child viewports do not composite). Always
+        // show it — tray-only stop is how recordings became unstoppable.
         if self.is_recording || self.recording_arming {
             let builder = ViewportBuilder::default()
                 .with_title("Vibecap Recorder")
@@ -2332,7 +2906,7 @@ impl eframe::App for VibecapApp {
                 .with_always_on_top()
                 .with_inner_size([320.0, 52.0])
                 .with_resizable(false)
-                .with_transparent(true)
+                .with_transparent(!cfg!(target_os = "windows"))
                 .with_visible(true);
 
             ctx.show_viewport_immediate(
@@ -2410,26 +2984,29 @@ impl eframe::App for VibecapApp {
                                                 self.stop_recording(ctx);
                                             }
 
-                                            let pause_icon = if self.is_paused { "▶" } else { "⏸" };
-                                            let pause_color = if self.is_paused {
-                                                theme::SUCCESS()
-                                            } else {
-                                                theme::WARN()
-                                            };
-                                            if ui
-                                                .button(
-                                                    RichText::new(pause_icon)
-                                                        .color(pause_color)
-                                                        .strong(),
-                                                )
-                                                .on_hover_text(if self.is_paused {
-                                                    "Resume"
+                                            if crate::platform::pause_supported() {
+                                                let pause_icon =
+                                                    if self.is_paused { "▶" } else { "⏸" };
+                                                let pause_color = if self.is_paused {
+                                                    theme::SUCCESS()
                                                 } else {
-                                                    "Pause"
-                                                })
-                                                .clicked()
-                                            {
-                                                self.toggle_pause();
+                                                    theme::WARN()
+                                                };
+                                                if ui
+                                                    .button(
+                                                        RichText::new(pause_icon)
+                                                            .color(pause_color)
+                                                            .strong(),
+                                                    )
+                                                    .on_hover_text(if self.is_paused {
+                                                        "Resume"
+                                                    } else {
+                                                        "Pause"
+                                                    })
+                                                    .clicked()
+                                                {
+                                                    self.toggle_pause();
+                                                }
                                             }
                                         }
                                     },
@@ -2589,6 +3166,7 @@ impl eframe::App for VibecapApp {
                     self.current_tab.to_loop(),
                     self.feedback_pending_count,
                     rec_live,
+                    self.brand_logo.as_ref(),
                 ) {
                     self.current_tab = AppTab::from_loop(stage);
                 }
@@ -2683,8 +3261,19 @@ impl eframe::App for VibecapApp {
                         self.copy_current_still_to_clipboard();
                         self.capture_toast = None;
                     }
+                    CaptureToastAction::CopyPath => {
+                        if let Ok(mut board) = arboard::Clipboard::new() {
+                            let _ = board.set_text(path.display().to_string());
+                            self.show_toast("Path copied");
+                        }
+                        self.capture_toast = None;
+                    }
                     CaptureToastAction::Reveal => {
                         let _ = reveal_in_file_manager(&path);
+                        self.capture_toast = None;
+                    }
+                    CaptureToastAction::Discard => {
+                        self.delete_library_paths(&[path.clone()]);
                         self.capture_toast = None;
                     }
                     CaptureToastAction::Dismiss => {
@@ -2728,11 +3317,19 @@ fn main() -> eframe::Result<()> {
         CliAction::Gui { hidden, no_tray } => (no_tray, hidden),
         _ => (false, false),
     };
+    if let Some(id) = raw.iter().find_map(|a| a.strip_prefix("vibecap://feedback/")) {
+        std::env::set_var("VIBECAP_OPEN_FEEDBACK", id);
+    }
+    if let Err(_pid) = app::instance::acquire_gui_lock() {
+        crate::platform::activate_own_app();
+        eprintln!("vibecap GUI already running — focusing the existing window");
+        return Ok(());
+    }
     let enable_tray = !no_tray || start_hidden;
 
-    // Brand dock / taskbar icon. Without this, eframe uses the default white "e".
-    let app_icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/app_icon.png"))
-        .unwrap_or_default();
+    // Brand dock / taskbar icon. Decode via `image` so RGB (non-RGBA) PNGs work;
+    // eframe::from_png_bytes rejects those and unwrap_or_default() yielded a blank icon.
+    let app_icon = window_icon_data();
 
     // Open at the last persisted size (bigger default: 1160×800 on first run).
     let sess = load_session();
@@ -2751,7 +3348,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     
-    eframe::run_native(
+    let result = eframe::run_native(
         "Vibecap Studio",
         options,
         Box::new(move |cc| {
@@ -2773,5 +3370,52 @@ fn main() -> eframe::Result<()> {
             }
             Ok(Box::new(app))
         }),
-    )
+    );
+    app::instance::release_gui_lock();
+    result
+}
+
+fn load_marker_sidecar(file: &std::path::Path) -> Vec<f64> {
+    let side = file.with_extension("markers.txt");
+    let Ok(s) = std::fs::read_to_string(side) else {
+        return Vec::new();
+    };
+    s.lines()
+        .filter_map(|l| l.trim().parse::<f64>().ok())
+        .collect()
+}
+
+fn window_icon_data() -> egui::IconData {
+    match image::load_from_memory(include_bytes!("../assets/app_icon.png")) {
+        Ok(img) => {
+            let rgba = img.into_rgba8();
+            egui::IconData {
+                width: rgba.width(),
+                height: rgba.height(),
+                rgba: rgba.into_raw(),
+            }
+        }
+        Err(_) => egui::IconData::default(),
+    }
+}
+
+fn load_brand_logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let img = image::load_from_memory(include_bytes!("../assets/app_icon.png")).ok()?;
+    let rgba = img.into_rgba8();
+    let size = [rgba.width() as usize, rgba.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+    Some(ctx.load_texture("brand_logo", color, Default::default()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_icon_is_rgba_and_nonzero() {
+        let icon = window_icon_data();
+        assert!(icon.width >= 16 && icon.height >= 16);
+        assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
+        assert!(icon.rgba.iter().any(|&b| b != 0));
+    }
 }
