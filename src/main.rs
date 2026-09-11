@@ -49,6 +49,18 @@ use app::session::{
     density_from_str, density_to_str, load_session, save_session, SessionState,
 };
 
+/// Cached live-dir stats for the Capture tab's proof-of-life row.
+#[derive(Clone)]
+pub(crate) struct LiveStats {
+    pub count: usize,
+    pub mb: f64,
+    pub frames_cap: u32,
+    pub mb_cap: f64,
+    pub minutes_cap: u32,
+    pub tier: String,
+    pub over: Option<String>,
+}
+
 #[derive(PartialEq, Clone, Copy)]
 pub(crate) enum AppTab {
     Capture,
@@ -138,6 +150,8 @@ pub(crate) struct VibecapApp {
     front_app_rx: Option<Receiver<Option<String>>>,
     /// Status strip cache — dir walks must not run per frame.
     status_cache: Option<(StatusSnapshot, Instant)>,
+    /// Capture-tab live-stats cache — same reason (dir walk + budget file).
+    live_stats_cache: Option<(LiveStats, Instant)>,
     /// Stored handle so worker threads can wake the UI when a drain lands.
     ui_ctx: Option<egui::Context>,
     is_recording: bool,
@@ -451,6 +465,7 @@ impl VibecapApp {
             front_app_rx: None,
             audio_devices_rx: None,
             status_cache: None,
+            live_stats_cache: None,
             ui_ctx: None,
             pending_arm_record: false,
             filmstrip_error: None,
@@ -1399,6 +1414,32 @@ impl VibecapApp {
             String::new()
         };
         snap
+    }
+
+    /// Capture-tab live-stats row — the live-dir walk and budget file reads
+    /// are cached ~2s; the row previously re-scanned every frame.
+    pub(crate) fn live_stats_snapshot(&mut self) -> LiveStats {
+        const TTL: Duration = Duration::from_secs(2);
+        if let Some((s, at)) = &self.live_stats_cache {
+            if at.elapsed() < TTL {
+                return s.clone();
+            }
+        }
+        let live_dir = default_live_dir().display().to_string();
+        let (bytes, count) = get_dir_size_bytes(&live_dir);
+        let cfg = load_budget();
+        let over = budget_exceeded_reason(&live_dir);
+        let s = LiveStats {
+            count,
+            mb: bytes as f64 / (1024.0 * 1024.0),
+            frames_cap: cfg.max_frames,
+            mb_cap: cfg.max_mb,
+            minutes_cap: cfg.max_minutes,
+            tier: cfg.analysis_tier.clone(),
+            over,
+        };
+        self.live_stats_cache = Some((s.clone(), Instant::now()));
+        s
     }
 
     fn compute_status_snapshot(&self) -> StatusSnapshot {
@@ -3419,7 +3460,7 @@ impl eframe::App for VibecapApp {
             )
             .show(ctx, |ui| {
                 let snap = self.status_snapshot();
-                status_strip(ui, &snap);
+                status_strip(ui, &snap, self.current_tab != AppTab::Capture);
             });
 
         egui::CentralPanel::default()

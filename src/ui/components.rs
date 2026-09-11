@@ -422,39 +422,47 @@ pub struct StatusSnapshot {
 }
 
 /// Bottom status strip (mock language: storage · tier · ffmpeg · inbox).
-pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot) {
+/// `details = false` on the Shutter stage — the funnel home stays clean;
+/// storage/budget trivia lives on the workspace stages.
+pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
     Frame::none()
         .fill(theme::SURFACE_GLASS_DIM())
         .stroke(Stroke::new(1.0_f32, theme::BORDER()))
         .inner_margin(Margin::symmetric(10.0, 6.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(&snap.storage_label)
-                        .size(11.0)
-                        .color(theme::TEXT_MUTED()),
-                );
-                ui.separator();
-                ui.label(
-                    RichText::new(format!("{} · {}", snap.budget_tier, snap.budget_usage))
-                        .size(11.0)
-                        .color(theme::TEXT_MUTED()),
-                );
-                ui.separator();
-                if snap.ffmpeg_ok {
+                if details {
                     ui.label(
-                        RichText::new("ffmpeg ok")
+                        RichText::new(&snap.storage_label)
                             .size(11.0)
-                            .color(theme::SUCCESS()),
+                            .color(theme::TEXT_MUTED()),
                     );
+                    ui.separator();
+                    ui.label(
+                        RichText::new(format!("{} · {}", snap.budget_tier, snap.budget_usage))
+                            .size(11.0)
+                            .color(theme::TEXT_MUTED()),
+                    );
+                    ui.separator();
+                }
+                if snap.ffmpeg_ok {
+                    if details {
+                        ui.label(
+                            RichText::new("ffmpeg ok")
+                                .size(11.0)
+                                .color(theme::SUCCESS()),
+                        );
+                        ui.separator();
+                    }
                 } else {
+                    // Missing ffmpeg is a functional warning — always show it.
                     ui.label(
                         RichText::new("ffmpeg missing")
                             .size(11.0)
                             .color(theme::DANGER()),
                     );
+                    ui.separator();
                 }
-                ui.separator();
                 let inbox_c = if snap.pending_inbox > 0 {
                     theme::ACCENT()
                 } else {

@@ -5,9 +5,7 @@ use egui::{RichText, Stroke};
 
 use crate::ui::theme;
 use crate::ui::{shutter_strip, ShutterAction};
-use crate::app::{budget_exceeded_reason, get_dir_size_bytes, load_budget};
 use crate::{CaptureTarget, VibecapApp};
-use crate::app::default_live_dir;
 use crate::ui::{btn_small, segmented, switch};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -140,64 +138,75 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         );
                                     });
                                 }
-                                crate::ui::group(ui, "POINTER", |ui| {
-                                    switch(ui, "Draw cursor on stills", &mut app.draw_mouse);
-                                });
-                                crate::ui::group(ui, "AUDIO", |ui| {
-                                    switch(ui, "Include audio", &mut app.capture_audio);
-                                    if cfg!(target_os = "windows") {
-                                        // ffmpeg -list_devices takes ~1s — probe
-                                        // on a worker so the UI thread never stalls.
-                                        if app.audio_devices.is_empty()
-                                            && app.audio_devices_rx.is_none()
-                                        {
-                                            let (tx, rx) = crossbeam_channel::bounded(1);
-                                            app.audio_devices_rx = Some(rx);
-                                            std::thread::spawn(move || {
-                                                let _ = tx.send(
-                                                    crate::platform::list_audio_input_devices(),
+                                // Secondary knobs collapse — the funnel is
+                                // target → shutter, options on demand.
+                                egui::CollapsingHeader::new(
+                                    RichText::new("Options · cursor · audio · display")
+                                        .size(11.0)
+                                        .strong()
+                                        .color(theme::TEXT_MUTED()),
+                                )
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    crate::ui::group(ui, "POINTER", |ui| {
+                                        switch(ui, "Draw cursor on stills", &mut app.draw_mouse);
+                                    });
+                                    crate::ui::group(ui, "AUDIO", |ui| {
+                                        switch(ui, "Include audio", &mut app.capture_audio);
+                                        if cfg!(target_os = "windows") {
+                                            // ffmpeg -list_devices takes ~1s — probe
+                                            // on a worker so the UI thread never stalls.
+                                            if app.audio_devices.is_empty()
+                                                && app.audio_devices_rx.is_none()
+                                            {
+                                                let (tx, rx) = crossbeam_channel::bounded(1);
+                                                app.audio_devices_rx = Some(rx);
+                                                std::thread::spawn(move || {
+                                                    let _ = tx.send(
+                                                        crate::platform::list_audio_input_devices(),
+                                                    );
+                                                });
+                                            }
+                                            if let Some(rx) = app.audio_devices_rx.as_ref() {
+                                                if let Ok(devs) = rx.try_recv() {
+                                                    app.audio_devices_rx = None;
+                                                    app.audio_devices = devs;
+                                                }
+                                            }
+                                            if app.capture_audio && app.audio_devices.is_empty() {
+                                                ui.label(
+                                                    RichText::new(
+                                                        "No DirectShow audio device — set VIBECAP_AUDIO_DEVICE or the recording will be silent.",
+                                                    )
+                                                    .size(10.0)
+                                                    .color(theme::WARN()),
                                                 );
-                                            });
-                                        }
-                                        if let Some(rx) = app.audio_devices_rx.as_ref() {
-                                            if let Ok(devs) = rx.try_recv() {
-                                                app.audio_devices_rx = None;
-                                                app.audio_devices = devs;
                                             }
                                         }
-                                        if app.capture_audio && app.audio_devices.is_empty() {
-                                            ui.label(
-                                                RichText::new(
-                                                    "No DirectShow audio device — set VIBECAP_AUDIO_DEVICE or the recording will be silent.",
-                                                )
-                                                .size(10.0)
-                                                .color(theme::WARN()),
-                                            );
-                                        }
+                                    });
+                                    let monitors = crate::platform::list_monitors();
+                                    if monitors.len() > 1 {
+                                        crate::ui::group(ui, "DISPLAY", |ui| {
+                                            let mut idx = app.capture_monitor.unwrap_or(0);
+                                            for m in &monitors {
+                                                let lab = format!(
+                                                    "{} {}×{}{}",
+                                                    m.index + 1,
+                                                    m.w,
+                                                    m.h,
+                                                    if m.primary { " · primary" } else { "" }
+                                                );
+                                                if ui
+                                                    .selectable_label(idx == m.index, lab)
+                                                    .clicked()
+                                                {
+                                                    idx = m.index;
+                                                }
+                                            }
+                                            app.capture_monitor = Some(idx);
+                                        });
                                     }
                                 });
-                                let monitors = crate::platform::list_monitors();
-                                if monitors.len() > 1 {
-                                    crate::ui::group(ui, "DISPLAY", |ui| {
-                                        let mut idx = app.capture_monitor.unwrap_or(0);
-                                        for m in &monitors {
-                                            let lab = format!(
-                                                "{} {}×{}{}",
-                                                m.index + 1,
-                                                m.w,
-                                                m.h,
-                                                if m.primary { " · primary" } else { "" }
-                                            );
-                                            if ui
-                                                .selectable_label(idx == m.index, lab)
-                                                .clicked()
-                                            {
-                                                idx = m.index;
-                                            }
-                                        }
-                                        app.capture_monitor = Some(idx);
-                                    });
-                                }
                                 if app.capture_target == CaptureTarget::Region {
                                     if let Some((w, h, x, y)) = app.selected_screen_rect {
                                         ui.horizontal(|ui| {
@@ -257,15 +266,12 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                         // ── Compact live-stats row (always visible proof of life) ──
                         {
-                            let live_dir = default_live_dir().display().to_string();
-                            let (bytes, count) = get_dir_size_bytes(&live_dir);
-                            let mb = bytes as f64 / (1024.0 * 1024.0);
-                            let cfg = load_budget();
-                            let over = budget_exceeded_reason(&live_dir);
+                            let live = app.live_stats_snapshot();
+                            let over = live.over;
                             ui.horizontal(|ui| {
                                 let dot_color = if over.is_some() {
                                     theme::DANGER()
-                                } else if count > 0 {
+                                } else if live.count > 0 {
                                     theme::ACCENT()
                                 } else {
                                     theme::TEXT_DIM()
@@ -277,10 +283,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 ui.label(
                                     RichText::new(format!(
                                         "Live {} frames · {:.2} MB · cap {}f/{:.0}MB",
-                                        count,
-                                        mb,
-                                        if cfg.max_frames == 0 { u64::MAX.to_string() } else { cfg.max_frames.to_string() },
-                                        cfg.max_mb,
+                                        live.count,
+                                        live.mb,
+                                        if live.frames_cap == 0 { u64::MAX.to_string() } else { live.frames_cap.to_string() },
+                                        live.mb_cap,
                                     ))
                                     .small()
                                     .color(theme::TEXT_MUTED()),
@@ -344,30 +350,27 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         )
                         .default_open(true)
                         .show(ui, |ui| {
-                            let live_dir = default_live_dir().display().to_string();
-                            let (bytes, count) = get_dir_size_bytes(&live_dir);
-                            let mb = bytes as f64 / (1024.0 * 1024.0);
-                            let cfg = load_budget();
+                            let live = app.live_stats_snapshot();
                             ui.label(
-                                RichText::new(format!("Live frames: {} · {:.2} MB", count, mb))
+                                RichText::new(format!("Live frames: {} · {:.2} MB", live.count, live.mb))
                                     .size(12.0)
                                     .color(theme::TEXT_MUTED()),
                             );
                             ui.label(
                                 RichText::new(format!(
                                     "Budget: frames cap {} · MB cap {:.1} · minutes cap {} · tier {}",
-                                    if cfg.max_frames == 0 {
+                                    if live.frames_cap == 0 {
                                         "unlimited".to_string()
                                     } else {
-                                        cfg.max_frames.to_string()
+                                        live.frames_cap.to_string()
                                     },
-                                    cfg.max_mb,
-                                    if cfg.max_minutes == 0 {
+                                    live.mb_cap,
+                                    if live.minutes_cap == 0 {
                                         "unlimited".to_string()
                                     } else {
-                                        cfg.max_minutes.to_string()
+                                        live.minutes_cap.to_string()
                                     },
-                                    cfg.analysis_tier
+                                    live.tier
                                 ))
                                 .size(12.0)
                                 .color(theme::TEXT_MUTED()),
