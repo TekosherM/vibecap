@@ -106,12 +106,19 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .color(theme::TEXT_DIM()),
                 );
             } else {
-                ui.label(
-                    RichText::new("No still loaded")
-                        .size(14.0)
-                        .strong()
-                        .color(theme::TEXT()),
-                );
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("Nothing to review yet")
+                            .size(14.0)
+                            .strong()
+                            .color(theme::TEXT()),
+                    );
+                    ui.label(
+                        RichText::new("Take a screenshot (S) — it lands here for annotate.")
+                            .size(11.0)
+                            .color(theme::TEXT_MUTED()),
+                    );
+                });
             }
         });
 

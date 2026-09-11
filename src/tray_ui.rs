@@ -21,8 +21,7 @@ pub enum TrayAction {
     ToggleRecord,
     GoShutter,
     GoMedia,
-    GoClip,
-    GoStill,
+    GoReview,
     GoInbox,
     GoSettings,
     BugReport,
@@ -53,8 +52,7 @@ pub struct TrayController {
     record_id: tray_icon::menu::MenuId,
     shutter_id: tray_icon::menu::MenuId,
     media_id: tray_icon::menu::MenuId,
-    clip_id: tray_icon::menu::MenuId,
-    still_id: tray_icon::menu::MenuId,
+    review_id: tray_icon::menu::MenuId,
     inbox_id: tray_icon::menu::MenuId,
     settings_id: tray_icon::menu::MenuId,
     bug_id: tray_icon::menu::MenuId,
@@ -90,8 +88,7 @@ impl TrayController {
         // ── Loop stages ─────────────────────────────────────────
         let shutter_item = MenuItem::new("Shutter", true, None);
         let media_item = MenuItem::new("Media", true, None);
-        let clip_item = MenuItem::new("Clip", true, None);
-        let still_item = MenuItem::new("Still", true, None);
+        let review_item = MenuItem::new("Review", true, None);
         let inbox_item = MenuItem::new("Inbox", true, None);
         let settings_item = MenuItem::new("Settings", true, None);
 
@@ -109,8 +106,7 @@ impl TrayController {
         let record_id = record_item.id().clone();
         let shutter_id = shutter_item.id().clone();
         let media_id = media_item.id().clone();
-        let clip_id = clip_item.id().clone();
-        let still_id = still_item.id().clone();
+        let review_id = review_item.id().clone();
         let inbox_id = inbox_item.id().clone();
         let settings_id = settings_item.id().clone();
         let bug_id = bug_item.id().clone();
@@ -129,9 +125,8 @@ impl TrayController {
             &record_item,
             &PredefinedMenuItem::separator(),
             &shutter_item,
+            &review_item,
             &media_item,
-            &clip_item,
-            &still_item,
             &inbox_item,
             &settings_item,
             &PredefinedMenuItem::separator(),
@@ -166,8 +161,7 @@ impl TrayController {
             record_id,
             shutter_id,
             media_id,
-            clip_id,
-            still_id,
+            review_id,
             inbox_id,
             settings_id,
             bug_id,
@@ -312,10 +306,8 @@ impl TrayController {
                 actions.push(TrayAction::GoShutter);
             } else if id == self.media_id {
                 actions.push(TrayAction::GoMedia);
-            } else if id == self.clip_id {
-                actions.push(TrayAction::GoClip);
-            } else if id == self.still_id {
-                actions.push(TrayAction::GoStill);
+            } else if id == self.review_id {
+                actions.push(TrayAction::GoReview);
             } else if id == self.inbox_id {
                 actions.push(TrayAction::GoInbox);
             } else if id == self.settings_id {

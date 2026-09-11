@@ -1,9 +1,7 @@
 export type Stage =
   | "shutter"
-  | "sources"
+  | "review"
   | "pack"
-  | "media"
-  | "still"
   | "inbox"
   | "agent"
   | "settings";

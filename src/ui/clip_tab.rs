@@ -628,12 +628,19 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .color(theme::TEXT_DIM()),
                 );
             } else {
-                ui.label(
-                    RichText::new("No clip loaded")
-                        .size(14.0)
-                        .strong()
-                        .color(theme::TEXT()),
-                );
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("Nothing to review yet")
+                            .size(14.0)
+                            .strong()
+                            .color(theme::TEXT()),
+                    );
+                    ui.label(
+                        RichText::new("Record a clip (R) — it lands here for trim & GIF.")
+                            .size(11.0)
+                            .color(theme::TEXT_MUTED()),
+                    );
+                });
             }
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {

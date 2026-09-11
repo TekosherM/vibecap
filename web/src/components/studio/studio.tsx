@@ -7,7 +7,6 @@ import {
   Copy,
   Download,
   Database,
-  FolderOpen,
   Image as ImageIcon,
   Inbox,
   Monitor,
@@ -71,12 +70,10 @@ import { DEMO_CONSOLE, DEMO_HTTP, DEMO_TERMINAL } from "@/lib/demo-data";
 
 const STAGES: Array<{ id: Stage; label: string; hint: string; icon: typeof Aperture }> = [
   { id: "shutter", label: "Shutter", hint: "Live capture", icon: Aperture },
-  { id: "sources", label: "Sources", hint: "When to hook", icon: Radio },
+  { id: "review", label: "Review", hint: "Stills & clips", icon: PenLine },
   { id: "pack", label: "Pack", hint: "Evidence bundle", icon: Package },
-  { id: "media", label: "Media", hint: "Stills & clips", icon: FolderOpen },
-  { id: "still", label: "Still", hint: "Annotate", icon: PenLine },
   { id: "inbox", label: "Inbox", hint: "Agent questions", icon: Inbox },
-  { id: "agent", label: "Agent", hint: "Live connector", icon: Bot },
+  { id: "agent", label: "Agent", hint: "Connector · sources", icon: Bot },
   { id: "settings", label: "Settings", hint: "Budget · theme", icon: Settings },
 ];
 
@@ -724,32 +721,7 @@ export function Studio() {
               onTax={() => void runTool("vibecap_subject_tax")}
             />
           )}
-          {stage === "sources" && (
-            <SourcesStage
-              plan={hookPlan}
-              evidence={evidence}
-              logs={logs}
-              busy={busy}
-              onCollect={async (which) => {
-                if (which === "open_studio") {
-                  setStage("shutter");
-                  return;
-                }
-                setBusy(which);
-                try {
-                  await runTool(which);
-                  if (
-                    which.startsWith("vibecap_ingest") ||
-                    which === "vibecap_bug_pack"
-                  ) {
-                    toast.success("Collected");
-                  }
-                } finally {
-                  setBusy(null);
-                }
-              }}
-            />
-          )}
+
           {stage === "pack" && (
             <PackStage
               packs={packs}
@@ -759,38 +731,44 @@ export function Studio() {
               onBuild={() => void runTool("vibecap_bug_pack")}
             />
           )}
-          {stage === "media" && (
-            <MediaStage
-              captures={captures}
-              videoUrls={videoUrls}
-              onOpen={(c) => {
-                setActiveStill(c);
-                setStage("still");
-              }}
-            />
-          )}
-          {stage === "still" && (
-            <StillStage
-              still={activeStill ?? captures.find((c) => c.data_url) ?? null}
-              captures={captures}
-              onPick={setActiveStill}
-              onSave={async (dataUrl) => {
-                if (!sid) return;
-                const row = await saveCapture({
-                  data: {
-                    sessionId: sid,
-                    kind: "still",
-                    label: "Annotated still",
-                    mime: "image/jpeg",
-                    dataUrl,
-                  },
-                });
-                setCaptures((c) => [row, ...c]);
-                setActiveStill(row);
-                toast.success("Annotated still saved");
-              }}
-            />
-          )}
+          {stage === "review" &&
+            (activeStill ? (
+              activeStill.data_url ? (
+                <StillStage
+                  still={activeStill}
+                  captures={captures}
+                  onPick={setActiveStill}
+                  onBack={() => setActiveStill(null)}
+                  onSave={async (dataUrl) => {
+                    if (!sid) return;
+                    const row = await saveCapture({
+                      data: {
+                        sessionId: sid,
+                        kind: "still",
+                        label: "Annotated still",
+                        mime: "image/jpeg",
+                        dataUrl,
+                      },
+                    });
+                    setCaptures((c) => [row, ...c]);
+                    setActiveStill(row);
+                    toast.success("Annotated still saved");
+                  }}
+                />
+              ) : (
+                <ClipReview
+                  clip={activeStill}
+                  url={videoUrls[activeStill.id] ?? null}
+                  onBack={() => setActiveStill(null)}
+                />
+              )
+            ) : (
+              <MediaStage
+                captures={captures}
+                videoUrls={videoUrls}
+                onOpen={setActiveStill}
+              />
+            ))}
           {stage === "inbox" && (
             <InboxStage
               items={inbox}
@@ -801,19 +779,45 @@ export function Studio() {
             />
           )}
           {stage === "agent" && (
-            <AgentStage
-              engine={engine}
-              plan={hookPlan}
-              toolLog={toolLog}
-              onRun={(tool) => void runTool(tool)}
-              onEnqueue={async (tool) => {
-                const cmd = await enqueueCommand({ data: { tool, args: {} } });
-                toast.message(`Queued ${cmd.tool}`);
-              }}
-              onStill={() => void onStill()}
-              onSnap={() => void onSnap()}
-              onRecord={() => void onRecordToggle()}
-            />
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+              <SourcesStage
+                plan={hookPlan}
+                evidence={evidence}
+                logs={logs}
+                busy={busy}
+                onCollect={async (which) => {
+                  if (which === "open_studio") {
+                    setStage("shutter");
+                    return;
+                  }
+                  setBusy(which);
+                  try {
+                    await runTool(which);
+                    if (
+                      which.startsWith("vibecap_ingest") ||
+                      which === "vibecap_bug_pack"
+                    ) {
+                      toast.success("Collected");
+                    }
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+              />
+              <AgentStage
+                engine={engine}
+                plan={hookPlan}
+                toolLog={toolLog}
+                onRun={(tool) => void runTool(tool)}
+                onEnqueue={async (tool) => {
+                  const cmd = await enqueueCommand({ data: { tool, args: {} } });
+                  toast.message(`Queued ${cmd.tool}`);
+                }}
+                onStill={() => void onStill()}
+                onSnap={() => void onSnap()}
+                onRecord={() => void onRecordToggle()}
+              />
+            </div>
           )}
           {stage === "settings" && (
             <SettingsStage
@@ -861,7 +865,7 @@ export function Studio() {
                   type="button"
                   onClick={() => {
                     setActiveStill(c);
-                    setStage("still");
+                    setStage("review");
                   }}
                   className="overflow-hidden rounded-md bg-surface-2"
                 >
@@ -1415,7 +1419,7 @@ function MediaStage({
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="mb-3 flex items-end justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Media</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Library</h1>
           <p className="text-sm text-muted">
             JPEG and WebM download here. Nothing is written to a home folder.
           </p>
@@ -1473,11 +1477,13 @@ function StillStage({
   still,
   captures,
   onPick,
+  onBack,
   onSave,
 }: {
   still: CaptureRow | null;
   captures: CaptureRow[];
   onPick: (c: CaptureRow) => void;
+  onBack: () => void;
   onSave: (dataUrl: string) => void;
 }) {
   const src = still?.data_url ?? "";
@@ -1485,7 +1491,10 @@ function StillStage({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex items-center gap-2">
-        <h1 className="text-lg font-semibold tracking-tight">Still</h1>
+        <Button size="sm" variant="outline" onClick={onBack}>
+          ← Library
+        </Button>
+        <h1 className="text-lg font-semibold tracking-tight">Annotate</h1>
         <select
           className="ml-auto h-9 rounded-md bg-surface-2 px-2 text-sm shadow-[var(--shadow-border)]"
           value={still.id}
@@ -1511,6 +1520,47 @@ function StillStage({
         </Button>
       </div>
       <AnnotationCanvas src={src} onExport={onSave} />
+    </div>
+  );
+}
+
+function ClipReview({
+  clip,
+  url,
+  onBack,
+}: {
+  clip: CaptureRow;
+  url: string | null;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" onClick={onBack}>
+          ← Library
+        </Button>
+        <h1 className="text-lg font-semibold tracking-tight">Clip</h1>
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto"
+          aria-label="Download WebM"
+          disabled={!url}
+          onClick={() => url && downloadHref(url, clipFilename(clip))}
+        >
+          <Download className="size-4" />
+          WebM
+        </Button>
+      </div>
+      {url ? (
+        <video
+          src={url}
+          controls
+          className="min-h-0 w-full flex-1 rounded-xl bg-canvas object-contain"
+        />
+      ) : (
+        <Empty label="Clip preview unavailable — its blob left memory. Re-record to review." />
+      )}
     </div>
   );
 }

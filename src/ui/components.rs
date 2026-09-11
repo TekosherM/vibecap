@@ -217,20 +217,18 @@ pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, subtitle: &str) {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LoopStage {
     Shutter,
+    Review,
     Media,
-    Clip,
-    Still,
     Inbox,
     Settings,
 }
 
 impl LoopStage {
-    pub fn all() -> [Self; 6] {
+    pub fn all() -> [Self; 5] {
         [
             Self::Shutter,
+            Self::Review,
             Self::Media,
-            Self::Clip,
-            Self::Still,
             Self::Inbox,
             Self::Settings,
         ]
@@ -239,9 +237,8 @@ impl LoopStage {
     pub fn label(self) -> &'static str {
         match self {
             Self::Shutter => "Shutter",
+            Self::Review => "Review",
             Self::Media => "Media",
-            Self::Clip => "Clip",
-            Self::Still => "Still",
             Self::Inbox => "Inbox",
             Self::Settings => "Settings",
         }
@@ -250,9 +247,8 @@ impl LoopStage {
     pub fn icon(self) -> Icon {
         match self {
             Self::Shutter => Icon::Shutter,
+            Self::Review => Icon::Still,
             Self::Media => Icon::Media,
-            Self::Clip => Icon::Clip,
-            Self::Still => Icon::Still,
             Self::Inbox => Icon::Inbox,
             Self::Settings => Icon::Settings,
         }

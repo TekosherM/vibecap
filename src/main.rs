@@ -72,23 +72,11 @@ pub(crate) enum AppTab {
 }
 
 impl AppTab {
-    pub(crate) fn from_loop(stage: LoopStage) -> Self {
-        match stage {
-            LoopStage::Shutter => Self::Capture,
-            LoopStage::Media => Self::Library,
-            LoopStage::Clip => Self::Clip,
-            LoopStage::Still => Self::Still,
-            LoopStage::Inbox => Self::Feedback,
-            LoopStage::Settings => Self::Settings,
-        }
-    }
-
     pub(crate) fn to_loop(self) -> LoopStage {
         match self {
             Self::Capture => LoopStage::Shutter,
             Self::Library => LoopStage::Media,
-            Self::Clip => LoopStage::Clip,
-            Self::Still => LoopStage::Still,
+            Self::Clip | Self::Still => LoopStage::Review,
             Self::Feedback => LoopStage::Inbox,
             Self::Settings => LoopStage::Settings,
         }
@@ -98,8 +86,8 @@ impl AppTab {
         match self {
             Self::Capture => "Shutter",
             Self::Library => "Media",
-            Self::Clip => "Clip",
-            Self::Still => "Still",
+            Self::Clip => "Review · Clip",
+            Self::Still => "Review · Still",
             Self::Feedback => "Inbox",
             Self::Settings => "Settings",
         }
@@ -152,6 +140,8 @@ pub(crate) struct VibecapApp {
     status_cache: Option<(StatusSnapshot, Instant)>,
     /// Capture-tab live-stats cache — same reason (dir walk + budget file).
     live_stats_cache: Option<(LiveStats, Instant)>,
+    /// Last active Review editor (Still or Clip) — rail's Review stage returns here.
+    last_review_tab: Option<AppTab>,
     /// Stored handle so worker threads can wake the UI when a drain lands.
     ui_ctx: Option<egui::Context>,
     is_recording: bool,
@@ -466,6 +456,7 @@ impl VibecapApp {
             audio_devices_rx: None,
             status_cache: None,
             live_stats_cache: None,
+            last_review_tab: None,
             ui_ctx: None,
             pending_arm_record: false,
             filmstrip_error: None,
@@ -526,7 +517,7 @@ impl VibecapApp {
         self.current_tab = match s.tab.as_str() {
             "library" | "media" => AppTab::Library,
             "edit" | "studio" | "clip" => AppTab::Clip,
-            "still" | "image" => AppTab::Still,
+            "still" | "image" | "review" => AppTab::Still,
             "feedback" | "inbox" => AppTab::Feedback,
             "settings" => AppTab::Settings,
             _ => AppTab::Capture,
@@ -965,6 +956,27 @@ impl VibecapApp {
         });
     }
 
+    /// Which editor the rail's Review stage opens: whichever has content,
+    /// preferring the one the user last used when both are loaded.
+    fn review_tab(&self) -> AppTab {
+        match (self.img_edit_file.is_some(), self.edit_file.is_some()) {
+            (true, false) => AppTab::Still,
+            (false, true) => AppTab::Clip,
+            _ => self.last_review_tab.unwrap_or(AppTab::Still),
+        }
+    }
+
+    /// Rail stage → concrete tab. Review dispatches to the right editor.
+    fn tab_for_loop(&self, stage: LoopStage) -> AppTab {
+        match stage {
+            LoopStage::Shutter => AppTab::Capture,
+            LoopStage::Review => self.review_tab(),
+            LoopStage::Media => AppTab::Library,
+            LoopStage::Inbox => AppTab::Feedback,
+            LoopStage::Settings => AppTab::Settings,
+        }
+    }
+
     /// App to bring forward before Fullscreen / empty-Window capture.
     fn capture_focus_target(&self) -> Option<String> {
         match self.capture_target {
@@ -1056,8 +1068,7 @@ impl VibecapApp {
         match action {
             PaletteAction::GoShutter => self.current_tab = AppTab::Capture,
             PaletteAction::GoMedia => self.current_tab = AppTab::Library,
-            PaletteAction::GoClip => self.current_tab = AppTab::Clip,
-            PaletteAction::GoStill => self.current_tab = AppTab::Still,
+            PaletteAction::GoReview => self.current_tab = self.review_tab(),
             PaletteAction::GoInbox => self.current_tab = AppTab::Feedback,
             PaletteAction::GoSettings => self.current_tab = AppTab::Settings,
             PaletteAction::Screenshot => self.trigger_capture(ctx, true),
@@ -1222,12 +1233,8 @@ impl VibecapApp {
                     self.refresh_library();
                     self.show_window(ctx);
                 }
-                TrayAction::GoClip => {
-                    self.current_tab = AppTab::Clip;
-                    self.show_window(ctx);
-                }
-                TrayAction::GoStill => {
-                    self.current_tab = AppTab::Still;
+                TrayAction::GoReview => {
+                    self.current_tab = self.review_tab();
                     self.show_window(ctx);
                 }
                 TrayAction::GoInbox => {
@@ -2921,6 +2928,10 @@ impl eframe::App for VibecapApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Hand workers a wake handle (Context is an Arc clone — cheap).
         self.ui_ctx = Some(ctx.clone());
+        // Remember which Review editor was last used (rail Review returns here).
+        if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
+            self.last_review_tab = Some(self.current_tab);
+        }
         // Track window size for session restore (skip park / tiny restore leftovers).
         if self.pre_capture_outer.is_none() {
             let s = ctx.screen_rect().size();
@@ -3447,7 +3458,7 @@ impl eframe::App for VibecapApp {
                     rec_live,
                     self.brand_logo.as_ref(),
                 ) {
-                    self.current_tab = AppTab::from_loop(stage);
+                    self.current_tab = self.tab_for_loop(stage);
                 }
             });
 
