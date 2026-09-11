@@ -2345,7 +2345,10 @@ impl VibecapApp {
                     ctx_clone.request_repaint();
                     return;
                 }
-                let focus_ms = if cfg!(target_os = "windows") { 600 } else { 700 };
+                // Native focus verifies GetForegroundWindow before returning;
+                // the remaining settle covers the target app's redraw. ffmpeg's
+                // own spawn adds ~300-500ms before the first frame is read.
+                let focus_ms = if cfg!(target_os = "windows") { 350 } else { 700 };
                 std::thread::sleep(Duration::from_millis(focus_ms));
             } else if !cfg!(target_os = "windows") {
                 std::thread::sleep(Duration::from_millis(500));

@@ -6,6 +6,8 @@ Windows capture (2026-09-06): hide-for-capture **minimizes** (taskbar button sta
 
 Perf/UI-thread (2026-09-06): stop-recording no longer blocks — `finalize_recorder` runs on a worker (`record_finalize_rx` → `finish_stop_recording`; UI shows "Saving…", `TrayLiveState::Finalizing`). Voice memo finalize is a worker too. `status_snapshot` caches the dir walks/budget read ~2s (live REC/inbox fields overlay per frame). `refresh_library` scans the media dir on a worker (`library_scan_rx`, pending-flag rescan). `poll_frontmost_app`, `refresh_window_list`, and the DirectShow device probe are worker-based; the window ComboBox reads `list_capture_windows_cached()` (never spawns PS per frame). ffmpeg records with `-preset veryfast` (medium dropped gdigrab frames under load).
 
+Win32-native helpers (2026-09-06): the PowerShell helpers (`window_rect_on_screen`, `windows_enum_windows`, `windows_list_monitors`, `windows_foreground_process_name`, `windows_focus_app`) each spawned powershell + Add-Type (~300-800ms, three chained per windowed shot). Now direct FFI in `src/platform/win32.rs` (`find_window_rect`, `enum_windows`, `enum_monitors`, `foreground_process_name`, `focus_window`). Matching is exact→fuzzy on title/process — same window picked by focus and rect. `focus_window` clears SPI_SETFOREGROUNDLOCKTIMEOUT + AttachThreadInput; PS AppActivate remains only as a focus fallback. Focus settle sleep 600→350ms on Windows (focus is verified before returning). Old PS bodies removed — parse fns are `#[cfg(test)]`.
+
 ## Where we are
 
 | | |

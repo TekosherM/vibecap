@@ -788,64 +788,15 @@ pub fn open_path(path: &Path) -> Result<(), String> {
 /// The HWND lets ffmpeg gdigrab capture the window itself (`-i hwnd=…`) even
 /// when it is occluded — no focus stealing required.
 ///
-/// PowerShell is used so this works without extra crates. The lookup process
-/// opts into per-monitor DPI awareness so the pixels line up with what
-/// ffmpeg gdigrab captures.
+/// Resolved natively via EnumWindows/GetWindowRect — no process spawn. Exact
+/// title/process match wins over fuzzy, so the rect agrees with focus_app.
 #[cfg(target_os = "windows")]
 pub fn window_rect_on_screen(name: &str) -> Option<(u64, i32, i32, i32, i32)> {
-    let needle = name.trim();
-    if needle.is_empty() {
-        return None;
-    }
-    let esc = ps_like_escape(needle);
-    let script = format!(
-        r###"
-try {{
-  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; [StructLayout(LayoutKind.Sequential)] public struct VbRect {{ public int Left; public int Top; public int Right; public int Bottom; }} public static class VbWin {{ [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out VbRect r); [DllImport("user32.dll")] public static extern int GetSystemMetrics(int n); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h); [DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int v); }}' | Out-Null
-  try {{ [void][VbWin]::SetProcessDpiAwareness(2) }} catch {{}}
-  # Virtual screen (all monitors): origin + size, so maximized windows whose
-  # invisible borders spill past the edges get clamped to grabbable pixels.
-  $vx = [VbWin]::GetSystemMetrics(76)
-  $vy = [VbWin]::GetSystemMetrics(77)
-  $vw = [VbWin]::GetSystemMetrics(78)
-  $vh = [VbWin]::GetSystemMetrics(79)
-  foreach ($p in Get-Process -ErrorAction SilentlyContinue) {{
-    try {{
-      $t = $p.MainWindowTitle
-      $n = $p.ProcessName
-      if (($t -like '*{esc}*') -or ($n -like '*{esc}*')) {{
-        $h = $p.MainWindowHandle
-        if ($h -eq [IntPtr]::Zero) {{ continue }}
-        if ([VbWin]::IsIconic($h)) {{ continue }}
-        # NOTE: PowerShell variables are case-insensitive — keep these names
-        # distinct from $t/$n/$h/$p above ($R would clobber the $rc struct).
-        $rc = New-Object VbRect
-        if ([VbWin]::GetWindowRect($h, [ref]$rc)) {{
-          if ($rc.Left -le -10000 -or $rc.Top -le -10000) {{ continue }}
-          $cL = [Math]::Max($rc.Left, $vx)
-          $cT = [Math]::Max($rc.Top, $vy)
-          $cR = [Math]::Min($rc.Right, $vx + $vw)
-          $cB = [Math]::Min($rc.Bottom, $vy + $vh)
-          $cW = $cR - $cL
-          $cH = $cB - $cT
-          if ($cW -gt 0 -and $cH -gt 0) {{ Write-Output "$([Int64]$h) $cL $cT $cW $cH"; exit 0 }}
-        }}
-      }}
-    }} catch {{}}
-  }}
-  exit 1
-}} catch {{ exit 1 }}
-"###,
-    );
-    let out = windows_powershell(&script).output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    parse_window_target_line(&String::from_utf8_lossy(&out.stdout))
+    super::win32::find_window_rect(name)
 }
 
-/// Parse the first `hwnd x y w h` line from [`window_rect_on_screen`] output.
-#[cfg(any(target_os = "windows", test))]
+/// Parse the first `hwnd x y w h` line (legacy PowerShell output format).
+#[cfg(test)]
 pub fn parse_window_target_line(s: &str) -> Option<(u64, i32, i32, i32, i32)> {
     for line in s.lines() {
         let nums: Vec<i64> = line
@@ -891,64 +842,22 @@ pub fn ps_like_escape(s: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn windows_enum_windows() -> Vec<WindowInfo> {
-    let script = r###"
-try {
-  Add-Type -TypeDefinition @'
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
-public static class VbList {
-  public delegate bool EnumProc(IntPtr h, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L; public int T; public int R; public int B; }
-  public static string Dump() {
-    var sb = new StringBuilder();
-    EnumWindows((h, l) => {
-      if (!IsWindowVisible(h)) return true;
-      var t = new StringBuilder(512);
-      GetWindowText(h, t, 512);
-      var title = t.ToString().Replace("\t", " ");
-      uint pid = 0;
-      GetWindowThreadProcessId(h, out pid);
-      RECT rc;
-      if (!GetWindowRect(h, out rc)) return true;
-      int w = rc.R - rc.L, ht = rc.B - rc.T;
-      if (w < 8 || ht < 8) return true;
-      int min = IsIconic(h) ? 1 : 0;
-      sb.Append((long)h).Append('\t').Append(pid).Append('\t').Append('\t').Append(title)
-        .Append('\t').Append(rc.L).Append('\t').Append(rc.T).Append('\t').Append(w).Append('\t').Append(ht)
-        .Append('\t').Append(min).Append('\n');
-      return true;
-    }, IntPtr.Zero);
-    return sb.ToString();
-  }
-}
-'@
-  $dump = [VbList]::Dump()
-  foreach ($line in $dump -split "`n") {
-    if ($line.Trim() -eq '') { continue }
-    $p = $line -split "`t", 9
-    if ($p.Length -lt 9) { continue }
-    $pid = 0; [void][int]::TryParse($p[1], [ref]$pid)
-    $pn = ''
-    if ($pid -gt 0) { try { $pn = (Get-Process -Id $pid -ErrorAction Stop).ProcessName } catch {} }
-    Write-Output ($p[0] + "`t" + $p[1] + "`t" + $pn + "`t" + $p[3] + "`t" + $p[4] + "`t" + $p[5] + "`t" + $p[6] + "`t" + $p[7] + "`t" + $p[8])
-  }
-} catch { }
-"###;
-    let out = windows_powershell(script).output().ok();
-    let Some(o) = out else {
-        return Vec::new();
-    };
-    parse_window_info_lines(&String::from_utf8_lossy(&o.stdout))
+    super::win32::enum_windows()
+        .into_iter()
+        .map(|w| WindowInfo {
+            id: w.hwnd.to_string(),
+            title: w.title,
+            process: w.process,
+            x: w.x,
+            y: w.y,
+            w: w.w,
+            h: w.h,
+            minimized: w.minimized,
+        })
+        .collect()
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(test)]
 pub fn parse_window_info_lines(s: &str) -> Vec<WindowInfo> {
     let mut out = Vec::new();
     for line in s.lines() {
@@ -982,26 +891,21 @@ pub fn parse_window_info_lines(s: &str) -> Vec<WindowInfo> {
 
 #[cfg(target_os = "windows")]
 fn windows_list_monitors() -> Vec<MonitorInfo> {
-    let script = r###"
-try {
-  Add-Type -AssemblyName System.Windows.Forms | Out-Null
-  $i = 0
-  foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
-    $b = $s.Bounds
-    $pr = if ($s.Primary) { 1 } else { 0 }
-    Write-Output ("$i $($b.X) $($b.Y) $($b.Width) $($b.Height) $pr")
-    $i++
-  }
-} catch {}
-"###;
-    let out = windows_powershell(script).output().ok();
-    let Some(o) = out else {
-        return Vec::new();
-    };
-    parse_monitor_lines(&String::from_utf8_lossy(&o.stdout))
+    super::win32::enum_monitors()
+        .into_iter()
+        .enumerate()
+        .map(|(i, m)| MonitorInfo {
+            index: i as u32,
+            x: m.x,
+            y: m.y,
+            w: m.w,
+            h: m.h,
+            primary: m.primary,
+        })
+        .collect()
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(test)]
 pub fn parse_monitor_lines(s: &str) -> Vec<MonitorInfo> {
     let mut out = Vec::new();
     for line in s.lines() {
@@ -1032,38 +936,10 @@ fn windows_powershell(script: &str) -> Command {
 }
 
 /// Foreground process name (e.g. `chrome`), else the window title.
+/// Native GetForegroundWindow — no PowerShell spawn.
 #[cfg(target_os = "windows")]
 fn windows_foreground_process_name() -> Option<String> {
-    let script = r###"
-try {
-  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; using System.Text; public static class VbFg { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid); [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n); }' | Out-Null
-  $hw = [VbFg]::GetForegroundWindow()
-  if ($hw -eq [IntPtr]::Zero) { exit 1 }
-  $pid = 0; [void][VbFg]::GetWindowThreadProcessId($hw, [ref]$pid)
-  try { $pn = (Get-Process -Id $pid -ErrorAction Stop).ProcessName } catch { $pn = '' }
-  if ($pn -ne '') { Write-Output $pn; exit 0 }
-  $sb = New-Object System.Text.StringBuilder 512
-  [void][VbFg]::GetWindowText($hw, $sb, 512)
-  $t = $sb.ToString()
-  if ($t -ne '') { Write-Output $t; exit 0 }
-  exit 1
-} catch { exit 1 }
-"###;
-    let out = windows_powershell(script).output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let name = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or_default()
-        .to_string();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    super::win32::foreground_process_name()
 }
 
 /// Bring an existing window to the front by process-name / title fragment.
@@ -1076,10 +952,17 @@ try {
 /// rights by Windows; the lookup briefly clears the foreground-lock timeout
 /// (the documented `SystemParametersInfo` mechanism, restored afterwards) so
 /// `SetForegroundWindow` succeeds from a console too.
+///
+/// Native path first (no process spawn); the PowerShell script remains as a
+/// fallback — WScript.Shell.AppActivate can succeed where SetForegroundWindow
+/// is refused.
 #[cfg(target_os = "windows")]
 fn windows_focus_app(app_name: &str) -> Result<(), String> {
     let needle = app_name.trim();
     if needle.is_empty() {
+        return Ok(());
+    }
+    if super::win32::focus_window(needle).is_ok() {
         return Ok(());
     }
     let esc = ps_like_escape(needle);
