@@ -92,12 +92,25 @@ pub fn show_region_selector(
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
 
-    let builder = ViewportBuilder::default()
+    let ppp = ctx.pixels_per_point().max(1.0);
+    let mut builder = ViewportBuilder::default()
         .with_title("Vibecap Region")
         .with_decorations(false)
         .with_transparent(!opaque)
-        .with_fullscreen(true)
         .with_always_on_top();
+    let mons = crate::platform::list_monitors();
+    if !mons.is_empty() {
+        let x = mons.iter().map(|m| m.x).min().unwrap_or(0);
+        let y = mons.iter().map(|m| m.y).min().unwrap_or(0);
+        let r = mons.iter().map(|m| m.x + m.w).max().unwrap_or(1920);
+        let b = mons.iter().map(|m| m.y + m.h).max().unwrap_or(1080);
+        builder = builder
+            .with_fullscreen(false)
+            .with_position(Pos2::new(x as f32 / ppp, y as f32 / ppp))
+            .with_inner_size(Vec2::new((r - x) as f32 / ppp, (b - y) as f32 / ppp));
+    } else {
+        builder = builder.with_fullscreen(true);
+    }
 
     ctx.show_viewport_immediate(
         ViewportId::from_hash_of("region_selector"),
@@ -106,6 +119,7 @@ pub fn show_region_selector(
             if class != ViewportClass::Immediate {
                 return;
             }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             let panel_frame = Frame::none().fill(if backdrop.is_some() {
                 Color32::BLACK
             } else {
@@ -113,7 +127,7 @@ pub fn show_region_selector(
             });
             egui::CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
                 let (response, painter) =
-                    ui.allocate_painter(ui.available_size(), Sense::drag());
+                    ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
                 let screen = response.rect;
                 if let Some(tex) = backdrop {
                     painter.image(
@@ -157,7 +171,7 @@ pub fn show_region_selector(
                     painter.text(
                         Pos2::new(screen.center().x, screen.min.y + 48.0),
                         Align2::CENTER_CENTER,
-                        "Drag to select a region · Esc to cancel · arrows nudge (⇧ = 10px)",
+                        "Drag to select · release captures · Esc / right-click cancel",
                         FontId::proportional(18.0),
                         theme::TEXT(),
                     );
@@ -244,7 +258,23 @@ pub fn show_region_selector(
                         });
                     }
                 }
-                // Drag-stop keeps the box; Enter (below) captures. Right-click cancels.
+                // Real drag (≥24px) captures on mouse-up. Tiny clicks keep the box for Enter.
+                if response.drag_stopped() {
+                    if let (Some(start), Some(end)) = (*region_start, *region_end) {
+                        let selected = Rect::from_two_pos(start, end);
+                        if selected.width() >= 24.0 && selected.height() >= 24.0 {
+                            result = RegionHudResult::Confirmed { selected, overlay: screen };
+                        }
+                    }
+                }
+                if response.double_clicked() {
+                    if let (Some(start), Some(end)) = (*region_start, *region_end) {
+                        let selected = Rect::from_two_pos(start, end);
+                        if selected.width() >= 8.0 && selected.height() >= 8.0 {
+                            result = RegionHudResult::Confirmed { selected, overlay: screen };
+                        }
+                    }
+                }
                 if response.secondary_clicked() {
                     result = RegionHudResult::Cancelled;
                 }
@@ -252,6 +282,43 @@ pub fn show_region_selector(
                 if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                     result = RegionHudResult::Cancelled;
                 }
+
+                egui::Area::new(egui::Id::new("region_actions"))
+                    .order(egui::Order::Foreground)
+                    .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 12.0))
+                    .show(ctx, |ui| {
+                        Frame::none()
+                            .fill(theme::SURFACE())
+                            .rounding(theme::rounding_md())
+                            .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new("Region")
+                                            .size(13.0)
+                                            .strong()
+                                            .color(theme::TEXT()),
+                                    );
+                                    if ui.button(RichText::new("Capture").strong()).clicked() {
+                                        if let (Some(start), Some(end)) =
+                                            (*region_start, *region_end)
+                                        {
+                                            let selected = Rect::from_two_pos(start, end);
+                                            if selected.width() >= 8.0 && selected.height() >= 8.0
+                                            {
+                                                result = RegionHudResult::Confirmed {
+                                                    selected,
+                                                    overlay: screen,
+                                                };
+                                            }
+                                        }
+                                    }
+                                    if ui.button("Cancel").clicked() {
+                                        result = RegionHudResult::Cancelled;
+                                    }
+                                });
+                            });
+                    });
             });
         },
     );

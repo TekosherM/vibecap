@@ -12,6 +12,8 @@ mod paths;
 mod process;
 mod shell;
 mod source;
+#[cfg(windows)]
+mod win32;
 
 // Re-exported capture surface (binary crate: some helpers are only used by
 // headless/embedding call sites, not the GUI — keep them warning-free).
@@ -29,6 +31,8 @@ pub use ffmpeg::{
 pub use notify::notify_agent_question;
 pub use paths::{config_dir, live_dir, live_session_dir, media_dir, media_dir_display};
 pub use process::{cont_process, pause_supported, stop_process};
+#[cfg(windows)]
+pub use win32::minimize_studio;
 pub use shell::{
     activate_own_app, focus_app, frontmost_app_name, list_capture_windows, list_monitors,
     list_running_apps, open_path, open_screen_recording_settings, request_screen_recording_access,

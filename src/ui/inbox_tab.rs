@@ -22,8 +22,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     }
 
     // j/k move the thread list; a selects the first pending.
+    let typing = ctx.wants_keyboard_input();
     let jump = ctx.input(|i| {
-        if i.key_pressed(egui::Key::J) {
+        if typing {
+            0
+        } else if i.key_pressed(egui::Key::J) {
             1
         } else if i.key_pressed(egui::Key::K) {
             -1

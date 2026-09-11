@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-06. Source of truth is `master` on GitHub, not a chat transcript.
 
-Windows capture (2026-09-06): hide-for-capture parks off-screen (never `Visible(false)` — that killed the region overlay and REC bar). Park/restore lives in `src/app/capture_flow.rs`. ffmpeg stills detach stdio so release `windows_subsystem` builds can write JPEGs. Region pick is a dedicated viewport; last-region ghost is pixel-space. REC bar always shows while recording. `--window` never silent-fullscreen (gdigrab offsets, HWND fallback). GUI single-instance lock (`gui.lock`; MCP/CLI stay multi-process). `vibecap doctor`. Long `record stop --gif` returns `gif_pending=` and encodes in the background. See `docs/IMPROVEMENTS.md`.
+Windows capture (2026-09-06): hide-for-capture **minimizes** (taskbar button stays). `Visible(false)` dropped the taskbar entry and stalled Inbox; off-screen park was clamped back into gdigrab. Park/restore: `src/app/capture_flow.rs` + `src/platform/win32.rs`. ffmpeg stills detach stdio. Region overlay is a dedicated always-on-top viewport (virtual-desktop bounds); mouse-up captures. See `docs/IMPROVEMENTS.md`.
 
 ## Where we are
 

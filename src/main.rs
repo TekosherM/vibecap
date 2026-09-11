@@ -1071,9 +1071,21 @@ impl VibecapApp {
     }
 
     fn hide_to_tray(&self, ctx: &egui::Context) {
-        // Tray hide is intentional orderOut; user reopens via menu/dock (works).
-        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
-        ctx.request_repaint();
+        // Windows: minimize so the taskbar button stays (Visible(false) drops it
+        // and can stall the event loop — Inbox/feedback then looks dead).
+        #[cfg(windows)]
+        {
+            ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+            crate::platform::minimize_studio();
+            ctx.request_repaint();
+            return;
+        }
+        #[cfg(not(windows))]
+        {
+            ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+            ctx.request_repaint();
+        }
     }
 
     /// Hide the studio window so it is not in the shot.
@@ -1986,7 +1998,7 @@ impl VibecapApp {
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             // Let the compositor hide our UI before the grabber starts.
-            let wait_ms = if cfg!(target_os = "windows") { 350 } else { 350 };
+            let wait_ms = if cfg!(target_os = "windows") { 450 } else { 350 };
             std::thread::sleep(Duration::from_millis(wait_ms));
             let result =
                 spawn_screen_recorder_opts(&mp4_file, fps, with_audio, crop, &record_opts, false)
@@ -2106,7 +2118,7 @@ impl VibecapApp {
         std::thread::spawn(move || {
             // Give DWM / the compositor time to hide our window before the
             // grabber reads the screen. Too short ⇒ our own UI is in the shot.
-            let hide_ms = if cfg!(target_os = "windows") { 350 } else { 450 };
+            let hide_ms = if cfg!(target_os = "windows") { 450 } else { 450 };
             std::thread::sleep(Duration::from_millis(hide_ms));
             if is_window {
                 // Window path focuses + crops inside capture_screenshot_opts;
@@ -2171,6 +2183,7 @@ impl VibecapApp {
         if self.screenshot_in_flight || self.is_recording || self.recording_arming {
             return;
         }
+        self.screenshot_in_flight = true;
         self.hide_for_capture(ctx);
         let ctx_clone = ctx.clone();
         let save_dir = self.save_dir.clone();
@@ -2179,7 +2192,11 @@ impl VibecapApp {
         let opts = CaptureOpts::from_parts(None, app_token.clone())
             .with_monitor(self.capture_monitor);
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(350));
+            std::thread::sleep(Duration::from_millis(if cfg!(target_os = "windows") {
+                450
+            } else {
+                350
+            }));
             let seq = app::naming::next_seq(&save_dir, "");
             let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
             let mp4 = save_dir.join(format!("{stem}.mp4"));
@@ -2199,7 +2216,6 @@ impl VibecapApp {
             }
             ctx_clone.request_repaint();
         });
-        self.screenshot_in_flight = true;
         ctx.request_repaint_after(Duration::from_millis(50));
     }
 
@@ -2231,7 +2247,7 @@ impl VibecapApp {
         }
         self.pending_region_kind = Some(kind);
         self.selected_region = None;
-        self.selected_screen_rect = None;
+        // Keep `selected_screen_rect` so the overlay can ghost last pixels.
         self.region_start = None;
         self.region_end = None;
         self.region_backdrop = None;
@@ -2252,7 +2268,7 @@ impl VibecapApp {
         self.region_snap_rx = Some(rx);
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
-            let wait_ms = if cfg!(target_os = "windows") { 350 } else { 350 };
+            let wait_ms = if cfg!(target_os = "windows") { 450 } else { 350 };
             std::thread::sleep(Duration::from_millis(wait_ms));
             let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
             let snap = std::env::temp_dir().join(format!("vibecap_region_snap_{}.jpg", timestamp));
@@ -2294,7 +2310,9 @@ impl VibecapApp {
                 self.region_backdrop_rgba = Some((w, h, pixels));
                 self.region_snap_path = Some(path);
                 self.is_selecting_region = true;
-                // Main window stays parked. The overlay is a child viewport.
+                // Child viewports hide with a minimized owner. Restore the studio
+                // (covered by the overlay) so the region HUD can take the mouse.
+                self.show_window(ctx);
                 ctx.request_repaint();
             }
             Err(e) => {
@@ -2411,6 +2429,9 @@ impl VibecapApp {
 
     /// Disk marker wins over a missed channel — call early every frame.
     fn poll_pending_still(&mut self, ctx: &egui::Context) {
+        if self.is_selecting_region || self.region_snap_rx.is_some() {
+            return;
+        }
         if let Some(result) = take_pending_still() {
             self.finish_screenshot(ctx, result);
         }
@@ -2661,9 +2682,12 @@ impl eframe::App for VibecapApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Track window size for session restore (skip while parked off-screen).
+        // Track window size for session restore (skip park / tiny restore leftovers).
         if self.pre_capture_outer.is_none() {
-            self.window_size = ctx.screen_rect().size();
+            let s = ctx.screen_rect().size();
+            if s.x >= 640.0 && s.y >= 400.0 {
+                self.window_size = s;
+            }
         }
 
         // First frame: honor --hidden (window already created; hide after paint setup).
@@ -2746,7 +2770,7 @@ impl eframe::App for VibecapApp {
                 self.show_toast(if cfg!(target_os = "macos") {
                     "Hidden to tray — click the menu bar icon to show again."
                 } else {
-                    "Hidden to tray — click the system tray icon to show again."
+                    "Minimized to the taskbar — click the taskbar or tray icon to show again."
                 });
             }
         }

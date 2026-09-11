@@ -26,7 +26,7 @@ Reusable defect classes. Update when a confirmed bug reveals a pattern.
 
 **Symptom:** Region overlay paints inside the main window; REC bar never appears; recordings become unstoppable except via tray.
 
-**Prevention:** Park off-screen and keep ordered-in (`src/app/capture_flow.rs`). `Visible(false)` is tray-hide only. Debug assert `pre_capture_outer` is cleared after every capture exit path.
+**Prevention:** On Windows, **minimize** for capture and tray-hide (`ShowWindow(SW_MINIMIZE)`). That keeps the taskbar button and the event loop (Inbox polling). `Visible(false)` is macOS tray-hide only. Never overwrite saved geometry with a 120×80 park. Debug assert `pre_capture_outer` is cleared after every capture exit path.
 
 ## even_screen_rect must not clamp origin to 0
 
@@ -35,6 +35,14 @@ Reusable defect classes. Update when a confirmed bug reveals a pattern.
 **Symptom:** Left-of-primary monitors capture the wrong crop (or fail).
 
 **Prevention:** Even `w`/`h` only. Virtual-desktop origin may be negative. Unit test `even_crop_forces_even_dimensions`.
+
+## Windows clamps off-screen park back into the shot
+
+**Pattern:** Hide-for-capture moved the studio to `(-12000,-12000)` at 120×80 so it would not appear in gdigrab.
+
+**Symptom:** Screenshots still contain Vibecap; after restore the window is missing from the taskbar or stuck tiny/off-screen.
+
+**Prevention:** Do not park off-screen on Windows 10/11 — DWM relocates fully off-screen windows. Minimize instead. Only snapshot geometry when the window is still studio-sized (`should_snapshot_geometry`).
 
 ## Shared media cleared by process lifecycle
 

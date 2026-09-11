@@ -1190,6 +1190,10 @@ pub fn activate_own_app() {
     {
         macos_ffi::activate_application();
     }
+    #[cfg(windows)]
+    {
+        super::win32::restore_studio_to_taskbar();
+    }
 }
 
 /// Reveal a file in the system file manager (Finder / Explorer / file manager).
