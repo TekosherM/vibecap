@@ -226,6 +226,8 @@ pub(crate) struct VibecapApp {
     hotkey_id_record: u32,
     /// Hotkey id → screenshot (Ctrl+Shift+3).
     hotkey_id_screenshot: u32,
+    /// Hotkey id → summon/hide the window (Ctrl+Alt+V).
+    hotkey_id_summon: u32,
 
     // System tray (menu bar / notification area)
     tray: Option<TrayController>,
@@ -337,6 +339,16 @@ pub(crate) struct VibecapApp {
     wizard_step: u8,
     wizard_done: bool,
     wizard_budget_touched: bool,
+    /// Wizard "start at login" choice (defaults on; applied on finish).
+    wizard_autostart: bool,
+
+    /// Back/forward stacks for Alt+← / Alt+→ stage navigation.
+    tab_back: Vec<AppTab>,
+    tab_fwd: Vec<AppTab>,
+    /// Last rendered tab — per-frame diff feeds `tab_back`.
+    prev_tab: AppTab,
+    /// Run-at-login state for the Settings toggle; None = not probed yet.
+    autostart_state: Option<bool>,
 
     /// Retro buffer (off by default) — rolling low-FPS frames for “save last N s”.
     retro: app::RetroController,
@@ -421,6 +433,7 @@ impl VibecapApp {
             hotkey_manager,
             hotkey_id_record: 0,
             hotkey_id_screenshot: 0,
+            hotkey_id_summon: 0,
             trim_start: "00:00:00".to_string(),
             trim_end: "00:00:05".to_string(),
             export_speed: "1.0".to_string(),
@@ -466,6 +479,11 @@ impl VibecapApp {
             density: Density::Comfortable,
             undo_trash: None,
             capture_toast: None,
+            wizard_autostart: true,
+            tab_back: Vec::new(),
+            tab_fwd: Vec::new(),
+            prev_tab: AppTab::Capture,
+            autostart_state: None,
             ..Default::default() // wizard_* default closed / not done
         };
 
@@ -503,10 +521,14 @@ impl VibecapApp {
         let shot = self.hotkey_shot_digit.clamp(0, 9);
         let hk_rec = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Self::digit_code(rec));
         let hk_shot = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Self::digit_code(shot));
+        // Ctrl+Shift+V would steal "paste plain text" in other apps; Ctrl+Alt+V is free.
+        let hk_summon = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
         self.hotkey_id_record = hk_rec.id();
         self.hotkey_id_screenshot = hk_shot.id();
+        self.hotkey_id_summon = hk_summon.id();
         let _ = manager.register(hk_rec);
         let _ = manager.register(hk_shot);
+        let _ = manager.register(hk_summon);
     }
 
     fn apply_session(&mut self, s: SessionState) {
@@ -1167,6 +1189,28 @@ impl VibecapApp {
             &mut self.pre_capture_outer,
             &mut self.pre_capture_size,
         );
+    }
+
+    /// Ctrl+Alt+V: focused window → hide to tray; minimized/unfocused →
+    /// restore + foreground. While parked mid-capture, ignore the key —
+    /// restoring early would put the studio in its own screenshot.
+    fn toggle_window(&mut self, ctx: &egui::Context) {
+        if self.pre_capture_outer.is_some() {
+            return;
+        }
+        let (minimized, focused) = ctx.input(|i| {
+            (
+                i.viewport().minimized.unwrap_or(false),
+                i.viewport().focused.unwrap_or(false),
+            )
+        });
+        if minimized || !focused {
+            self.show_window(ctx);
+            #[cfg(windows)]
+            crate::platform::restore_studio_to_taskbar();
+        } else {
+            self.hide_to_tray(ctx);
+        }
     }
 
     fn hide_to_tray(&self, ctx: &egui::Context) {
@@ -2932,6 +2976,16 @@ impl eframe::App for VibecapApp {
         if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
             self.last_review_tab = Some(self.current_tab);
         }
+        // Feed the back stack on any tab change (rail, palette, tray,
+        // auto-advance). Direct nav sets prev_tab itself so it isn't re-pushed.
+        if self.current_tab != self.prev_tab {
+            self.tab_back.push(self.prev_tab);
+            if self.tab_back.len() > 32 {
+                self.tab_back.remove(0);
+            }
+            self.tab_fwd.clear();
+            self.prev_tab = self.current_tab;
+        }
         // Track window size for session restore (skip park / tiny restore leftovers).
         if self.pre_capture_outer.is_none() {
             let s = ctx.screen_rect().size();
@@ -3345,6 +3399,7 @@ impl eframe::App for VibecapApp {
         // Global hotkeys (work even when window is hidden in tray).
         let mut hotkey_shots = 0u32;
         let mut hotkey_recs = 0u32;
+        let mut hotkey_summons = 0u32;
         if let Some(rx) = &self.hotkey_receiver {
             while let Ok(event) = rx.try_recv() {
                 if event.state != global_hotkey::HotKeyState::Pressed {
@@ -3354,8 +3409,13 @@ impl eframe::App for VibecapApp {
                     hotkey_shots += 1;
                 } else if event.id == self.hotkey_id_record {
                     hotkey_recs += 1;
+                } else if event.id == self.hotkey_id_summon {
+                    hotkey_summons += 1;
                 }
             }
+        }
+        for _ in 0..hotkey_summons {
+            self.toggle_window(ctx);
         }
         for _ in 0..hotkey_shots {
             self.trigger_capture(ctx, true);
@@ -3372,18 +3432,54 @@ impl eframe::App for VibecapApp {
 
         // In-window short commands when the app is focused.
         // S = screenshot · R = record · Z = undo delete · ⌘K/Ctrl+K = palette · ⌘I = inbox
-        if !self.is_annotating && !self.palette_open {
-            let (press_s, press_r, press_z, press_palette, press_inbox) = ctx.input(|i| {
-                let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
-                (
-                    i.key_pressed(egui::Key::S) && !i.modifiers.any(),
-                    i.key_pressed(egui::Key::R) && !i.modifiers.any(),
-                    i.key_pressed(egui::Key::Z) && !i.modifiers.any(),
-                    mod_cmd && i.key_pressed(egui::Key::K),
-                    mod_cmd && i.key_pressed(egui::Key::I),
-                )
-            });
-            if press_palette {
+        // Alt+←/→ = stage back/forward · Ctrl+1..5 = jump to a Loop stage.
+        if !self.is_annotating && !self.palette_open && !self.wizard_open && !self.screen_perm_modal {
+            let (press_s, press_r, press_z, press_palette, press_inbox, press_back, press_fwd, stage_jump) =
+                ctx.input(|i| {
+                    let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
+                    let jump = if mod_cmd {
+                        [
+                            egui::Key::Num1,
+                            egui::Key::Num2,
+                            egui::Key::Num3,
+                            egui::Key::Num4,
+                            egui::Key::Num5,
+                        ]
+                        .iter()
+                        .position(|k| i.key_pressed(*k))
+                        .map(|p| p + 1)
+                    } else {
+                        None
+                    };
+                    (
+                        i.key_pressed(egui::Key::S) && !i.modifiers.any(),
+                        i.key_pressed(egui::Key::R) && !i.modifiers.any(),
+                        i.key_pressed(egui::Key::Z) && !i.modifiers.any(),
+                        mod_cmd && i.key_pressed(egui::Key::K),
+                        mod_cmd && i.key_pressed(egui::Key::I),
+                        i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft),
+                        i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight),
+                        jump,
+                    )
+                });
+            if let Some(n) = stage_jump {
+                let stages = LoopStage::all();
+                if n <= stages.len() {
+                    self.current_tab = self.tab_for_loop(stages[n - 1]);
+                }
+            } else if press_back {
+                if let Some(t) = self.tab_back.pop() {
+                    self.tab_fwd.push(self.current_tab);
+                    self.prev_tab = t;
+                    self.current_tab = t;
+                }
+            } else if press_fwd {
+                if let Some(t) = self.tab_fwd.pop() {
+                    self.tab_back.push(self.current_tab);
+                    self.prev_tab = t;
+                    self.current_tab = t;
+                }
+            } else if press_palette {
                 self.palette_open = true;
                 self.palette_query.clear();
                 self.palette_selected = 0;

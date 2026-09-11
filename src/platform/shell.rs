@@ -1176,6 +1176,57 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Register / unregister "run at login" so Vibecap sits in the tray after
+/// sign-in. Windows writes `HKCU\...\Run\Vibecap = "<exe>" --hidden` via
+/// `reg.exe` (one spawn, user-initiated — no new dep for a one-shot call).
+#[cfg(target_os = "windows")]
+pub fn set_run_at_login(enable: bool) -> Result<(), String> {
+    const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    let mut cmd = Command::new("reg");
+    if enable {
+        let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+        let value = format!("\"{}\" --hidden", exe.display());
+        cmd.args(["add", RUN_KEY, "/v", "Vibecap", "/t", "REG_SZ", "/f", "/d", &value]);
+    } else {
+        cmd.args(["delete", RUN_KEY, "/v", "Vibecap", "/f"]);
+    }
+    let out = cmd.output().map_err(|e| format!("reg spawn: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "reg {} failed: {}",
+            if enable { "add" } else { "delete" },
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+/// True when the current user has Vibecap registered to run at login.
+#[cfg(target_os = "windows")]
+pub fn run_at_login_enabled() -> bool {
+    Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+            "/v",
+            "Vibecap",
+        ])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_run_at_login(_enable: bool) -> Result<(), String> {
+    Err("run at login is not supported on this platform".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn run_at_login_enabled() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

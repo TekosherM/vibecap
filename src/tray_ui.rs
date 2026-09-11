@@ -41,6 +41,16 @@ pub enum TrayLiveState {
     Recording { elapsed_secs: u64 },
 }
 
+/// Which icon glyph to draw. `Recording` carries elapsed secs so the icon can
+/// pulse the REC disc each second and sweep a 60 s progress arc — Windows has
+/// no `set_title`, so the icon is the only always-visible counter there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IconPhase {
+    Idle,
+    Busy,
+    Recording { elapsed_secs: u64 },
+}
+
 pub struct TrayController {
     tray: TrayIcon,
     status_item: MenuItem,
@@ -64,7 +74,7 @@ pub struct TrayController {
 
 impl TrayController {
     pub fn try_new(tooltip: &str) -> Result<Self, String> {
-        let icon = make_tray_icon(false).map_err(|e| format!("tray icon image: {e}"))?;
+        let icon = make_tray_icon(IconPhase::Idle).map_err(|e| format!("tray icon image: {e}"))?;
 
         // ── Live status (disabled; updated every second) ────────
         let status_item = MenuItem::new("Vibecap · Ready", false, None);
@@ -220,7 +230,7 @@ impl TrayController {
                     .set_text(format!("Recording · {clock}"));
                 self.record_item
                     .set_text(format!("Stop Recording  [{clock}]\t⌃⇧2"));
-                if let Ok(icon) = make_tray_icon(true) {
+                if let Ok(icon) = make_tray_icon(IconPhase::Recording { elapsed_secs }) {
                     let _ = self
                         .tray
                         .set_icon_with_as_template(Some(icon), false);
@@ -233,7 +243,7 @@ impl TrayController {
                     .set_tooltip(Some("Starting recording… — menu: Cancel · Esc"));
                 self.status_item.set_text("Starting…");
                 self.record_item.set_text("Cancel Start\t⌃⇧2");
-                if let Ok(icon) = make_tray_icon(true) {
+                if let Ok(icon) = make_tray_icon(IconPhase::Busy) {
                     let _ = self.tray.set_icon_with_as_template(Some(icon), false);
                 }
             }
@@ -244,7 +254,7 @@ impl TrayController {
                     .set_tooltip(Some("Saving recording… — ffmpeg is finishing the MP4"));
                 self.status_item.set_text("Saving…");
                 self.record_item.set_text("Saving…");
-                if let Ok(icon) = make_tray_icon(true) {
+                if let Ok(icon) = make_tray_icon(IconPhase::Busy) {
                     let _ = self.tray.set_icon_with_as_template(Some(icon), false);
                 }
             }
@@ -268,7 +278,7 @@ impl TrayController {
                     let _ = self.tray.set_tooltip(Some("Vibecap — click to show"));
                     self.status_item.set_text("Vibecap · Ready");
                 }
-                if let Ok(icon) = make_tray_icon(false) {
+                if let Ok(icon) = make_tray_icon(IconPhase::Idle) {
                     let _ = self
                         .tray
                         .set_icon_with_as_template(Some(icon), cfg!(target_os = "macos"));
@@ -337,43 +347,80 @@ fn format_clock(secs: u64) -> String {
 ///
 /// * macOS idle: black ink + alpha for **template** images (menu bar tints it).
 /// * Windows / recording: full-color brand glyph so the taskbar isn't empty.
-fn make_tray_icon(recording: bool) -> Result<Icon, String> {
-    if cfg!(target_os = "macos") && !recording {
+/// * Recording: pulsing red REC disc + a thin arc that fills once per minute —
+///   the "counter" Windows can't show via `set_title`.
+/// * Busy (arming / finalizing): steady amber disc.
+fn make_tray_icon(phase: IconPhase) -> Result<Icon, String> {
+    if cfg!(target_os = "macos") && phase == IconPhase::Idle {
         return make_aperture_icon(false);
     }
-    make_brand_tray_icon(recording)
+    make_brand_tray_icon(phase)
 }
 
-fn make_brand_tray_icon(recording: bool) -> Result<Icon, String> {
+fn make_brand_tray_icon(phase: IconPhase) -> Result<Icon, String> {
     const SIZE: u32 = 32;
     let img = image::load_from_memory(include_bytes!("../assets/app_icon.png"))
         .map_err(|e| format!("tray brand png: {e}"))?
         .resize_exact(SIZE, SIZE, image::imageops::FilterType::Triangle)
         .into_rgba8();
     let mut rgba = img.into_raw();
-    if recording {
-        // Solid red REC disc in the lower-right so recording is obvious in the tray.
-        let rec_r = 0xe8_u8;
-        let rec_g = 0x3b_u8;
-        let rec_b = 0x3b_u8;
-        let cx = 24.0_f32;
-        let cy = 24.0_f32;
-        let rad = 5.5_f32;
-        for y in 0..SIZE {
-            for x in 0..SIZE {
-                let dx = x as f32 - cx;
-                let dy = y as f32 - cy;
-                if (dx * dx + dy * dy).sqrt() <= rad {
-                    let i = ((y * SIZE + x) * 4) as usize;
-                    rgba[i] = rec_r;
-                    rgba[i + 1] = rec_g;
-                    rgba[i + 2] = rec_b;
-                    rgba[i + 3] = 255;
-                }
-            }
+    match phase {
+        IconPhase::Idle => {}
+        IconPhase::Busy => {
+            paint_disc(&mut rgba, 24.0, 24.0, 5.5, (0xe0, 0xa0, 0x2e));
+        }
+        IconPhase::Recording { elapsed_secs } => {
+            // Pulse the disc every other second; sweep the minute arc.
+            let rad = if elapsed_secs % 2 == 0 { 5.5 } else { 4.3 };
+            paint_disc(&mut rgba, 24.0, 24.0, rad, (0xe8, 0x3b, 0x3b));
+            let frac = (elapsed_secs % 60) as f32 / 60.0;
+            paint_progress_arc(&mut rgba, frac, (0xe8, 0x3b, 0x3b));
         }
     }
     Icon::from_rgba(rgba, SIZE, SIZE).map_err(|e| e.to_string())
+}
+
+fn paint_disc(rgba: &mut [u8], cx: f32, cy: f32, rad: f32, rgb: (u8, u8, u8)) {
+    const SIZE: u32 = 32;
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            if (dx * dx + dy * dy).sqrt() <= rad {
+                let i = ((y * SIZE + x) * 4) as usize;
+                rgba[i] = rgb.0;
+                rgba[i + 1] = rgb.1;
+                rgba[i + 2] = rgb.2;
+                rgba[i + 3] = 255;
+            }
+        }
+    }
+}
+
+/// Thin ring around the icon edge, filled clockwise from 12 o'clock by `frac`.
+fn paint_progress_arc(rgba: &mut [u8], frac: f32, rgb: (u8, u8, u8)) {
+    const SIZE: u32 = 32;
+    let cx = (SIZE as f32 - 1.0) * 0.5;
+    let sweep = frac.clamp(0.0, 1.0) * std::f32::consts::TAU;
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cx;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if !(13.6..=15.4).contains(&dist) {
+                continue;
+            }
+            // Angle from 12 o'clock, clockwise positive, in [0, TAU).
+            let a = (dx.atan2(-dy) + std::f32::consts::TAU) % std::f32::consts::TAU;
+            if a <= sweep || sweep >= std::f32::consts::TAU - 1e-4 {
+                let i = ((y * SIZE + x) * 4) as usize;
+                rgba[i] = rgb.0;
+                rgba[i + 1] = rgb.1;
+                rgba[i + 2] = rgb.2;
+                rgba[i + 3] = 255;
+            }
+        }
+    }
 }
 
 fn make_aperture_icon(recording: bool) -> Result<Icon, String> {

@@ -176,6 +176,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         let mut do_copy: Option<PathBuf> = None;
         let mut do_delete: Option<PathBuf> = None;
         let mut do_reveal: Option<PathBuf> = None;
+        let mut do_open: Option<PathBuf> = None;
         let mut last_group = "";
 
         for item in &visible {
@@ -266,6 +267,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         {
                             do_reveal = Some(item.path.clone());
                         }
+                        if ui
+                            .button("Open")
+                            .on_hover_text("Open with the default app")
+                            .clicked()
+                        {
+                            do_open = Some(item.path.clone());
+                        }
                         match item.category {
                             MediaCategory::Video => {
                                 if ui
@@ -308,11 +316,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     do_copy = Some(item.path.clone());
                                 }
                             }
-                            _ => {
-                                if ui.button("Open").clicked() {
-                                    let _ = open_path(&item.path);
-                                }
-                            }
+                            _ => {}
                         }
                     });
                 });
@@ -341,6 +345,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
         if let Some(p) = do_reveal {
             app.reveal_paths(&[p]);
+        }
+        if let Some(p) = do_open {
+            if let Err(e) = open_path(&p) {
+                app.show_toast(format!("Open failed: {e}"));
+            }
         }
         if let Some(p) = do_copy {
             app.copy_image_to_clipboard(&p);

@@ -654,6 +654,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             }
             if let Some(f) = app.edit_file.clone() {
+                if btn_primary(ui, "✓ Done") {
+                    ui.ctx().copy_text(f.display().to_string());
+                    app.show_toast("Clip path copied — back to Shutter");
+                    app.current_tab = crate::AppTab::Capture;
+                }
                 if btn_small(ui, "Reload") {
                     app.load_filmstrip(ctx, f.clone());
                 }

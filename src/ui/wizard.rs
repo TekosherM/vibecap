@@ -10,7 +10,7 @@ use crate::app::{load_budget, save_budget, BudgetConfig};
 use crate::ui::theme;
 use crate::VibecapApp;
 
-pub const WIZARD_STEPS: u8 = 4;
+pub const WIZARD_STEPS: u8 = 5;
 
 /// Overlay wizard. Returns true if still open (caller should skip main chrome).
 pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
@@ -102,6 +102,7 @@ pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
                         0 => step_welcome(ui),
                         1 => step_save_dir(app, ui),
                         2 => step_budget(app, ui),
+                        3 => step_autostart(app, ui),
                         _ => step_shortcuts(ui),
                     }
 
@@ -138,6 +139,11 @@ pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
         });
 
     if skip || finish {
+        // Only an explicit "Get started" applies the autostart choice —
+        // skipping before reaching the step must not register a Run key.
+        if finish {
+            let _ = crate::platform::set_run_at_login(app.wizard_autostart);
+        }
         complete_wizard(app);
         return false;
     }
@@ -167,6 +173,59 @@ fn complete_wizard(app: &mut VibecapApp) {
     app.wizard_open = false;
     app.wizard_done = true;
     app.persist_session();
+}
+
+fn step_autostart(app: &mut VibecapApp, ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new("Make Vibecap your capture tool?")
+            .size(22.0)
+            .strong()
+            .color(theme::TEXT()),
+    );
+    ui.add_space(theme::SP_2);
+    ui.label(
+        RichText::new(
+            "Vibecap works best when it's always one hotkey away — \
+             start it with Windows and it waits quietly in the tray.",
+        )
+        .size(14.0)
+        .color(theme::TEXT_MUTED()),
+    );
+    ui.add_space(theme::SP_3);
+    Frame::none()
+        .fill(theme::SURFACE_2())
+        .rounding(theme::rounding_md())
+        .inner_margin(Margin::same(12.0))
+        .show(ui, |ui| {
+            if cfg!(windows) {
+                ui.checkbox(
+                    &mut app.wizard_autostart,
+                    RichText::new("Start Vibecap when I sign in").color(theme::TEXT()),
+                );
+                ui.label(
+                    RichText::new(
+                        "Launches hidden to the tray. Uncheck to skip — you can change this in Settings.",
+                    )
+                    .size(12.0)
+                    .color(theme::TEXT_MUTED()),
+                );
+            } else {
+                ui.label(
+                    RichText::new("Auto-start isn't supported on this platform yet.")
+                        .size(12.0)
+                        .color(theme::TEXT_MUTED()),
+                );
+            }
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(
+                    "Then: Ctrl+Shift+3 grabs a screenshot, Ctrl+Shift+2 records, \
+                     Ctrl+Alt+V summons the window — from any app.",
+                )
+                .size(12.0)
+                .color(theme::TEXT_MUTED()),
+            );
+        });
 }
 
 fn step_welcome(ui: &mut egui::Ui) {
@@ -371,8 +430,11 @@ fn step_shortcuts(ui: &mut egui::Ui) {
         ("S", "Screenshot (window focused)"),
         ("R", "Start / stop recording"),
         ("⌘K / Ctrl+K", "Command palette"),
+        ("Ctrl+1–5", "Jump to a stage"),
+        ("Alt+← / →", "Back / forward"),
         ("Ctrl+Shift+3", "Screenshot (global / tray)"),
         ("Ctrl+Shift+2", "Record (global / tray)"),
+        ("Ctrl+Alt+V", "Summon / hide window (global)"),
     ] {
         ui.horizontal(|ui| {
             Frame::none()

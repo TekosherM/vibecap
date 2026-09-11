@@ -242,6 +242,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ("R", "Start / stop recording"),
                     ("Z", "Undo last library delete"),
                     ("⌘K", "Command palette"),
+                    ("Ctrl+1–5", "Jump to a stage"),
+                    ("Alt+← / →", "Back / forward between stages"),
                 ] {
                     ui.horizontal(|ui| {
                         kbd(ui, key);
@@ -256,6 +258,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 for (key, what) in [
                     ("Ctrl+Shift+3", "Screenshot"),
                     ("Ctrl+Shift+2", "Start / stop recording"),
+                    ("Ctrl+Alt+V", "Summon / hide window"),
                 ] {
                     ui.horizontal(|ui| {
                         kbd(ui, key);
@@ -288,6 +291,29 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 if btn_small(ui, "Save hotkeys") {
                     app.persist_session();
                     app.show_toast("Hotkeys saved — restart the GUI to rebind");
+                }
+                ui.add_space(theme::SP_2);
+                if cfg!(windows) {
+                    if app.autostart_state.is_none() {
+                        app.autostart_state = Some(crate::platform::run_at_login_enabled());
+                    }
+                    let mut on = app.autostart_state.unwrap_or(false);
+                    if ui
+                        .checkbox(&mut on, "Start Vibecap when I sign in (tray)")
+                        .changed()
+                    {
+                        match crate::platform::set_run_at_login(on) {
+                            Ok(()) => {
+                                app.autostart_state = Some(on);
+                                app.show_toast(if on {
+                                    "Vibecap will start at sign-in"
+                                } else {
+                                    "Start at sign-in disabled"
+                                });
+                            }
+                            Err(e) => app.show_toast(format!("Autostart failed: {e}")),
+                        }
+                    }
                 }
                 ui.add_space(theme::SP_2);
                 ui.horizontal(|ui| {
@@ -335,6 +361,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.wizard_open = true;
                     app.wizard_step = 0;
                     app.wizard_budget_touched = false;
+                    app.wizard_autostart = crate::platform::run_at_login_enabled();
                 }
             });
 

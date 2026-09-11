@@ -132,7 +132,12 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             }
             if let Some(p) = app.img_edit_file.clone() {
-                if btn_primary(ui, "Save (overwrite)") {
+                if btn_primary(ui, "✓ Done") {
+                    app.copy_current_still_to_clipboard();
+                    app.show_toast("Copied — back to Shutter for the next capture");
+                    app.current_tab = crate::AppTab::Capture;
+                }
+                if btn_secondary(ui, "Save (overwrite)") {
                     app.save_current_still();
                 }
                 if btn_secondary(ui, "Save as copy") {
@@ -140,6 +145,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
                 if btn_secondary(ui, "Copy Image (⌘C)") {
                     app.copy_current_still_to_clipboard();
+                }
+                if btn_small(ui, "Open") {
+                    let _ = crate::platform::open_path(&p);
                 }
                 if btn_small(ui, "🔄 Reset") {
                     app.img_rotate = 0;
