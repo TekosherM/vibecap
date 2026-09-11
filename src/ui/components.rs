@@ -410,6 +410,7 @@ pub fn loop_position_badge(ui: &mut Ui, pos: crate::app::LoopPosition) {
 // ── Status strip ────────────────────────────────────────────────────
 
 /// Read-only chrome for storage / budget / ffmpeg / inbox / live.
+#[derive(Clone)]
 pub struct StatusSnapshot {
     pub storage_label: String,
     pub budget_tier: String,

@@ -556,7 +556,10 @@ pub fn record_screen_clip_opts(
             cmd.arg("-offset_y").arg(r.y.to_string());
             cmd.arg("-video_size").arg(format!("{}x{}", r.w, r.h));
         }
-        cmd.args(["-t", &dur, "-i", &input, "-c:v", "libx264", "-pix_fmt", "yuv420p", out_s]);
+        cmd.args([
+            "-t", &dur, "-i", &input, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt",
+            "yuv420p", out_s,
+        ]);
         return run_status(cmd, "ffmpeg gdigrab record");
     }
 
@@ -580,6 +583,8 @@ pub fn record_screen_clip_opts(
             &spec.input,
             "-c:v",
             "libx264",
+            "-preset",
+            "veryfast",
             "-pix_fmt",
             "yuv420p",
             out_s,
@@ -867,6 +872,9 @@ pub fn spawn_screen_recorder_opts(
     }
 
     cmd.arg("-c:v").arg("libx264");
+    // Real-time screen capture: the default "medium" preset saturates a core on
+    // laptops and drops gdigrab frames — veryfast keeps up at 30-60fps.
+    cmd.arg("-preset").arg("veryfast");
     cmd.arg("-pix_fmt").arg("yuv420p");
     if frag_mp4 {
         // Kill-safe fragments; remuxed to a regular MP4 on stop.

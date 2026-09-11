@@ -34,7 +34,8 @@ pub use process::{cont_process, pause_supported, stop_process};
 #[cfg(windows)]
 pub use win32::minimize_studio;
 pub use shell::{
-    activate_own_app, focus_app, frontmost_app_name, list_capture_windows, list_monitors,
+    activate_own_app, focus_app, frontmost_app_name, list_capture_windows,
+    list_capture_windows_cached, list_monitors,
     list_running_apps, open_path, open_screen_recording_settings, request_screen_recording_access,
     reveal_in_file_manager, screen_capture_allowed, window_tools_hint,
 };

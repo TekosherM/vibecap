@@ -8,7 +8,6 @@ mod ui;
 use eframe::egui;
 use std::process::Child;
 use std::path::PathBuf;
-use std::io::Write;
 use chrono::Local;
 use crossbeam_channel::Receiver;
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
@@ -130,7 +129,17 @@ pub(crate) struct VibecapApp {
     #[allow(dead_code)]
     region_await_enter: bool,
     audio_devices: Vec<String>,
+    /// Worker → main: ffmpeg -list_devices probe (DirectShow spawn is ~1s).
+    pub(crate) audio_devices_rx: Option<Receiver<Vec<String>>>,
     window_list_at: Option<Instant>,
+    /// Worker → main: running-app list (PowerShell spawn must not block UI).
+    window_list_rx: Option<Receiver<Vec<String>>>,
+    /// Worker → main: frontmost-app probe (PowerShell ~200-500ms on Windows).
+    front_app_rx: Option<Receiver<Option<String>>>,
+    /// Status strip cache — dir walks must not run per frame.
+    status_cache: Option<(StatusSnapshot, Instant)>,
+    /// Stored handle so worker threads can wake the UI when a drain lands.
+    ui_ctx: Option<egui::Context>,
     is_recording: bool,
     /// Hide UI then spawn ffmpeg on a worker — true while countdown / spawn in flight.
     recording_arming: bool,
@@ -151,12 +160,22 @@ pub(crate) struct VibecapApp {
     pending_arm_record: bool,
     /// Worker → main: ffmpeg child after hide delay (recording starts even if UI was minimized).
     record_spawn_rx: Option<crossbeam_channel::Receiver<Result<(Child, PathBuf), String>>>,
+    /// Worker → main: recorder exit after Stop (ffmpeg moov write can take seconds).
+    record_finalize_rx: Option<Receiver<Result<(), String>>>,
+    /// True while ffmpeg finalizes the MP4 on a worker — UI must not block on it.
+    pub(crate) recording_finalizing: bool,
+    /// Worker → main: voice memo finalize (same blocking wait shape as video).
+    voice_finalize_rx: Option<Receiver<Result<(), String>>>,
     
     // File paths & Media Library
     save_dir: PathBuf,
     current_mp4_file: Option<PathBuf>,
     latest_screenshot: Option<PathBuf>,
     library_items: Vec<MediaItem>,
+    /// Worker → main: media dir scan (never scan on the UI thread).
+    library_scan_rx: Option<Receiver<Vec<MediaItem>>>,
+    /// A scan was requested while one was in flight — rescan after drain.
+    library_scan_pending: bool,
     /// "All" | category labels from MediaCategory::label()
     library_filter: String,
     /// How many filtered items to show (starts at LIBRARY_PAGE_SIZE).
@@ -423,6 +442,16 @@ impl VibecapApp {
             start_hidden: false,
             recording_arming: false,
             recording_cancel_armed: false,
+            recording_finalizing: false,
+            record_finalize_rx: None,
+            voice_finalize_rx: None,
+            library_scan_rx: None,
+            library_scan_pending: false,
+            window_list_rx: None,
+            front_app_rx: None,
+            audio_devices_rx: None,
+            status_cache: None,
+            ui_ctx: None,
             pending_arm_record: false,
             filmstrip_error: None,
             palette_open: false,
@@ -847,38 +876,78 @@ impl VibecapApp {
         }
     }
 
+    /// Refresh the window-target list on a worker — `list_running_apps` shells
+    /// out to PowerShell on Windows (~300-800ms), so it must not run on the UI
+    /// thread. Results land in drain_window_list; the worker also primes the
+    /// capture-window cache the ComboBox reads.
     pub(crate) fn refresh_window_list(&mut self) {
-        self.window_app_list = list_running_apps();
         self.window_list_scanned = true;
+        if self.window_list_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.window_list_rx = Some(rx);
+        let ctx_clone = self.ui_ctx.clone();
+        std::thread::spawn(move || {
+            let apps = list_running_apps();
+            // Prime the shared cache so the picker ComboBox never blocks on PS.
+            let _ = crate::platform::list_capture_windows();
+            let _ = tx.send(apps);
+            if let Some(c) = ctx_clone {
+                c.request_repaint();
+            }
+        });
+    }
+
+    fn drain_window_list(&mut self) {
+        let Some(rx) = self.window_list_rx.as_ref() else {
+            return;
+        };
+        let Ok(apps) = rx.try_recv() else {
+            return;
+        };
+        self.window_list_rx = None;
+        self.window_app_list = apps;
         if self.window_app.is_empty() {
             if let Some(first) = self.window_app_list.first() {
                 self.window_app = first.clone();
             }
-        } else if !self.window_app_list.iter().any(|a| a == &self.window_app)
-            && !self.window_app_list.is_empty()
-        {
-            // Keep typed name even if not in list — user may have typed it.
         }
+        // Keep a typed name even if not in the list — user may have typed it.
     }
 
     /// Track the app the user was in before focusing Vibecap (for Fullscreen capture).
     fn poll_frontmost_app(&mut self) {
-        // Windows resolves this via PowerShell (~100-300 ms spawn); poll rarely.
+        // Drain a finished probe first.
+        if let Some(rx) = self.front_app_rx.as_ref() {
+            match rx.try_recv() {
+                Ok(Some(name)) => {
+                    self.front_app_rx = None;
+                    let lower = name.to_ascii_lowercase();
+                    if !lower.contains("vibecap") {
+                        self.last_front_app = Some(name);
+                    }
+                }
+                Ok(None) => self.front_app_rx = None,
+                Err(_) => {}
+            }
+        }
+        // Windows resolves this via PowerShell (~200-500ms spawn) — run it on a
+        // worker and poll rarely.
         let throttle_ms = if cfg!(target_os = "windows") { 2000 } else { 400 };
         let due = self
             .last_front_poll
             .map(|t| t.elapsed() > Duration::from_millis(throttle_ms))
             .unwrap_or(true);
-        if !due {
+        if !due || self.front_app_rx.is_some() {
             return;
         }
         self.last_front_poll = Some(Instant::now());
-        if let Some(name) = frontmost_app_name() {
-            let lower = name.to_ascii_lowercase();
-            if lower != "vibecap" && !lower.contains("vibecap") {
-                self.last_front_app = Some(name);
-            }
-        }
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.front_app_rx = Some(rx);
+        std::thread::spawn(move || {
+            let _ = tx.send(frontmost_app_name());
+        });
     }
 
     /// App to bring forward before Fullscreen / empty-Window capture.
@@ -895,7 +964,11 @@ impl VibecapApp {
 
     /// Start recording, optionally after a countdown bubble.
     fn begin_recording(&mut self, ctx: &egui::Context) {
-        if self.is_recording || self.recording_arming || self.countdown_deadline.is_some() {
+        if self.is_recording
+            || self.recording_arming
+            || self.recording_finalizing
+            || self.countdown_deadline.is_some()
+        {
             return;
         }
         // Window target with no app chosen would silently become fullscreen —
@@ -1170,6 +1243,8 @@ impl VibecapApp {
             TrayLiveState::Recording {
                 elapsed_secs: self.recording_elapsed_secs(),
             }
+        } else if self.recording_finalizing {
+            TrayLiveState::Finalizing
         } else if self.recording_arming || self.countdown_deadline.is_some() {
             TrayLiveState::Arming
         } else {
@@ -1189,15 +1264,22 @@ impl VibecapApp {
 
     fn toggle_voice_memo(&mut self) {
         if self.is_recording_voice_memo {
-            if let Some(mut child) = self.voice_memo_child.take() {
-                if let Some(mut stdin) = child.stdin.take() {
-                    let _ = stdin.write_all(b"q\n");
-                }
-                let _ = child.wait();
+            if let Some(child) = self.voice_memo_child.take() {
+                self.is_recording_voice_memo = false;
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                self.voice_finalize_rx = Some(rx);
+                let ctx_clone = self.ui_ctx.clone();
+                std::thread::spawn(move || {
+                    let res = finalize_recorder(child)
+                        .map(|_| ())
+                        .map_err(|e| e.to_string());
+                    let _ = tx.send(res);
+                    if let Some(c) = ctx_clone {
+                        c.request_repaint();
+                    }
+                });
+                self.show_toast("🎙 Saving voice note…");
             }
-            self.is_recording_voice_memo = false;
-            self.show_toast("🎙 Voice Note saved!");
-            self.refresh_library();
         } else {
             let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
             let audio_file = self.save_dir.join(format!("voice_note_{}.m4a", timestamp));
@@ -1215,17 +1297,60 @@ impl VibecapApp {
         }
     }
 
+    /// Drain the voice-memo finalize worker — toast + rescan once ffmpeg exits.
+    fn drain_voice_finalize(&mut self) {
+        let Some(rx) = self.voice_finalize_rx.as_ref() else {
+            return;
+        };
+        let Ok(res) = rx.try_recv() else {
+            return;
+        };
+        self.voice_finalize_rx = None;
+        match res {
+            Ok(()) => self.show_toast("🎙 Voice Note saved!"),
+            Err(e) => self.show_toast(format!("⚠️ Voice note may be truncated: {e}")),
+        }
+        self.refresh_library();
+    }
+
+    /// Kick a media-dir scan on a worker — never on the UI thread. Startup and
+    /// post-capture both go through here; results land in drain_library_scan.
     fn refresh_library(&mut self) {
         self.library_selected.retain(|p| p.exists());
-        self.library_items = scan_media_dir(&self.save_dir);
+        if self.library_scan_rx.is_some() {
+            self.library_scan_pending = true;
+            return;
+        }
+        let dir = self.save_dir.clone();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.library_scan_rx = Some(rx);
+        let ctx_clone = self.ui_ctx.clone();
+        std::thread::spawn(move || {
+            let items = scan_media_dir(&dir);
+            let _ = tx.send(items);
+            if let Some(c) = ctx_clone {
+                c.request_repaint();
+            }
+        });
+    }
+
+    /// Apply a finished media-dir scan, warm thumbs off-thread, rescan if dirty.
+    fn drain_library_scan(&mut self) {
+        let Some(rx) = self.library_scan_rx.as_ref() else {
+            return;
+        };
+        let Ok(items) = rx.try_recv() else {
+            return;
+        };
+        self.library_scan_rx = None;
         app::thumbs::cleanup_frames_temp(&self.save_dir);
-        let warmup: Vec<PathBuf> = self
-            .library_items
-            .iter()
-            .take(40)
-            .map(|i| i.path.clone())
-            .collect();
+        let warmup: Vec<PathBuf> = items.iter().take(40).map(|i| i.path.clone()).collect();
         app::thumbs::warmup_thumbs(warmup);
+        self.library_items = items;
+        if self.library_scan_pending {
+            self.library_scan_pending = false;
+            self.refresh_library();
+        }
     }
 
     fn library_filtered(&self) -> Vec<&MediaItem> {
@@ -1246,7 +1371,37 @@ impl VibecapApp {
     }
 
     /// Chrome-only snapshot for the bottom status strip (no new backends).
-    fn status_snapshot(&self) -> StatusSnapshot {
+    /// Per-frame accessor. Expensive fields (media dir walk, live-dir walk,
+    /// budget file read) are cached ~2s; live fields (REC clock, inbox) are
+    /// overlaid every call so the strip stays true.
+    fn status_snapshot(&mut self) -> StatusSnapshot {
+        const STATUS_TTL: Duration = Duration::from_secs(2);
+        let stale = self
+            .status_cache
+            .as_ref()
+            .map(|(_, at)| at.elapsed() >= STATUS_TTL)
+            .unwrap_or(true);
+        if stale {
+            let snap = self.compute_status_snapshot();
+            self.status_cache = Some((snap, Instant::now()));
+        }
+        let mut snap = self.status_cache.as_ref().unwrap().0.clone();
+        snap.pending_inbox = self.feedback_pending_count;
+        snap.rec_live = self.is_recording || self.recording_arming || self.recording_finalizing;
+        snap.rec_label = if self.is_recording {
+            let e = self.recording_elapsed_secs();
+            format!("REC {:02}:{:02}", e / 60, e % 60)
+        } else if self.recording_arming {
+            "Starting…".into()
+        } else if self.recording_finalizing {
+            "Saving…".into()
+        } else {
+            String::new()
+        };
+        snap
+    }
+
+    fn compute_status_snapshot(&self) -> StatusSnapshot {
         let (bytes, count) = get_dir_size_bytes(&self.save_dir.display().to_string());
         let mb = bytes as f64 / (1024.0 * 1024.0);
         let storage_label = if mb >= 1024.0 {
@@ -1268,24 +1423,15 @@ impl VibecapApp {
 
         let ffmpeg_ok = platform::ffmpeg_available();
 
-        let rec_live = self.is_recording || self.recording_arming;
-        let rec_label = if self.is_recording {
-            let e = self.recording_elapsed_secs();
-            format!("REC {:02}:{:02}", e / 60, e % 60)
-        } else if self.recording_arming {
-            "Starting…".into()
-        } else {
-            String::new()
-        };
-
         StatusSnapshot {
             storage_label,
             budget_tier,
             budget_usage,
             ffmpeg_ok,
+            // Live fields are overlaid per call by status_snapshot().
             pending_inbox: self.feedback_pending_count,
-            rec_live,
-            rec_label,
+            rec_live: false,
+            rec_label: String::new(),
         }
     }
 
@@ -1815,6 +1961,12 @@ impl VibecapApp {
             return;
         }
 
+        if self.recording_finalizing {
+            // ffmpeg is finalizing the MP4 — let it finish; deleting mid-write corrupts it.
+            self.show_toast("💾 Still saving — wait for ffmpeg to finish.");
+            return;
+        }
+
         if let Some(child) = self.child_process.take() {
             kill_recorder(child, self.is_paused);
         }
@@ -1840,13 +1992,31 @@ impl VibecapApp {
             self.cancel_recording(ctx);
             return;
         }
+        if self.recording_finalizing {
+            // ffmpeg is still writing the moov atom — a second Stop must not pile on.
+            return;
+        }
 
         if let Some(child) = self.child_process.take() {
             if self.is_paused {
                 cont_process(child.id());
             }
-            let _ = finalize_recorder(child);
+            self.recording_finalizing = true;
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            self.record_finalize_rx = Some(rx);
+            let ctx_clone = ctx.clone();
+            std::thread::spawn(move || {
+                let res = finalize_recorder(child)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(res);
+                ctx_clone.request_repaint();
+            });
+            self.show_toast("💾 Saving recording…");
         }
+
+        // Stop the REC clock UI now; drain_record_finalize runs the post-stop
+        // steps once the MP4 is complete (probing a file still being muxed fails).
         self.is_recording = false;
         self.is_paused = false;
         self.accumulated_duration = Duration::ZERO;
@@ -1856,6 +2026,29 @@ impl VibecapApp {
         // Always surface the main window (Visible + unminimize) so Editor is usable after tray/hidden rec.
         self.show_window(ctx);
 
+        if !self.recording_finalizing {
+            self.finish_stop_recording(ctx);
+        }
+    }
+
+    /// Drain the recorder-finalize worker, then run post-stop steps.
+    fn drain_record_finalize(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.record_finalize_rx.as_ref() else {
+            return;
+        };
+        let Ok(result) = rx.try_recv() else {
+            return;
+        };
+        self.record_finalize_rx = None;
+        self.recording_finalizing = false;
+        if let Err(e) = result {
+            self.show_toast(format!("⚠️ Recorder did not exit cleanly: {e}"));
+        }
+        self.finish_stop_recording(ctx);
+    }
+
+    /// Post-stop steps — safe only after ffmpeg has written the moov atom.
+    fn finish_stop_recording(&mut self, ctx: &egui::Context) {
         if let Some(mp4) = self.current_mp4_file.clone() {
             if !self.record_markers.is_empty() {
                 let side = mp4.with_extension("markers.txt");
@@ -1951,7 +2144,7 @@ impl VibecapApp {
         self.filmstrip_loading = false;
     }
     fn arm_recording(&mut self, ctx: &egui::Context) {
-        if self.is_recording || self.recording_arming {
+        if self.is_recording || self.recording_arming || self.recording_finalizing {
             return;
         }
 
@@ -2682,6 +2875,8 @@ impl eframe::App for VibecapApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Hand workers a wake handle (Context is an Arc clone — cheap).
+        self.ui_ctx = Some(ctx.clone());
         // Track window size for session restore (skip park / tiny restore leftovers).
         if self.pre_capture_outer.is_none() {
             let s = ctx.screen_rect().size();
@@ -2792,6 +2987,10 @@ impl eframe::App for VibecapApp {
         self.handle_tray_actions(ctx);
         self.poll_frontmost_app();
         self.drain_record_spawn(ctx);
+        self.drain_record_finalize(ctx);
+        self.drain_voice_finalize();
+        self.drain_library_scan();
+        self.drain_window_list();
         self.drain_region_snap(ctx);
         self.drain_filmstrip(ctx);
         if self.pending_arm_record {
@@ -2866,6 +3065,10 @@ impl eframe::App for VibecapApp {
         if self.tray.is_some()
             || self.is_recording
             || self.recording_arming
+            || self.recording_finalizing
+            || self.record_finalize_rx.is_some()
+            || self.voice_finalize_rx.is_some()
+            || self.library_scan_rx.is_some()
             || self.countdown_deadline.is_some()
             || self.feedback_pending_count > 0
             || self.screenshot_in_flight
@@ -2923,7 +3126,7 @@ impl eframe::App for VibecapApp {
         // Immediate viewport keeps the event loop awake while the main window is hidden.
         // Windows: opaque (transparent child viewports do not composite). Always
         // show it — tray-only stop is how recordings became unstoppable.
-        if self.is_recording || self.recording_arming {
+        if self.is_recording || self.recording_arming || self.recording_finalizing {
             let builder = ViewportBuilder::default()
                 .with_title("Vibecap Recorder")
                 .with_decorations(false)
@@ -2948,7 +3151,8 @@ impl eframe::App for VibecapApp {
                                 ui.add_space(6.0);
 
                                 let pulse = (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
-                                let dot_color = if self.recording_arming {
+                                let dot_color = if self.recording_arming || self.recording_finalizing
+                                {
                                     theme::ACCENT()
                                 } else if self.is_paused {
                                     theme::WARN()
@@ -2960,6 +3164,12 @@ impl eframe::App for VibecapApp {
                                 if self.recording_arming {
                                     ui.label(
                                         RichText::new("Starting…")
+                                            .strong()
+                                            .color(theme::TEXT()),
+                                    );
+                                } else if self.recording_finalizing {
+                                    ui.label(
+                                        RichText::new("Saving…")
                                             .strong()
                                             .color(theme::TEXT()),
                                     );
@@ -2995,7 +3205,7 @@ impl eframe::App for VibecapApp {
                                             self.cancel_recording(ctx);
                                         }
 
-                                        if !self.recording_arming {
+                                        if !self.recording_arming && !self.recording_finalizing {
                                             if ui
                                                 .button(
                                                     RichText::new("⏹")
@@ -3184,7 +3394,8 @@ impl eframe::App for VibecapApp {
                     .inner_margin(0.0),
             )
             .show(ctx, |ui| {
-                let rec_live = self.is_recording || self.recording_arming;
+                let rec_live =
+                    self.is_recording || self.recording_arming || self.recording_finalizing;
                 if let Some(stage) = loop_rail(
                     ui,
                     self.current_tab.to_loop(),
@@ -3245,6 +3456,13 @@ impl eframe::App for VibecapApp {
                     } else if self.recording_arming {
                         ui.label(
                             RichText::new("● Starting…")
+                                .color(theme::ACCENT())
+                                .strong()
+                                .small(),
+                        );
+                    } else if self.recording_finalizing {
+                        ui.label(
+                            RichText::new("● Saving…")
                                 .color(theme::ACCENT())
                                 .strong()
                                 .small(),

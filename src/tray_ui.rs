@@ -37,6 +37,8 @@ pub enum TrayLiveState {
     Idle,
     /// Countdown / spawn in flight.
     Arming,
+    /// ffmpeg is finalizing the MP4 after Stop (moov write on a worker).
+    Finalizing,
     Recording { elapsed_secs: u64 },
 }
 
@@ -188,6 +190,7 @@ impl TrayController {
         let key = match state {
             TrayLiveState::Idle => format!("idle:{inbox_pending}"),
             TrayLiveState::Arming => format!("arm:{inbox_pending}"),
+            TrayLiveState::Finalizing => format!("fin:{inbox_pending}"),
             TrayLiveState::Recording { elapsed_secs } => {
                 format!("rec:{elapsed_secs}:{inbox_pending}")
             }
@@ -236,6 +239,17 @@ impl TrayController {
                     .set_tooltip(Some("Starting recording… — menu: Cancel · Esc"));
                 self.status_item.set_text("Starting…");
                 self.record_item.set_text("Cancel Start\t⌃⇧2");
+                if let Ok(icon) = make_tray_icon(true) {
+                    let _ = self.tray.set_icon_with_as_template(Some(icon), false);
+                }
+            }
+            TrayLiveState::Finalizing => {
+                self.tray.set_title(Some("…"));
+                let _ = self
+                    .tray
+                    .set_tooltip(Some("Saving recording… — ffmpeg is finishing the MP4"));
+                self.status_item.set_text("Saving…");
+                self.record_item.set_text("Saving…");
                 if let Ok(icon) = make_tray_icon(true) {
                     let _ = self.tray.set_icon_with_as_template(Some(icon), false);
                 }

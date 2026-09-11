@@ -26,13 +26,15 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             format!("Stop  [{:02}:{:02}]", elapsed / 60, elapsed % 60)
                         } else if app.recording_arming {
                             "Starting…".to_string()
+                        } else if app.recording_finalizing {
+                            "Saving…".to_string()
                         } else {
                             "Record  (R)".to_string()
                         };
                         if let Some(act) = shutter_strip(
                             ui,
                             app.is_recording,
-                            app.recording_arming,
+                            app.recording_arming || app.recording_finalizing,
                             &rec_label,
                         ) {
                             match act {
@@ -97,7 +99,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             })
                                             .width(220.0)
                                             .show_ui(ui, |ui| {
-                                                let wins = crate::platform::list_capture_windows();
+                                                let wins =
+                                                    crate::platform::list_capture_windows_cached();
                                                 if wins.is_empty() {
                                                     for name in app.window_app_list.clone() {
                                                         ui.selectable_value(
@@ -143,9 +146,24 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 crate::ui::group(ui, "AUDIO", |ui| {
                                     switch(ui, "Include audio", &mut app.capture_audio);
                                     if cfg!(target_os = "windows") {
-                                        if app.audio_devices.is_empty() {
-                                            app.audio_devices =
-                                                crate::platform::list_audio_input_devices();
+                                        // ffmpeg -list_devices takes ~1s — probe
+                                        // on a worker so the UI thread never stalls.
+                                        if app.audio_devices.is_empty()
+                                            && app.audio_devices_rx.is_none()
+                                        {
+                                            let (tx, rx) = crossbeam_channel::bounded(1);
+                                            app.audio_devices_rx = Some(rx);
+                                            std::thread::spawn(move || {
+                                                let _ = tx.send(
+                                                    crate::platform::list_audio_input_devices(),
+                                                );
+                                            });
+                                        }
+                                        if let Some(rx) = app.audio_devices_rx.as_ref() {
+                                            if let Ok(devs) = rx.try_recv() {
+                                                app.audio_devices_rx = None;
+                                                app.audio_devices = devs;
+                                            }
                                         }
                                         if app.capture_audio && app.audio_devices.is_empty() {
                                             ui.label(

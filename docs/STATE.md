@@ -4,6 +4,8 @@ Last updated: 2026-09-06. Source of truth is `master` on GitHub, not a chat tran
 
 Windows capture (2026-09-06): hide-for-capture **minimizes** (taskbar button stays). `Visible(false)` dropped the taskbar entry and stalled Inbox; off-screen park was clamped back into gdigrab. Park/restore: `src/app/capture_flow.rs` + `src/platform/win32.rs`. ffmpeg stills detach stdio. Region overlay is a dedicated always-on-top viewport (virtual-desktop bounds); mouse-up captures. See `docs/IMPROVEMENTS.md`.
 
+Perf/UI-thread (2026-09-06): stop-recording no longer blocks — `finalize_recorder` runs on a worker (`record_finalize_rx` → `finish_stop_recording`; UI shows "Saving…", `TrayLiveState::Finalizing`). Voice memo finalize is a worker too. `status_snapshot` caches the dir walks/budget read ~2s (live REC/inbox fields overlay per frame). `refresh_library` scans the media dir on a worker (`library_scan_rx`, pending-flag rescan). `poll_frontmost_app`, `refresh_window_list`, and the DirectShow device probe are worker-based; the window ComboBox reads `list_capture_windows_cached()` (never spawns PS per frame). ffmpeg records with `-preset veryfast` (medium dropped gdigrab frames under load).
+
 ## Where we are
 
 | | |

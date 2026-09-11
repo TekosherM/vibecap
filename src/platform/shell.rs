@@ -308,6 +308,18 @@ pub fn list_capture_windows() -> Vec<WindowInfo> {
     val
 }
 
+/// Non-blocking read for per-frame UI — returns the warm cache (any age) or
+/// empty. The enum shells out to PowerShell on Windows, so widgets must never
+/// call [`list_capture_windows`] directly; a refresh worker keeps this warm.
+pub fn list_capture_windows_cached() -> Vec<WindowInfo> {
+    if let Ok(cache) = WIN_CACHE.lock() {
+        if let Some(c) = cache.as_ref() {
+            return c.val.clone();
+        }
+    }
+    Vec::new()
+}
+
 fn list_capture_windows_uncached() -> Vec<WindowInfo> {
     #[cfg(target_os = "windows")]
     {
