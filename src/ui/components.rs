@@ -1,6 +1,6 @@
 //! Shared UI components: toast cards, empty states, Loop rail, Shutter strip.
 
-use egui::{Align, Color32, Frame, Layout, Margin, RichText, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{Align, Color32, Frame, Layout, Margin, Pos2, Rect, RichText, Rounding, Sense, Stroke, Ui, Vec2};
 
 use super::icons::{self, Icon};
 use super::theme;
@@ -350,6 +350,19 @@ pub fn loop_rail(
                     .response
                     .on_hover_text(stage.label())
                     .interact(Sense::click());
+
+                // Accent tick on the active stage — reads as "you are here".
+                if is_active {
+                    let r = resp.rect;
+                    ui.painter().rect_filled(
+                        Rect::from_min_size(
+                            Pos2::new(r.left() + 2.0, r.top() + 8.0),
+                            Vec2::new(3.0, r.height() - 16.0),
+                        ),
+                        Rounding::same(1.5),
+                        theme::ACCENT(),
+                    );
+                }
 
                 resp
             };

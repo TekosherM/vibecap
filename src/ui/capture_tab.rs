@@ -6,7 +6,7 @@ use egui::{RichText, Stroke};
 use crate::ui::theme;
 use crate::ui::{shutter_strip, ShutterAction};
 use crate::{CaptureTarget, VibecapApp};
-use crate::ui::{btn_small, segmented, switch};
+use crate::ui::{btn_small, switch};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
@@ -18,16 +18,77 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         );
                         ui.add_space(theme::SP_3);
 
-                        // ── Step 1: target ─────────────────────────
-                        segmented(
-                            ui,
-                            &mut app.capture_target,
-                            &[
-                                (CaptureTarget::Fullscreen, "🖥  Full screen"),
-                                (CaptureTarget::Region, "✂  Pick a region"),
-                                (CaptureTarget::Window, "🪟  A window"),
-                            ],
-                        );
+                        // ── Step 1: target cards ───────────────────
+                        ui.horizontal(|ui| {
+                            for (target, icon, label, hint) in [
+                                (
+                                    CaptureTarget::Fullscreen,
+                                    crate::ui::icons::Icon::Monitor,
+                                    "Full screen",
+                                    "everything",
+                                ),
+                                (
+                                    CaptureTarget::Region,
+                                    crate::ui::icons::Icon::Region,
+                                    "A region",
+                                    "drag a box",
+                                ),
+                                (
+                                    CaptureTarget::Window,
+                                    crate::ui::icons::Icon::Window,
+                                    "A window",
+                                    "one app",
+                                ),
+                            ] {
+                                let on = app.capture_target == target;
+                                let (fill, stroke_c) = if on {
+                                    (
+                                        theme::ACCENT().gamma_multiply(0.14),
+                                        theme::ACCENT(),
+                                    )
+                                } else {
+                                    (theme::SURFACE(), theme::BORDER())
+                                };
+                                let resp = egui::Frame::none()
+                                    .fill(fill)
+                                    .stroke(Stroke::new(if on { 1.5_f32 } else { 1.0_f32 }, stroke_c))
+                                    .rounding(theme::rounding_md())
+                                    .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(104.0);
+                                        ui.vertical_centered(|ui| {
+                                            let (r, _) = ui.allocate_exact_size(
+                                                egui::Vec2::splat(24.0),
+                                                egui::Sense::hover(),
+                                            );
+                                            crate::ui::icons::paint_icon(
+                                                ui,
+                                                r,
+                                                icon,
+                                                if on { theme::ACCENT() } else { theme::TEXT_MUTED() },
+                                            );
+                                            ui.add_space(2.0);
+                                            ui.label(
+                                                RichText::new(label)
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(theme::TEXT()),
+                                            );
+                                            ui.label(
+                                                RichText::new(hint)
+                                                    .size(10.0)
+                                                    .color(theme::TEXT_DIM()),
+                                            );
+                                        });
+                                    })
+                                    .response
+                                    .interact(egui::Sense::click());
+                                if resp.clicked() {
+                                    app.capture_target = target;
+                                }
+                                ui.add_space(theme::SP_2);
+                            }
+                        });
                         if app.capture_target == CaptureTarget::Window {
                             ui.add_space(theme::SP_2);
                             if !app.window_list_scanned
@@ -125,6 +186,135 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         }
 
                         ui.add_space(theme::SP_4);
+
+                        // ── Recent captures — "your stuff lands here" ──
+                        {
+                            let top: Vec<(std::path::PathBuf, bool)> = app
+                                .library_items
+                                .iter()
+                                .take(3)
+                                .map(|i| {
+                                    (
+                                        i.path.clone(),
+                                        matches!(
+                                            i.category,
+                                            crate::app::MediaCategory::Video
+                                                | crate::app::MediaCategory::Gif
+                                        ),
+                                    )
+                                })
+                                .collect();
+                            let key = top
+                                .iter()
+                                .map(|(p, _)| p.display().to_string())
+                                .collect::<Vec<_>>()
+                                .join("|");
+                            if key != app.recent_key {
+                                app.recent_key = key;
+                                app.recent_thumbs.clear();
+                                if !top.is_empty() && app.recent_thumbs_rx.is_none() {
+                                    let (tx, rx) = crossbeam_channel::bounded(1);
+                                    app.recent_thumbs_rx = Some(rx);
+                                    std::thread::spawn(move || {
+                                        let mut out = Vec::new();
+                                        for (p, is_vid) in top {
+                                            let Some(tp) = crate::app::thumbs::ensure_thumb(&p)
+                                            else {
+                                                continue;
+                                            };
+                                            if let Ok(img) = image::open(&tp) {
+                                                let rgba = img.to_rgba8();
+                                                let (w, h) =
+                                                    (rgba.width() as usize, rgba.height() as usize);
+                                                out.push((
+                                                    p,
+                                                    is_vid,
+                                                    egui::ColorImage::from_rgba_unmultiplied(
+                                                        [w, h],
+                                                        &rgba.into_raw(),
+                                                    ),
+                                                ));
+                                            }
+                                        }
+                                        let _ = tx.send(out);
+                                    });
+                                }
+                            }
+
+                            if !app.recent_thumbs.is_empty() {
+                                ui.label(
+                                    RichText::new("RECENT — TAP TO REVIEW")
+                                        .size(10.0)
+                                        .strong()
+                                        .color(theme::TEXT_DIM()),
+                                );
+                                ui.add_space(theme::SP_2);
+                                ui.horizontal(|ui| {
+                                    let mut open: Option<(std::path::PathBuf, bool)> = None;
+                                    for (path, is_video, tex) in &app.recent_thumbs {
+                                        let resp = egui::Frame::none()
+                                            .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                                            .rounding(theme::rounding_md())
+                                            .show(ui, |ui| {
+                                                let img = egui::Image::new(tex)
+                                                    .fit_to_exact_size(egui::Vec2::new(120.0, 68.0))
+                                                    .rounding(theme::rounding_md());
+                                                let r = ui.add(img);
+                                                if *is_video {
+                                                    let p = ui.painter();
+                                                    let c = r.rect.center();
+                                                    p.circle_filled(
+                                                        c,
+                                                        10.0,
+                                                        theme::CANVAS().gamma_multiply(0.75),
+                                                    );
+                                                    p.add(egui::Shape::convex_polygon(
+                                                        vec![
+                                                            c + egui::Vec2::new(-3.0, -5.0),
+                                                            c + egui::Vec2::new(-3.0, 5.0),
+                                                            c + egui::Vec2::new(6.0, 0.0),
+                                                        ],
+                                                        theme::TEXT(),
+                                                        Stroke::NONE,
+                                                    ));
+                                                }
+                                                r
+                                            })
+                                            .inner
+                                            .interact(egui::Sense::click())
+                                            .on_hover_text(format!(
+                                                "{} — open in Review",
+                                                path.file_name()
+                                                    .map(|f| f.to_string_lossy().to_string())
+                                                    .unwrap_or_default()
+                                            ));
+                                        if resp.clicked() {
+                                            open = Some((path.clone(), *is_video));
+                                        }
+                                        ui.add_space(theme::SP_2);
+                                    }
+                                    if let Some((p, is_video)) = open {
+                                        if is_video {
+                                            app.edit_file = Some(p.clone());
+                                            app.current_tab = crate::AppTab::Clip;
+                                            app.load_filmstrip(ctx, p);
+                                        } else {
+                                            app.open_still_from_path(p);
+                                        }
+                                    }
+                                });
+                                ui.add_space(theme::SP_3);
+                            } else if app.library_items.is_empty() {
+                                ui.label(
+                                    RichText::new(
+                                        "Your captures land in Review → Library. Try Screenshot now.",
+                                    )
+                                    .size(11.0)
+                                    .color(theme::TEXT_DIM()),
+                                );
+                                ui.add_space(theme::SP_3);
+                            }
+                        }
 
                         // ── Capture options (grouped card) ────────
                         egui::Frame::none()

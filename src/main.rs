@@ -92,6 +92,18 @@ impl AppTab {
             Self::Settings => "Settings",
         }
     }
+
+    /// One-line hint under the stage title — tells you what this screen is for.
+    pub(crate) fn subtitle(self) -> &'static str {
+        match self {
+            Self::Capture => "Grab it, mark it, ship it",
+            Self::Library => "Everything you've captured",
+            Self::Clip => "Trim it, GIF it, ship it",
+            Self::Still => "Mark it up, copy it out",
+            Self::Feedback => "Your agent is waiting on you",
+            Self::Settings => "",
+        }
+    }
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -180,6 +192,11 @@ pub(crate) struct VibecapApp {
     library_scan_rx: Option<Receiver<Vec<MediaItem>>>,
     /// A scan was requested while one was in flight — rescan after drain.
     library_scan_pending: bool,
+    /// Recent-capture thumbs on the Capture stage. The worker runs
+    /// ensure_thumb + image decode; the UI only turns results into textures.
+    pub(crate) recent_thumbs: Vec<(PathBuf, bool, egui::TextureHandle)>,
+    pub(crate) recent_thumbs_rx: Option<Receiver<Vec<(PathBuf, bool, egui::ColorImage)>>>,
+    pub(crate) recent_key: String,
     /// "All" | category labels from MediaCategory::label()
     library_filter: String,
     /// How many filtered items to show (starts at LIBRARY_PAGE_SIZE).
@@ -464,6 +481,9 @@ impl VibecapApp {
             voice_finalize_rx: None,
             library_scan_rx: None,
             library_scan_pending: false,
+            recent_thumbs: Vec::new(),
+            recent_thumbs_rx: None,
+            recent_key: String::new(),
             window_list_rx: None,
             front_app_rx: None,
             audio_devices_rx: None,
@@ -1417,6 +1437,28 @@ impl VibecapApp {
             self.library_scan_pending = false;
             self.refresh_library();
         }
+    }
+
+    /// Apply decoded recent-capture thumbs (worker → textures here).
+    fn drain_recent_thumbs(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.recent_thumbs_rx.as_ref() else {
+            return;
+        };
+        let Ok(items) = rx.try_recv() else {
+            return;
+        };
+        self.recent_thumbs_rx = None;
+        self.recent_thumbs = items
+            .into_iter()
+            .map(|(p, is_video, img)| {
+                let tex = ctx.load_texture(
+                    format!("recent:{}", p.display()),
+                    img,
+                    egui::TextureOptions::LINEAR,
+                );
+                (p, is_video, tex)
+            })
+            .collect();
     }
 
     fn library_filtered(&self) -> Vec<&MediaItem> {
@@ -3099,6 +3141,7 @@ impl eframe::App for VibecapApp {
         self.drain_record_finalize(ctx);
         self.drain_voice_finalize();
         self.drain_library_scan();
+        self.drain_recent_thumbs(ctx);
         self.drain_window_list();
         self.drain_region_snap(ctx);
         self.drain_filmstrip(ctx);
@@ -3580,12 +3623,22 @@ impl eframe::App for VibecapApp {
 
             // ── Stage header ─────────────────────────────────────
             ui.horizontal(|ui| {
-                ui.heading(
-                    RichText::new(self.current_tab.title())
-                        .size(22.0)
-                        .color(theme::TEXT())
-                        .strong(),
-                );
+                ui.vertical(|ui| {
+                    ui.heading(
+                        RichText::new(self.current_tab.title())
+                            .size(24.0)
+                            .color(theme::TEXT())
+                            .strong(),
+                    );
+                    let sub = self.current_tab.subtitle();
+                    if !sub.is_empty() {
+                        ui.label(
+                            RichText::new(sub)
+                                .size(11.0)
+                                .color(theme::TEXT_DIM()),
+                        );
+                    }
+                });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .small_button(RichText::new("⌘K").color(theme::TEXT_DIM()))

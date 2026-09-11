@@ -16,7 +16,7 @@ use crate::{AppTab, VibecapApp};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     ui.horizontal(|ui| {
-        ui.heading(RichText::new("Media Library").color(theme::TEXT()).strong());
+        ui.heading(RichText::new("Library").color(theme::TEXT()).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("Refresh").clicked() {
                 app.refresh_library();

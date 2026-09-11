@@ -20,6 +20,12 @@ pub enum Icon {
     Error,
     Info,
     EmptyFilm,
+    /// Full-screen target: monitor + stand.
+    Monitor,
+    /// Region target: corner brackets.
+    Region,
+    /// Window target: rect with title bar.
+    Window,
 }
 
 /// Paint a monochrome icon into `rect`. Returns response for hit-testing.
@@ -209,6 +215,54 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
                     Pos2::new(frame.right() - 8.0, c.y),
                 ],
                 Stroke::new(1.0_f32, theme::TEXT_DIM()),
+            );
+        }
+        Icon::Monitor => {
+            let body = Rect::from_center_size(c + Vec2::new(0.0, -s * 0.12), Vec2::new(s * 1.4, s * 0.95));
+            painter.rect_stroke(body, 2.0, stroke);
+            painter.line_segment(
+                [Pos2::new(c.x, body.bottom()), Pos2::new(c.x, body.bottom() + s * 0.3)],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(c.x - s * 0.35, body.bottom() + s * 0.42),
+                    Pos2::new(c.x + s * 0.35, body.bottom() + s * 0.42),
+                ],
+                stroke,
+            );
+        }
+        Icon::Region => {
+            // Four L-shaped corner brackets — the classic crop mark.
+            let r = s * 0.62;
+            let arm = s * 0.28;
+            for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                let cx = c.x + sx * r;
+                let cy = c.y + sy * r;
+                painter.add(Shape::line(
+                    vec![
+                        Pos2::new(cx - sx * arm, cy),
+                        Pos2::new(cx, cy),
+                        Pos2::new(cx, cy - sy * arm),
+                    ],
+                    Stroke::new(stroke.width + 0.3, color),
+                ));
+            }
+        }
+        Icon::Window => {
+            let body = Rect::from_center_size(c, Vec2::new(s * 1.4, s * 1.1));
+            painter.rect_stroke(body, 2.0, stroke);
+            painter.line_segment(
+                [
+                    Pos2::new(body.left(), body.top() + s * 0.34),
+                    Pos2::new(body.right(), body.top() + s * 0.34),
+                ],
+                stroke,
+            );
+            painter.circle_filled(
+                Pos2::new(body.left() + s * 0.18, body.top() + s * 0.17),
+                s * 0.06,
+                color,
             );
         }
     }
