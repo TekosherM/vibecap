@@ -84,8 +84,8 @@ impl AppTab {
 
     pub(crate) fn title(self) -> &'static str {
         match self {
-            Self::Capture => "Shutter",
-            Self::Library => "Media",
+            Self::Capture => "Capture",
+            Self::Library => "Library",
             Self::Clip => "Review · Clip",
             Self::Still => "Review · Still",
             Self::Feedback => "Inbox",

@@ -248,6 +248,7 @@ pub const SP_1: f32 = 4.0;
 pub const SP_2: f32 = 8.0;
 pub const SP_3: f32 = 12.0;
 pub const SP_4: f32 = 16.0;
+#[allow(dead_code)]
 pub const SP_5: f32 = 24.0;
 pub const SP_6: f32 = 32.0;
 

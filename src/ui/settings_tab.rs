@@ -4,7 +4,7 @@ use eframe::egui;
 use egui::{RichText, ScrollArea};
 use rfd::FileDialog;
 
-use crate::app::{default_live_dir, live_usage_snapshot, load_budget, save_budget, BudgetConfig};
+use crate::app::{load_budget, save_budget, BudgetConfig};
 use crate::platform::{ffmpeg_available, ffmpeg_path};
 use crate::ui::theme;
 use crate::ui::{
@@ -131,6 +131,15 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             });
 
+            // Power-user internals collapse — the simple path stays above.
+            egui::CollapsingHeader::new(
+                RichText::new("Advanced · capture internals & retro buffer")
+                    .size(12.0)
+                    .strong()
+                    .color(theme::TEXT_MUTED()),
+            )
+            .default_open(false)
+            .show(ui, |ui| {
             #[cfg(target_os = "windows")]
             section_card(ui, "WINDOWS CAPTURE", |ui| {
                 ui.label(
@@ -231,6 +240,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.show_toast("Retro buffer cleared");
                     }
                 });
+            });
             });
 
             // ── Shortcuts & appearance ────────────────────────────
@@ -366,6 +376,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             });
 
             // ── Agent session & budget ────────────────────────────
+            egui::CollapsingHeader::new(
+                RichText::new("For agents · session & budget")
+                    .size(12.0)
+                    .strong()
+                    .color(theme::TEXT_MUTED()),
+            )
+            .default_open(false)
+            .show(ui, |ui| {
             section_card(ui, "AGENT SESSION & BUDGET", |ui| {
                 if !app.budget_loaded {
                     let cfg = load_budget();
@@ -439,27 +457,26 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     }
                 });
                 ui.add_space(theme::SP_2);
-                let live_dir = default_live_dir().display().to_string();
-                let (frames, mb, _) = live_usage_snapshot(&live_dir);
-                let cfg_now = load_budget();
-                let frames_cap = if cfg_now.max_frames == 0 {
+                let live = app.live_stats_snapshot();
+                let frames_cap = if live.frames_cap == 0 {
                     "∞".to_string()
                 } else {
-                    cfg_now.max_frames.to_string()
+                    live.frames_cap.to_string()
                 };
-                let mb_cap = if cfg_now.max_mb <= 0.0 {
+                let mb_cap = if live.mb_cap <= 0.0 {
                     "∞".to_string()
                 } else {
-                    format!("{:.0}", cfg_now.max_mb)
+                    format!("{:.0}", live.mb_cap)
                 };
                 ui.label(
                     RichText::new(format!(
                         "Live session now: {}/{} frames · {:.1}/{} MB · tier {}",
-                        frames, frames_cap, mb, mb_cap, cfg_now.analysis_tier
+                        live.count, frames_cap, live.mb, mb_cap, live.tier
                     ))
                     .size(11.0)
                     .color(theme::TEXT_MUTED()),
                 );
+            });
             });
         });
 }

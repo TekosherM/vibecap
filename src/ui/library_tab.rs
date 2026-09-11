@@ -165,7 +165,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             ui,
             Icon::EmptyFilm,
             "No media in this category",
-            "Capture a screenshot or recording from Shutter — it lands here. Drag files in to import.",
+            "Take a screenshot or recording — it lands here. Drag files in to import.",
         );
         return;
     }

@@ -96,8 +96,8 @@ impl TrayController {
         let record_item = MenuItem::new("Record\t⌃⇧2", true, None);
 
         // ── Loop stages ─────────────────────────────────────────
-        let shutter_item = MenuItem::new("Shutter", true, None);
-        let media_item = MenuItem::new("Media", true, None);
+        let shutter_item = MenuItem::new("Capture", true, None);
+        let media_item = MenuItem::new("Library", true, None);
         let review_item = MenuItem::new("Review", true, None);
         let inbox_item = MenuItem::new("Inbox", true, None);
         let settings_item = MenuItem::new("Settings", true, None);

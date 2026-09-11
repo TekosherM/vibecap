@@ -246,8 +246,8 @@ fn step_welcome(ui: &mut egui::Ui) {
     );
     ui.add_space(theme::SP_3);
     for (title, body) in [
-        ("Shutter", "Screenshot, record, or GIF from the dock or hotkeys."),
-        ("Library", "Review captures with loop badges (Capture → Answer)."),
+        ("Capture", "Screenshot, record, or GIF — one button, global hotkeys."),
+        ("Review", "Mark up stills, trim clips, then copy or save in one tap."),
         ("Inbox", "When an agent asks, reply with chips, text, voice, or markup."),
     ] {
         ui.horizontal(|ui| {

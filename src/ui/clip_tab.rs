@@ -656,7 +656,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             if let Some(f) = app.edit_file.clone() {
                 if btn_primary(ui, "✓ Done") {
                     ui.ctx().copy_text(f.display().to_string());
-                    app.show_toast("Clip path copied — back to Shutter");
+                    app.show_toast("Clip path copied — back to Capture");
                     app.current_tab = crate::AppTab::Capture;
                 }
                 if btn_small(ui, "Reload") {
@@ -678,7 +678,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             ui,
             Icon::Clip,
             "No clip loaded",
-            "Record from Shutter, pick from Media, or select a video file.",
+            "Record from Capture, pick from Library, or select a video file.",
         );
         return;
     };

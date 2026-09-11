@@ -134,7 +134,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             if let Some(p) = app.img_edit_file.clone() {
                 if btn_primary(ui, "✓ Done") {
                     app.copy_current_still_to_clipboard();
-                    app.show_toast("Copied — back to Shutter for the next capture");
+                    app.show_toast("Copied — back to Capture for the next shot");
                     app.current_tab = crate::AppTab::Capture;
                 }
                 if btn_secondary(ui, "Save (overwrite)") {

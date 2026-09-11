@@ -12,13 +12,87 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            RichText::new("Screenshot · record · agent-ready media")
+                            RichText::new("What do you want to grab?")
                                 .color(theme::TEXT_MUTED())
                                 .size(13.0),
                         );
-                        ui.add_space(theme::SP_5);
+                        ui.add_space(theme::SP_3);
 
-                        // ── Shutter bar (persistent capture dock) ─
+                        // ── Step 1: target ─────────────────────────
+                        segmented(
+                            ui,
+                            &mut app.capture_target,
+                            &[
+                                (CaptureTarget::Fullscreen, "🖥  Full screen"),
+                                (CaptureTarget::Region, "✂  Pick a region"),
+                                (CaptureTarget::Window, "🪟  A window"),
+                            ],
+                        );
+                        if app.capture_target == CaptureTarget::Window {
+                            ui.add_space(theme::SP_2);
+                            if !app.window_list_scanned
+                                || app
+                                    .window_list_at
+                                    .map(|t| t.elapsed().as_secs() >= 2)
+                                    .unwrap_or(true)
+                            {
+                                app.refresh_window_list();
+                                app.window_list_at = Some(std::time::Instant::now());
+                            }
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_source("window_app_picker")
+                                    .selected_text(if app.window_app.is_empty() {
+                                        "Select app…".to_string()
+                                    } else {
+                                        app.window_app.clone()
+                                    })
+                                    .width(220.0)
+                                    .show_ui(ui, |ui| {
+                                        let wins =
+                                            crate::platform::list_capture_windows_cached();
+                                        if wins.is_empty() {
+                                            for name in app.window_app_list.clone() {
+                                                ui.selectable_value(
+                                                    &mut app.window_app,
+                                                    name.clone(),
+                                                    name,
+                                                );
+                                            }
+                                        } else {
+                                            for w in wins {
+                                                if w.is_self() {
+                                                    continue;
+                                                }
+                                                let mut lab = w.label();
+                                                if w.minimized {
+                                                    lab.push_str(" (minimized)");
+                                                }
+                                                lab.push_str(&format!(
+                                                    "  {}×{} @{},{}",
+                                                    w.w, w.h, w.x, w.y
+                                                ));
+                                                ui.selectable_value(
+                                                    &mut app.window_app,
+                                                    w.label(),
+                                                    lab,
+                                                );
+                                            }
+                                        }
+                                    });
+                                if btn_small(ui, "↻") {
+                                    app.refresh_window_list();
+                                }
+                            });
+                            ui.add(
+                                egui::TextEdit::singleline(&mut app.window_app)
+                                    .hint_text("Or type an app name (e.g. Chrome)")
+                                    .desired_width(280.0),
+                            );
+                        }
+
+                        ui.add_space(theme::SP_4);
+
+                        // ── Step 2: the buttons ────────────────────
                         let rec_label = if app.is_recording {
                             let elapsed = app.recording_elapsed_secs();
                             format!("Stop  [{:02}:{:02}]", elapsed / 60, elapsed % 60)
@@ -61,84 +135,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .show(ui, |ui| {
                                 ui.set_min_width(ui.available_width().min(560.0));
                                 ui.label(
-                                    RichText::new("CAPTURE OPTIONS")
+                                    RichText::new("OPTIONS")
                                         .size(11.0)
                                         .strong()
                                         .color(theme::TEXT_MUTED()),
                                 );
                                 ui.add_space(theme::SP_2);
-                                crate::ui::group(ui, "TARGET", |ui| {
-                                    segmented(
-                                        ui,
-                                        &mut app.capture_target,
-                                        &[
-                                            (CaptureTarget::Fullscreen, "Full"),
-                                            (CaptureTarget::Region, "Region"),
-                                            (CaptureTarget::Window, "Window"),
-                                        ],
-                                    );
-                                });
-                                if app.capture_target == CaptureTarget::Window {
-                                    if !app.window_list_scanned
-                                        || app
-                                            .window_list_at
-                                            .map(|t| t.elapsed().as_secs() >= 2)
-                                            .unwrap_or(true)
-                                    {
-                                        app.refresh_window_list();
-                                        app.window_list_at = Some(std::time::Instant::now());
-                                    }
-                                    crate::ui::group(ui, "WINDOW", |ui| {
-                                        egui::ComboBox::from_id_source("window_app_picker")
-                                            .selected_text(if app.window_app.is_empty() {
-                                                "Select app…".to_string()
-                                            } else {
-                                                app.window_app.clone()
-                                            })
-                                            .width(220.0)
-                                            .show_ui(ui, |ui| {
-                                                let wins =
-                                                    crate::platform::list_capture_windows_cached();
-                                                if wins.is_empty() {
-                                                    for name in app.window_app_list.clone() {
-                                                        ui.selectable_value(
-                                                            &mut app.window_app,
-                                                            name.clone(),
-                                                            name,
-                                                        );
-                                                    }
-                                                } else {
-                                                    for w in wins {
-                                                        if w.is_self() {
-                                                            continue;
-                                                        }
-                                                        let mut lab = w.label();
-                                                        if w.minimized {
-                                                            lab.push_str(" (minimized)");
-                                                        }
-                                                        lab.push_str(&format!(
-                                                            "  {}×{} @{},{}",
-                                                            w.w, w.h, w.x, w.y
-                                                        ));
-                                                        ui.selectable_value(
-                                                            &mut app.window_app,
-                                                            w.label(),
-                                                            lab,
-                                                        );
-                                                    }
-                                                }
-                                            });
-                                        if btn_small(ui, "↻") {
-                                            app.refresh_window_list();
-                                        }
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut app.window_app)
-                                                .hint_text("Or type app name (e.g. Google Chrome)")
-                                                .desired_width(220.0),
-                                        );
-                                    });
-                                }
                                 // Secondary knobs collapse — the funnel is
+                                // target → shutter, options on demand.
                                 // target → shutter, options on demand.
                                 egui::CollapsingHeader::new(
                                     RichText::new("Options · cursor · audio · display")
@@ -264,10 +268,23 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                         ui.add_space(theme::SP_4);
 
-                        // ── Compact live-stats row (always visible proof of life) ──
-                        {
-                            let live = app.live_stats_snapshot();
-                            let over = live.over;
+                        // Advanced / power-user surface — collapsed for the
+                        // snipping-tool flow, force-opens when it needs attention
+                        // (budget blown or retro buffer running).
+                        let live = app.live_stats_snapshot();
+                        let retro = app.retro.status();
+                        let needs_attention = live.over.is_some() || retro.enabled;
+                        egui::CollapsingHeader::new(
+                            RichText::new("Advanced · live session & agent budget")
+                                .color(theme::TEXT_MUTED())
+                                .size(12.0)
+                                .strong(),
+                        )
+                        .default_open(false)
+                        .open(if needs_attention { Some(true) } else { None })
+                        .show(ui, |ui| {
+                            // Compact live-stats row
+                            let over = live.over.clone();
                             ui.horizontal(|ui| {
                                 let dot_color = if over.is_some() {
                                     theme::DANGER()
@@ -299,66 +316,50 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     );
                                 }
                             });
-                        }
 
-                        // Retro buffer status (only when enabled — stays quiet when off)
-                        let retro = app.retro.status();
-                        if retro.enabled || retro.frame_count > 0 {
-                            ui.add_space(theme::SP_3);
-                            ui.horizontal(|ui| {
+                            // Retro buffer status (only when it has something to say)
+                            if retro.enabled || retro.frame_count > 0 {
+                                ui.add_space(theme::SP_2);
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(if retro.enabled {
+                                            format!(
+                                                "Retro · {:.0}s / {}s · {:.1} MB",
+                                                retro.span_secs, retro.max_secs, retro.mb
+                                            )
+                                        } else {
+                                            "Retro · off".into()
+                                        })
+                                        .small()
+                                        .color(if retro.enabled {
+                                            theme::ACCENT()
+                                        } else {
+                                            theme::TEXT_DIM()
+                                        }),
+                                    );
+                                    if btn_small(ui, "Save GIF") {
+                                        app.dump_retro_buffer();
+                                    }
+                                    if btn_small(ui, "Bug pack") {
+                                        app.bug_report_pack(ctx);
+                                    }
+                                });
+                            }
+                            if app.record_countdown_secs > 0 {
                                 ui.label(
-                                    RichText::new(if retro.enabled {
-                                        format!(
-                                            "Retro · {:.0}s / {}s · {:.1} MB",
-                                            retro.span_secs, retro.max_secs, retro.mb
-                                        )
-                                    } else {
-                                        "Retro · off".into()
-                                    })
+                                    RichText::new(format!(
+                                        "Countdown · {}s before record (Settings)",
+                                        app.record_countdown_secs
+                                    ))
                                     .small()
-                                    .color(if retro.enabled {
-                                        theme::ACCENT()
-                                    } else {
-                                        theme::TEXT_DIM()
-                                    }),
+                                    .color(theme::TEXT_DIM()),
                                 );
-                                if btn_small(ui, "Save GIF") {
-                                    app.dump_retro_buffer();
-                                }
-                                if btn_small(ui, "Bug pack") {
-                                    app.bug_report_pack(ctx);
-                                }
-                            });
-                        }
-                        if app.record_countdown_secs > 0 {
-                            ui.label(
-                                RichText::new(format!(
-                                    "Countdown · {}s before record (Settings)",
-                                    app.record_countdown_secs
-                                ))
-                                .small()
-                                .color(theme::TEXT_DIM()),
-                            );
-                        }
+                            }
 
-                        ui.add_space(16.0);
-                        egui::CollapsingHeader::new(
-                            RichText::new("Agent session · live inspection & budget")
-                                .color(theme::TEXT_MUTED())
-                                .size(12.0)
-                                .strong(),
-                        )
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            let live = app.live_stats_snapshot();
-                            ui.label(
-                                RichText::new(format!("Live frames: {} · {:.2} MB", live.count, live.mb))
-                                    .size(12.0)
-                                    .color(theme::TEXT_MUTED()),
-                            );
+                            ui.add_space(theme::SP_2);
                             ui.label(
                                 RichText::new(format!(
-                                    "Budget: frames cap {} · MB cap {:.1} · minutes cap {} · tier {}",
+                                    "Agent budget: frames cap {} · MB cap {:.1} · minutes cap {} · tier {}",
                                     if live.frames_cap == 0 {
                                         "unlimited".to_string()
                                     } else {

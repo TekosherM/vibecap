@@ -27,8 +27,8 @@ impl PaletteAction {
         &[
             (Self::Screenshot, "Screenshot", "Capture full screen (S)"),
             (Self::ToggleRecord, "Start / stop recording", "R · Ctrl+Shift+2"),
-            (Self::GoShutter, "Go to Shutter", "Capture tab"),
-            (Self::GoMedia, "Go to Media", "Library"),
+            (Self::GoShutter, "Go to Capture", "Take a screenshot or record"),
+            (Self::GoMedia, "Go to Library", "All your captures"),
             (Self::GoReview, "Go to Review", "Annotate still · trim clip"),
             (Self::GoInbox, "Go to Inbox", "Agent feedback"),
             (Self::GoSettings, "Go to Settings", "Budget · shortcuts"),

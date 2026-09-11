@@ -136,8 +136,8 @@ pub fn show_capture_toast(
                     ui.add_space(theme::SP_2);
                     ui.horizontal(|ui| {
                         if ui
-                            .button(RichText::new("Open in Still").strong())
-                            .on_hover_text("Open screenshot in Still studio")
+                            .button(RichText::new("Annotate").strong())
+                            .on_hover_text("Open in Review to mark it up")
                             .clicked()
                         {
                             action = Some(CaptureToastAction::Annotate);
@@ -236,9 +236,9 @@ impl LoopStage {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Shutter => "Shutter",
+            Self::Shutter => "Capture",
             Self::Review => "Review",
-            Self::Media => "Media",
+            Self::Media => "Library",
             Self::Inbox => "Inbox",
             Self::Settings => "Settings",
         }
@@ -290,7 +290,7 @@ pub fn loop_rail(
             }
             ui.add_space(theme::SP_4);
 
-            for stage in LoopStage::all() {
+            let stage_button = |ui: &mut Ui, stage: LoopStage| {
                 let is_active = stage == active;
                 let is_live_stage = matches!(stage, LoopStage::Shutter) && rec_live
                     || matches!(stage, LoopStage::Inbox) && inbox_badge > 0;
@@ -351,19 +351,35 @@ pub fn loop_rail(
                     .on_hover_text(stage.label())
                     .interact(Sense::click());
 
-                if resp.clicked() {
+                resp
+            };
+
+            // Funnel: Capture → Review ↓, then the archive legs, Settings pinned
+            // to the bottom like a normal app.
+            for (i, stage) in LoopStage::all().iter().enumerate() {
+                let stage = *stage;
+                if matches!(stage, LoopStage::Settings) {
+                    continue;
+                }
+                if stage_button(ui, stage).clicked() {
                     picked = Some(stage);
+                }
+                // Flow hint between the first two funnel steps.
+                if i == 0 {
+                    ui.label(
+                        RichText::new("↓")
+                            .color(theme::TEXT_DIM())
+                            .size(11.0),
+                    );
                 }
                 ui.add_space(theme::SP_1);
             }
 
             ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
                 ui.add_space(theme::SP_3);
-                ui.label(
-                    RichText::new("Loop")
-                        .color(theme::TEXT_DIM())
-                        .size(9.0),
-                );
+                if stage_button(ui, LoopStage::Settings).clicked() {
+                    picked = Some(LoopStage::Settings);
+                }
             });
         },
     );
@@ -683,26 +699,18 @@ pub fn shutter_strip(
         .inner_margin(Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("SHUTTER")
-                        .color(theme::TEXT_DIM())
-                        .size(11.0)
-                        .strong(),
-                );
-                ui.add_space(theme::SP_3);
-
-                // Screenshot — secondary outline (not live accent)
+                // Screenshot — the primary CTA for a snipping tool.
                 let shot = egui::Button::new(
-                    RichText::new("  Screenshot  (S)  ")
-                        .color(theme::TEXT())
-                        .size(14.0)
+                    RichText::new("  📸  Screenshot  ")
+                        .color(theme::ACCENT_INK())
+                        .size(15.0)
                         .strong(),
                 )
-                .fill(theme::SURFACE_2())
-                .stroke(Stroke::new(1.0_f32, theme::TEXT_MUTED()))
+                .fill(theme::ACCENT())
+                .stroke(Stroke::new(1.0_f32, theme::ACCENT()))
                 .rounding(theme::rounding_md());
                 if ui
-                    .add_sized([148.0, 44.0], shot)
+                    .add_sized([176.0, 48.0], shot)
                     .on_hover_text("S · Ctrl+Shift+3")
                     .clicked()
                 {
@@ -711,26 +719,25 @@ pub fn shutter_strip(
 
                 ui.add_space(theme::SP_2);
 
-                // Record — accent only when live / primary CTA when idle
+                // Record — outline at rest, danger fill only while live.
                 let (fill, stroke_c, text_c) = if is_recording {
                     (theme::DANGER(), theme::DANGER(), theme::ON_SOLID())
                 } else if is_arming {
                     (theme::WARN(), theme::WARN(), theme::ACCENT_INK())
                 } else {
-                    // Idle record uses accent as the one intentional live-capable CTA
-                    (theme::ACCENT(), theme::ACCENT(), theme::ACCENT_INK())
+                    (theme::SURFACE_2(), theme::TEXT_MUTED(), theme::TEXT())
                 };
                 let rec = egui::Button::new(
                     RichText::new(format!("  {}  ", rec_label))
                         .color(text_c)
-                        .size(14.0)
+                        .size(15.0)
                         .strong(),
                 )
                 .fill(fill)
                 .stroke(Stroke::new(1.0_f32, stroke_c))
                 .rounding(theme::rounding_md());
                 if ui
-                    .add_sized([148.0, 44.0], rec)
+                    .add_sized([176.0, 48.0], rec)
                     .on_hover_text("R · Ctrl+Shift+2 · tray")
                     .clicked()
                 {
@@ -739,16 +746,15 @@ pub fn shutter_strip(
 
                 ui.add_space(theme::SP_2);
                 let gif = egui::Button::new(
-                    RichText::new("  GIF  3s  ")
+                    RichText::new("  GIF  ")
                         .color(theme::TEXT())
-                        .size(14.0)
-                        .strong(),
+                        .size(13.0),
                 )
                 .fill(theme::SURFACE_2())
-                .stroke(Stroke::new(1.0_f32, theme::TEXT_MUTED()))
+                .stroke(Stroke::new(1.0_f32, theme::BORDER()))
                 .rounding(theme::rounding_md());
                 if ui
-                    .add_sized([100.0, 44.0], gif)
+                    .add_sized([88.0, 48.0], gif)
                     .on_hover_text("Record 3 seconds and export a GIF")
                     .clicked()
                 {
