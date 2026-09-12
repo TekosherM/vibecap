@@ -20,13 +20,15 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
         .inner_margin(Margin::same(theme::SP_3))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.label(
-                RichText::new(title)
-                    .size(12.0)
-                    .color(theme::TEXT_MUTED())
-                    .strong(),
-            );
-            ui.add_space(theme::SP_2);
+            if !title.is_empty() {
+                ui.label(
+                    RichText::new(title)
+                        .size(12.0)
+                        .color(theme::TEXT_MUTED())
+                        .strong(),
+                );
+                ui.add_space(theme::SP_2);
+            }
             add(ui);
         });
 }
@@ -179,62 +181,50 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             ui,
             Icon::Still,
             "No still loaded",
-            "Screenshot from Shutter, pick from Media, or select an image file to annotate & edit.",
+            "Take a screenshot (S) or pick one from Library — it lands here to mark up.",
         );
         return;
     };
 
     ui.add_space(theme::SP_3);
 
-    // ── Annotation Studio Toolbar ────────────────────────────────────
-    card(ui, "ANNOTATION TOOLS", |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.radio_value(&mut app.current_tool, AnnotationTool::Pen, "✏ Pen");
-            ui.radio_value(&mut app.current_tool, AnnotationTool::Arrow, "➡ Arrow");
-            ui.radio_value(&mut app.current_tool, AnnotationTool::Rectangle, "🔲 Rect");
-            ui.radio_value(&mut app.current_tool, AnnotationTool::Highlight, "🖍 Highlight");
-            ui.radio_value(&mut app.current_tool, AnnotationTool::Text, "🔤 Text");
-            ui.radio_value(&mut app.current_tool, AnnotationTool::Blur, "💧 Blur");
-            ui.radio_value(&mut app.current_tool, AnnotationTool::StepBadge, "🔢 Badge");
+    // Canvas-dominant layout: image left, inspector right (like a photo app).
+    const INSPECTOR_W: f32 = 244.0;
+    let canvas_w = (ui.available_width() - INSPECTOR_W - theme::SP_3).max(300.0);
+    let body_h = ui.available_height().max(380.0);
 
-            ui.separator();
-            ui.color_edit_button_srgba(&mut app.current_color);
-            ui.add(egui::Slider::new(&mut app.current_stroke_width, 1.0..=12.0).text("Size"));
+    ui.horizontal_top(|ui| {
+    ui.allocate_ui_with_layout(
+        Vec2::new(canvas_w, body_h),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
 
-            if app.current_tool == AnnotationTool::Text {
-                ui.separator();
-                ui.label("Text:");
-                ui.text_edit_singleline(&mut app.pending_text);
-            }
-
-            ui.separator();
-            if btn_small(ui, "Undo") {
-                app.annotation_actions.pop();
-                app.step_counter = crate::app::renumber_step_badges(&mut app.annotation_actions);
-            }
-            if btn_small(ui, "Clear annotations") {
-                app.annotation_actions.clear();
-                app.step_counter = 1;
-            }
-        });
-    });
-
-    ui.add_space(theme::SP_3);
-
-    // ── Preview Canvas & Interactive Annotation Painter ───────────────
-    card(ui, "CANVAS (DRAW TO ANNOTATE)", |ui| {
+    card(ui, "", |ui| {
         ui.horizontal(|ui| {
             switch(ui, "Live preview", &mut app.img_preview_on);
             ui.label(
-                RichText::new("Drag on image to draw shapes · ⌘C to copy · ⌘S to save")
+                RichText::new("Drag to draw · Space+drag to pan · ⌘C copy · ⌘S save")
                     .small()
                     .color(theme::TEXT_MUTED()),
             );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if btn_small(ui, "+") {
+                    app.still_zoom = (app.still_zoom + 0.25).min(4.0);
+                }
+                ui.label(
+                    RichText::new(format!("{:.0}%", app.still_zoom * 100.0))
+                        .size(10.0)
+                        .color(theme::TEXT_DIM()),
+                );
+                if btn_small(ui, "−") {
+                    app.still_zoom = (app.still_zoom - 0.25).max(0.25);
+                }
+            });
         });
         ui.add_space(theme::SP_2);
 
         let max_w = ui.available_width();
-        let max_h = (ui.available_height() * 0.50).clamp(240.0, 480.0);
+        let max_h = (body_h - 80.0).clamp(240.0, 1200.0);
 
         if app.img_preview_on {
             app.refresh_img_preview(ctx);
@@ -459,70 +449,118 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 );
             });
         }
-    });
+    }); // canvas card
+
+        },
+    ); // left column
 
     ui.add_space(theme::SP_3);
+    // ── Inspector (right rail — tools, brush, adjust) ────────────────
+    ui.allocate_ui_with_layout(
+        Vec2::new(INSPECTOR_W, body_h),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            egui::ScrollArea::vertical()
+                .id_source("still_inspector")
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    ui.set_max_width(INSPECTOR_W - 8.0);
 
-    // ── Adjustments (grouped) ─────────────────────────────────────
-    card(ui, "ADJUSTMENTS", |ui| {
-        group(ui, "TRANSFORM", |ui| {
-            segmented(
-                ui,
-                &mut app.img_rotate,
-                &[(0u32, "0°"), (90, "90°"), (180, "180°"), (270, "270°")],
-            );
-            ui.add_space(theme::SP_2);
-            switch(ui, "Flip H", &mut app.img_flip_h);
-            ui.add_space(theme::SP_2);
-            switch(ui, "Flip V", &mut app.img_flip_v);
-        });
-        group(ui, "COLOR", |ui| {
-            switch(ui, "Gray", &mut app.img_grayscale);
-            ui.add_space(theme::SP_3);
-            ui.label(RichText::new("Bright").size(11.0).color(theme::TEXT_DIM()));
-            ui.add(egui::Slider::new(&mut app.img_brightness, -100..=100).show_value(false));
-            ui.add_space(theme::SP_2);
-            ui.label(RichText::new("Contrast").size(11.0).color(theme::TEXT_DIM()));
-            ui.add(egui::Slider::new(&mut app.img_contrast, -100.0..=100.0).show_value(false));
-            ui.add_space(theme::SP_2);
-            ui.label(RichText::new("Blur").size(11.0).color(theme::TEXT_DIM()));
-            ui.add(egui::Slider::new(&mut app.img_blur, 0.0..=10.0).show_value(false));
-        });
-        group(ui, "SIZE & CROP", |ui| {
-            ui.label(RichText::new("Resize %").size(11.0).color(theme::TEXT_DIM()));
-            ui.add(egui::Slider::new(&mut app.img_resize_pct, 10..=200).show_value(false));
-            ui.add_space(theme::SP_3);
-            switch(ui, "Drag on canvas to crop", &mut app.still_crop_mode);
-            ui.label(RichText::new("Crop px").size(11.0).color(theme::TEXT_DIM()));
-            ui.add(
-                egui::TextEdit::singleline(&mut app.img_crop_x)
-                    .hint_text("x")
-                    .desired_width(48.0),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut app.img_crop_y)
-                    .hint_text("y")
-                    .desired_width(48.0),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut app.img_crop_w)
-                    .hint_text("w")
-                    .desired_width(48.0),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut app.img_crop_h)
-                    .hint_text("h")
-                    .desired_width(48.0),
-            );
-        });
-        ui.add_space(theme::SP_1);
-        ui.horizontal(|ui| {
-            if btn_primary(ui, "Save overwrite") {
-                app.save_current_still();
-            }
-            if btn_secondary(ui, "Save as copy") {
-                app.save_current_still_copy();
-            }
-        });
-    });
+                    group(ui, "TOOLS", |ui| {
+                        for (tool, label) in [
+                            (AnnotationTool::Pen, "✏ Pen"),
+                            (AnnotationTool::Arrow, "➡ Arrow"),
+                            (AnnotationTool::Rectangle, "🔲 Rect"),
+                            (AnnotationTool::Highlight, "🖍 Highlight"),
+                            (AnnotationTool::Text, "🔤 Text"),
+                            (AnnotationTool::Blur, "💧 Blur"),
+                            (AnnotationTool::StepBadge, "🔢 Steps"),
+                        ] {
+                            ui.selectable_value(&mut app.current_tool, tool, label);
+                        }
+                    });
+
+                    group(ui, "BRUSH", |ui| {
+                        ui.color_edit_button_srgba(&mut app.current_color);
+                        ui.add(
+                            egui::Slider::new(&mut app.current_stroke_width, 1.0..=12.0)
+                                .text("px"),
+                        );
+                    });
+                    if app.current_tool == AnnotationTool::Text {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut app.pending_text)
+                                .hint_text("Text to place…"),
+                        );
+                        ui.add_space(theme::SP_2);
+                    }
+                    ui.horizontal(|ui| {
+                        if btn_small(ui, "↩ Undo") {
+                            app.annotation_actions.pop();
+                            app.step_counter =
+                                crate::app::renumber_step_badges(&mut app.annotation_actions);
+                        }
+                        if btn_small(ui, "Clear marks") {
+                            app.annotation_actions.clear();
+                            app.step_counter = 1;
+                        }
+                    });
+
+                    ui.add_space(theme::SP_2);
+                    ui.separator();
+                    ui.add_space(theme::SP_2);
+
+                    group(ui, "ROTATE & FLIP", |ui| {
+                        segmented(
+                            ui,
+                            &mut app.img_rotate,
+                            &[(0u32, "0°"), (90, "90°"), (180, "180°"), (270, "270°")],
+                        );
+                        switch(ui, "Flip H", &mut app.img_flip_h);
+                        switch(ui, "Flip V", &mut app.img_flip_v);
+                    });
+
+                    group(ui, "LOOK", |ui| {
+                        switch(ui, "Gray", &mut app.img_grayscale);
+                    });
+                    ui.label(RichText::new("Brightness").size(11.0).color(theme::TEXT_DIM()));
+                    ui.add(egui::Slider::new(&mut app.img_brightness, -100..=100).show_value(false));
+                    ui.label(RichText::new("Contrast").size(11.0).color(theme::TEXT_DIM()));
+                    ui.add(egui::Slider::new(&mut app.img_contrast, -100.0..=100.0).show_value(false));
+                    ui.label(RichText::new("Soft blur").size(11.0).color(theme::TEXT_DIM()));
+                    ui.add(egui::Slider::new(&mut app.img_blur, 0.0..=10.0).show_value(false));
+
+                    ui.add_space(theme::SP_2);
+                    ui.separator();
+                    ui.add_space(theme::SP_2);
+
+                    group(ui, "SIZE & CROP", |ui| {
+                        switch(ui, "Drag on canvas to crop", &mut app.still_crop_mode);
+                    });
+                    ui.label(RichText::new("Resize %").size(11.0).color(theme::TEXT_DIM()));
+                    ui.add(egui::Slider::new(&mut app.img_resize_pct, 10..=200).show_value(false));
+                    ui.label(RichText::new("Crop px — x · y · w · h").size(11.0).color(theme::TEXT_DIM()));
+                    ui.horizontal(|ui| {
+                        for field in [
+                            &mut app.img_crop_x,
+                            &mut app.img_crop_y,
+                            &mut app.img_crop_w,
+                            &mut app.img_crop_h,
+                        ] {
+                            ui.add(egui::TextEdit::singleline(field).desired_width(44.0));
+                        }
+                    });
+
+                    ui.add_space(theme::SP_3);
+                    if btn_primary(ui, "Save overwrite") {
+                        app.save_current_still();
+                    }
+                    ui.add_space(theme::SP_1);
+                    if btn_secondary(ui, "Save as copy") {
+                        app.save_current_still_copy();
+                    }
+                });
+        },
+    );
+    }); // horizontal split
 }

@@ -37,10 +37,82 @@ pub fn is_light() -> bool {
 
 /// Apply current mode's egui visuals + token table.
 pub fn apply_current_theme(ctx: &egui::Context) {
+    install_ui_fonts(ctx);
+    install_chrome_style(ctx);
     match theme_mode() {
         ThemeMode::Dark => apply_graphite_theme(ctx),
         ThemeMode::Light => apply_light_theme(ctx),
     }
+}
+
+/// Load real UI fonts — egui's bundled font is a big part of the toolbox feel.
+/// Picks the OS-native UI face where available; falls back to egui defaults.
+fn install_ui_fonts(ctx: &egui::Context) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let proportional: &[&str] = if cfg!(windows) {
+            &[
+                r"C:\Windows\Fonts\segoeui.ttf",
+                r"C:\Windows\Fonts\segoeuib.ttf",
+            ]
+        } else if cfg!(target_os = "macos") {
+            &[
+                "/System/Library/Fonts/SFNS.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+            ]
+        } else {
+            &[
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            ]
+        };
+        let monospace: &[&str] = if cfg!(windows) {
+            &[r"C:\Windows\Fonts\CascadiaMono.ttf", r"C:\Windows\Fonts\consola.ttf"]
+        } else {
+            &[]
+        };
+
+        let mut fonts = egui::FontDefinitions::default();
+        let mut installed = false;
+        for (i, path) in proportional.iter().enumerate() {
+            if let Ok(bytes) = std::fs::read(path) {
+                let name = format!("ui-sans-{i}");
+                fonts.font_data.insert(name.clone(), egui::FontData::from_owned(bytes));
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .insert(i, name);
+                installed = true;
+            }
+        }
+        for (i, path) in monospace.iter().enumerate() {
+            if let Ok(bytes) = std::fs::read(path) {
+                let name = format!("ui-mono-{i}");
+                fonts.font_data.insert(name.clone(), egui::FontData::from_owned(bytes));
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Monospace)
+                    .or_default()
+                    .insert(i, name);
+            }
+        }
+        if installed {
+            ctx.set_fonts(fonts);
+        }
+    });
+}
+
+/// Roomier chrome — bigger hit targets and breathing room read as "app",
+/// egui's defaults read as "toolbox".
+fn install_chrome_style(ctx: &egui::Context) {
+    ctx.style_mut(|s| {
+        s.spacing.item_spacing = egui::Vec2::new(10.0, 8.0);
+        s.spacing.button_padding = egui::Vec2::new(12.0, 6.0);
+        s.spacing.indent = 20.0;
+        s.spacing.slider_width = 140.0;
+        s.spacing.text_edit_width = 240.0;
+    });
 }
 
 macro_rules! dual {

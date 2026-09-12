@@ -75,6 +75,7 @@ Job records, walks Lumen Cart (coupon 422 → tax 500 → pay 402, 3 stills), in
 - Known remaining (do not rediscover): live HWND thumbnails; library hover-scrub is a poster (scrub in Clip); no OS drag-out to Explorer; no voice waveform; hotkey digit change applies on next GUI launch; macOS *record* `--window` still focuses then captures the display (stills crop via `screencapture -l`)
 - CI: Linux `libxdo-dev`, web typecheck, MCP smoke accepts 0.3.x, Windows `scripts/smoke_capture.ps1` (continue-on-error)
 - Native binaries on v0.3.0 (macOS arm/intel, Linux, Windows). Tip of `master` is unreleased capture/studio work — run `cargo build --release`, not the tag, for Windows gdigrab.
+- UI redesign pass 2 (2026-09): Segoe UI/Cascadia loaded as app fonts + roomier chrome spacing; Review·Still is canvas-left/inspector-right (tools, brush, look, crop in a 244px rail, zoom +/− in canvas header); Review·Clip is player-left/inspector-right (trim/GIF/presets/audio/transform in rail); Library is a date-grouped thumbnail grid — click opens in Review, right-click for Open/Reveal/Copy/Delete; clip transport keys no longer fire while typing in fields.
 
 ## Still true (not bugs to “fix” by pretending)
 
