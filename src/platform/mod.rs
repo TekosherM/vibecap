@@ -32,7 +32,7 @@ pub use notify::notify_agent_question;
 pub use paths::{config_dir, live_dir, live_session_dir, media_dir, media_dir_display};
 pub use process::{cont_process, pause_supported, stop_process};
 #[cfg(windows)]
-pub use win32::{minimize_studio, restore_studio_to_taskbar};
+pub(crate) use win32::{minimize_studio, restore_studio_to_taskbar, run_at_login_enabled_native, set_run_at_login_native};
 pub use shell::{
     activate_own_app, focus_app, frontmost_app_name, list_capture_windows,
     list_capture_windows_cached, list_monitors,

@@ -686,6 +686,55 @@ pub fn group(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
     ui.add_space(theme::SP_2);
 }
 
+/// Slim clickable bar standing in for a collapsed funnel stage.
+/// Returns true when the user clicks to expand that stage.
+pub fn funnel_stripe(ui: &mut Ui, icon: Icon, title: &str, hint: &str) -> bool {
+    let h = 40.0;
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), h), Sense::click());
+    let hovered = resp.hovered();
+    ui.painter().rect_filled(
+        rect,
+        theme::rounding_md(),
+        if hovered {
+            theme::SURFACE_3()
+        } else {
+            theme::SURFACE()
+        },
+    );
+    ui.painter().rect_stroke(
+        rect,
+        theme::rounding_md(),
+        Stroke::new(1.0_f32, if hovered { theme::ACCENT() } else { theme::BORDER() }),
+    );
+    icons::paint_icon(
+        ui,
+        Rect::from_center_size(
+            Pos2::new(rect.left() + 24.0, rect.center().y),
+            Vec2::splat(18.0),
+        ),
+        icon,
+        if hovered { theme::ACCENT() } else { theme::TEXT_MUTED() },
+    );
+    ui.painter().text(
+        Pos2::new(rect.left() + 48.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        title,
+        egui::FontId::proportional(13.5),
+        theme::TEXT(),
+    );
+    ui.painter().text(
+        Pos2::new(rect.right() - 16.0, rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        hint,
+        egui::FontId::proportional(11.0),
+        theme::TEXT_DIM(),
+    );
+    let clicked = resp.clicked();
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    clicked
+}
+
 // ── Shutter strip ───────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq)]

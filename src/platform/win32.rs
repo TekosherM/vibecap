@@ -456,6 +456,111 @@ pub fn focus_window(needle: &str) -> Result<(), String> {
     }
 }
 
+
+// ── Registry: Run-key autostart (direct advapi32 — no reg.exe, no console flash) ──
+
+const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+const KEY_QUERY_VALUE: u32 = 0x0001;
+const KEY_SET_VALUE: u32 = 0x0002;
+const REG_SZ: u32 = 1;
+const ERROR_FILE_NOT_FOUND: i32 = 2;
+
+#[link(name = "advapi32")]
+extern "system" {
+    fn RegOpenKeyExW(hkey: isize, sub: *const u16, opts: u32, sam: u32, out: *mut isize) -> i32;
+    fn RegQueryValueExW(
+        hkey: isize,
+        name: *const u16,
+        res: *mut u32,
+        ty: *mut u32,
+        data: *mut u8,
+        len: *mut u32,
+    ) -> i32;
+    fn RegSetValueExW(
+        hkey: isize,
+        name: *const u16,
+        res: u32,
+        ty: u32,
+        data: *const u8,
+        len: u32,
+    ) -> i32;
+    fn RegDeleteValueW(hkey: isize, name: *const u16) -> i32;
+    fn RegCloseKey(hkey: isize) -> i32;
+}
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+const RUN_SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "Vibecap";
+
+/// True when HKCU\…\Run\Vibecap exists — instant, no child process.
+pub fn run_at_login_enabled_native() -> bool {
+    unsafe {
+        let mut key: isize = 0;
+        if RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(RUN_SUBKEY).as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        ) != 0
+        {
+            return false;
+        }
+        let mut ty: u32 = 0;
+        let mut len: u32 = 0;
+        let rc = RegQueryValueExW(
+            key,
+            wide(RUN_VALUE).as_ptr(),
+            std::ptr::null_mut(),
+            &mut ty,
+            std::ptr::null_mut(),
+            &mut len,
+        );
+        RegCloseKey(key);
+        rc == 0
+    }
+}
+
+/// Write or delete the Run entry. `cmdline` is the full command, e.g. `"C:\…ibecap.exe" --hidden`.
+pub fn set_run_at_login_native(enable: bool, cmdline: &str) -> Result<(), String> {
+    unsafe {
+        let mut key: isize = 0;
+        if RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(RUN_SUBKEY).as_ptr(),
+            0,
+            KEY_SET_VALUE,
+            &mut key,
+        ) != 0
+        {
+            return Err("could not open Run registry key".into());
+        }
+        let name = wide(RUN_VALUE);
+        let rc = if enable {
+            let data: Vec<u16> = cmdline.encode_utf16().chain(std::iter::once(0)).collect();
+            RegSetValueExW(
+                key,
+                name.as_ptr(),
+                0,
+                REG_SZ,
+                data.as_ptr() as *const u8,
+                (data.len() * 2) as u32,
+            )
+        } else {
+            RegDeleteValueW(key, name.as_ptr())
+        };
+        RegCloseKey(key);
+        if rc == 0 || (!enable && rc == ERROR_FILE_NOT_FOUND) {
+            Ok(())
+        } else {
+            Err(format!("registry write failed ({rc})"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

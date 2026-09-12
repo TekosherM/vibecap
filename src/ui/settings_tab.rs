@@ -254,6 +254,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ("⌘K", "Command palette"),
                     ("Ctrl+1–5", "Jump to a stage"),
                     ("Alt+← / →", "Back / forward between stages"),
+                    ("Ctrl+B", "Toggle the stage rail"),
                 ] {
                     ui.horizontal(|ui| {
                         kbd(ui, key);
@@ -477,6 +478,23 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .color(theme::TEXT_MUTED()),
                 );
             });
+            });
+
+            // ── Quit — the X hides to tray; this is the real exit ──
+            ui.add_space(theme::SP_3);
+            ui.separator();
+            ui.add_space(theme::SP_2);
+            ui.horizontal(|ui| {
+                if btn_danger(ui, "Quit Vibecap") {
+                    app.quit_app();
+                }
+                ui.label(
+                    RichText::new(
+                        "The X button only hides to the tray — this fully exits.",
+                    )
+                    .size(11.0)
+                    .color(theme::TEXT_DIM()),
+                );
             });
         });
 }

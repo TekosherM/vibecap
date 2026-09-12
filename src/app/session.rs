@@ -58,6 +58,9 @@ pub struct SessionState {
     /// True only after a probe produced a capture that looks allowed.
     #[serde(default)]
     pub screen_permission_ok: bool,
+    /// Left stage rail — hidden by default; the funnel column is the home UX.
+    #[serde(default)]
+    pub rail_open: bool,
 }
 
 fn default_theme_dark() -> String {
@@ -113,6 +116,7 @@ impl Default for SessionState {
             hotkey_rec_digit: 2,
             screen_permission_prompted: false,
             screen_permission_ok: false,
+            rail_open: false,
         }
     }
 }

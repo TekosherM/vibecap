@@ -20,6 +20,7 @@ pub enum PaletteAction {
     SaveRetro,
     BugReport,
     OpenPaletteHelp,
+    QuitApp,
 }
 
 impl PaletteAction {
@@ -51,6 +52,11 @@ impl PaletteAction {
                 "Screenshot + retro GIF (if buffer on)",
             ),
             (Self::OpenPaletteHelp, "Palette help", "This list"),
+            (
+                Self::QuitApp,
+                "Quit Vibecap",
+                "Fully exit (the X button hides to tray)",
+            ),
         ]
     }
 }

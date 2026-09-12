@@ -18,8 +18,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         );
                         ui.add_space(theme::SP_3);
 
-                        // ── Step 1: target cards ───────────────────
+                        // ── Step 1: target cards — fixed thirds so none eats the row ──
                         ui.horizontal(|ui| {
+                            let card_w =
+                                ((ui.available_width() - 2.0 * theme::SP_2) / 3.0).min(240.0);
                             for (target, icon, label, hint) in [
                                 (
                                     CaptureTarget::Fullscreen,
@@ -55,7 +57,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     .rounding(theme::rounding_md())
                                     .inner_margin(egui::Margin::symmetric(14.0, 10.0))
                                     .show(ui, |ui| {
-                                        ui.set_min_width(104.0);
+                                        ui.set_width(card_w - 28.0);
+                                        ui.set_min_height(56.0);
                                         ui.vertical_centered(|ui| {
                                             let (r, _) = ui.allocate_exact_size(
                                                 egui::Vec2::splat(24.0),
@@ -324,15 +327,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .inner_margin(egui::Margin::same(theme::SP_3))
                             .show(ui, |ui| {
                                 ui.set_min_width(ui.available_width().min(560.0));
-                                ui.label(
-                                    RichText::new("OPTIONS")
-                                        .size(11.0)
-                                        .strong()
-                                        .color(theme::TEXT_MUTED()),
-                                );
-                                ui.add_space(theme::SP_2);
                                 // Secondary knobs collapse — the funnel is
-                                // target → shutter, options on demand.
                                 // target → shutter, options on demand.
                                 egui::CollapsingHeader::new(
                                     RichText::new("Options · cursor · audio · display")

@@ -224,25 +224,25 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .inner_margin(egui::Margin::same(6.0))
                             .show(ui, |ui| {
                                 ui.set_width(card_w - 20.0);
-                                // Thumbnail (or icon tile for audio/note).
+                                // Thumbnail — only feed the loader a decodable
+                                // image (mp4 → ⚠). Videos use their .jpg thumb;
+                                // missing thumbs fall back to an icon tile.
                                 let thumb = crate::app::thumbs::thumb_file(&item.path);
-                                let img_src = if thumb.exists() {
-                                    thumb
-                                } else {
-                                    item.path.clone()
+                                let img_src: Option<PathBuf> = match item.category {
+                                    MediaCategory::Screenshot | MediaCategory::Gif => {
+                                        Some(item.path.clone())
+                                    }
+                                    MediaCategory::Video if thumb.exists() => Some(thumb),
+                                    _ => None,
                                 };
                                 let thumb_size = Vec2::new(card_w - 20.0, 88.0);
-                                let resp = if matches!(
-                                    item.category,
-                                    MediaCategory::Screenshot
-                                        | MediaCategory::Gif
-                                        | MediaCategory::Video
-                                ) {
+                                let resp = if let Some(src) = img_src {
+                                    let uri = format!(
+                                        "file://{}",
+                                        src.display().to_string()
+                                    );
                                     let r = ui.add(
-                                        egui::Image::new(format!(
-                                            "file://{}",
-                                            img_src.display()
-                                        ))
+                                        egui::Image::new(uri)
                                         .fit_to_exact_size(thumb_size)
                                         .rounding(theme::rounding_sm())
                                         .sense(egui::Sense::click()),
@@ -361,6 +361,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 });
 
                                 ui.add_space(4.0);
+                                // Name gets the full card width — no nested
+                                // horizontal to squeeze it into char-wrapping.
+                                let name = if item.name.chars().count() > 26 {
+                                    format!(
+                                        "{}…",
+                                        item.name.chars().take(25).collect::<String>()
+                                    )
+                                } else {
+                                    item.name.clone()
+                                };
+                                ui.add(egui::Label::new(
+                                    RichText::new(name)
+                                        .size(11.0)
+                                        .strong()
+                                        .color(theme::TEXT()),
+                                ));
                                 ui.horizontal(|ui| {
                                     let mut checked = selected;
                                     if ui.checkbox(&mut checked, "").changed() {
@@ -389,34 +405,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         }
                                         app.library_last_click = Some(item.path.clone());
                                     }
-                                    ui.vertical(|ui| {
-                                        let name = if item.name.chars().count() > 26 {
-                                            format!(
-                                                "{}…",
-                                                item.name.chars().take(25).collect::<String>()
-                                            )
-                                        } else {
-                                            item.name.clone()
-                                        };
-                                        ui.label(
-                                            RichText::new(name)
-                                                .size(11.0)
-                                                .strong()
-                                                .color(theme::TEXT()),
-                                        );
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} · {}",
-                                                    item.category.label(),
-                                                    item.size_str
-                                                ))
-                                                .size(9.5)
-                                                .color(theme::TEXT_DIM()),
-                                            );
-                                            loop_position_badge(ui, item.loop_position());
-                                        });
-                                    });
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{} · {}",
+                                            item.category.label(),
+                                            item.size_str
+                                        ))
+                                        .size(9.5)
+                                        .color(theme::TEXT_DIM()),
+                                    );
+                                    loop_position_badge(ui, item.loop_position());
                                 });
                             });
                         let _ = inner;

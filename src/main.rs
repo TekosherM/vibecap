@@ -28,7 +28,7 @@ capture_screenshot, capture_screenshot_interactive,
 };
 use tray_ui::{TrayAction, TrayController, TrayLiveState};
 use ui::{
-    apply_current_theme, apply_graphite_theme, loop_rail, show_capture_toast,
+    apply_current_theme, apply_graphite_theme, funnel_stripe, loop_rail, show_capture_toast,
     overlay_rect_to_pixels, show_countdown_bubble, show_palette, show_region_selector,
     show_toast_card, status_strip, CaptureToastAction, Density, LoopStage, PaletteAction,
     RegionHudResult, StatusSnapshot, ThemeMode, ToastLevel,
@@ -366,6 +366,8 @@ pub(crate) struct VibecapApp {
     prev_tab: AppTab,
     /// Run-at-login state for the Settings toggle; None = not probed yet.
     autostart_state: Option<bool>,
+    /// Left stage rail — hidden by default; the funnel column is the home UX.
+    pub(crate) rail_open: bool,
 
     /// Retro buffer (off by default) — rolling low-FPS frames for “save last N s”.
     retro: app::RetroController,
@@ -504,6 +506,7 @@ impl VibecapApp {
             tab_fwd: Vec::new(),
             prev_tab: AppTab::Capture,
             autostart_state: None,
+            rail_open: false,
             ..Default::default() // wizard_* default closed / not done
         };
 
@@ -613,6 +616,7 @@ impl VibecapApp {
         }
         self.screen_permission_prompted = s.screen_permission_prompted;
         self.screen_permission_ok = s.screen_permission_ok;
+        self.rail_open = s.rail_open;
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
         // never unconditionally, so granted users are not re-asked on cold start.
@@ -664,6 +668,7 @@ impl VibecapApp {
             hotkey_rec_digit: self.hotkey_rec_digit,
             screen_permission_prompted: self.screen_permission_prompted,
             screen_permission_ok: self.screen_permission_ok,
+            rail_open: self.rail_open,
         });
     }
 
@@ -1167,6 +1172,9 @@ impl VibecapApp {
             PaletteAction::OpenPaletteHelp => {
                 self.show_toast("⌘K / Ctrl+K — type to filter, Enter to run");
             }
+            PaletteAction::QuitApp => {
+                self.quit_app();
+            }
         }
         self.persist_session();
     }
@@ -1201,6 +1209,21 @@ impl VibecapApp {
         } else {
             self.show_toast("Nothing to undo");
         }
+    }
+
+    /// Guaranteed exit — ViewportCommand::Close can no-op when the window is
+    /// minimized/hidden, so tray Quit must not depend on it.
+    fn quit_app(&mut self) -> ! {
+        self.allow_exit = true;
+        if let Some(child) = self.child_process.take() {
+            kill_recorder(child, self.is_paused);
+        }
+        if let Some(mut c) = self.voice_memo_child.take() {
+            let _ = c.kill();
+        }
+        self.persist_session();
+        app::instance::release_gui_lock();
+        std::process::exit(0);
     }
 
     fn show_window(&mut self, ctx: &egui::Context) {
@@ -1316,10 +1339,7 @@ impl VibecapApp {
                     self.show_window(ctx);
                     self.bug_report_pack(ctx);
                 }
-                TrayAction::Quit => {
-                    self.allow_exit = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
+                TrayAction::Quit => self.quit_app(),
             }
         }
     }
@@ -3477,7 +3497,7 @@ impl eframe::App for VibecapApp {
         // S = screenshot · R = record · Z = undo delete · ⌘K/Ctrl+K = palette · ⌘I = inbox
         // Alt+←/→ = stage back/forward · Ctrl+1..5 = jump to a Loop stage.
         if !self.is_annotating && !self.palette_open && !self.wizard_open && !self.screen_perm_modal {
-            let (press_s, press_r, press_z, press_palette, press_inbox, press_back, press_fwd, stage_jump) =
+            let (press_s, press_r, press_z, press_palette, press_inbox, press_back, press_fwd, press_rail, stage_jump) =
                 ctx.input(|i| {
                     let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
                     let jump = if mod_cmd {
@@ -3502,6 +3522,7 @@ impl eframe::App for VibecapApp {
                         mod_cmd && i.key_pressed(egui::Key::I),
                         i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft),
                         i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight),
+                        mod_cmd && i.key_pressed(egui::Key::B),
                         jump,
                     )
                 });
@@ -3529,6 +3550,8 @@ impl eframe::App for VibecapApp {
             } else if press_inbox {
                 self.current_tab = AppTab::Feedback;
                 self.scan_feedback_requests();
+            } else if press_rail {
+                self.rail_open = !self.rail_open;
             } else if press_s {
                 self.trigger_capture(ctx, true);
             } else if press_r {
@@ -3577,41 +3600,50 @@ impl eframe::App for VibecapApp {
             self.run_palette_action(ctx, action);
         }
 
-        // ── Loop rail (left) — always visible so navigation never disappears ──
-        egui::SidePanel::left("loop_rail")
-            .exact_width(76.0)
-            .resizable(false)
-            .frame(
-                Frame::none()
-                    .fill(theme::SURFACE())
-                    .stroke(Stroke::new(1.0_f32, theme::BORDER()))
-                    .inner_margin(0.0),
-            )
-            .show(ctx, |ui| {
-                let rec_live =
-                    self.is_recording || self.recording_arming || self.recording_finalizing;
-                if let Some(stage) = loop_rail(
-                    ui,
-                    self.current_tab.to_loop(),
-                    self.feedback_pending_count,
-                    rec_live,
-                    self.brand_logo.as_ref(),
-                ) {
-                    self.current_tab = self.tab_for_loop(stage);
-                }
-            });
+        // ── Stage rail — hidden by default; the funnel column is the home UX.
+        //    ☰ in the header or Ctrl+B toggles it back on.
+        if self.rail_open {
+            egui::SidePanel::left("loop_rail")
+                .exact_width(76.0)
+                .resizable(false)
+                .frame(
+                    Frame::none()
+                        .fill(theme::SURFACE())
+                        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                        .inner_margin(0.0),
+                )
+                .show(ctx, |ui| {
+                    let rec_live =
+                        self.is_recording || self.recording_arming || self.recording_finalizing;
+                    if let Some(stage) = loop_rail(
+                        ui,
+                        self.current_tab.to_loop(),
+                        self.feedback_pending_count,
+                        rec_live,
+                        self.brand_logo.as_ref(),
+                    ) {
+                        self.current_tab = self.tab_for_loop(stage);
+                    }
+                });
+        }
 
-        // ── Status strip pinned to the window bottom (storage · budget · ffmpeg · inbox) ──
-        egui::TopBottomPanel::bottom("status_strip")
-            .frame(
-                Frame::none()
-                    .fill(theme::CANVAS())
-                    .inner_margin(egui::Margin::symmetric(theme::SP_2, theme::SP_1)),
-            )
-            .show(ctx, |ui| {
-                let snap = self.status_snapshot();
-                status_strip(ui, &snap, self.current_tab != AppTab::Capture);
-            });
+        // ── Status strip — only when something needs attention
+        //    (recording, ffmpeg missing, inbox pending). No ambient trivia.
+        {
+            let snap = self.status_snapshot();
+            let actionable = snap.rec_live || !snap.ffmpeg_ok || snap.pending_inbox > 0;
+            if actionable {
+                egui::TopBottomPanel::bottom("status_strip")
+                    .frame(
+                        Frame::none()
+                            .fill(theme::CANVAS())
+                            .inner_margin(egui::Margin::symmetric(theme::SP_2, theme::SP_1)),
+                    )
+                    .show(ctx, |ui| {
+                        status_strip(ui, &snap, self.current_tab != AppTab::Capture);
+                    });
+            }
+        }
 
         egui::CentralPanel::default()
             .frame(Frame::none().fill(theme::CANVAS()).inner_margin(theme::SP_4))
@@ -3623,6 +3655,13 @@ impl eframe::App for VibecapApp {
 
             // ── Stage header ─────────────────────────────────────
             ui.horizontal(|ui| {
+                if ui
+                    .small_button("☰")
+                    .on_hover_text("Stage rail (Ctrl+B)")
+                    .clicked()
+                {
+                    self.rail_open = !self.rail_open;
+                }
                 ui.vertical(|ui| {
                     ui.heading(
                         RichText::new(self.current_tab.title())
@@ -3648,6 +3687,26 @@ impl eframe::App for VibecapApp {
                         self.palette_open = true;
                         self.palette_query.clear();
                         self.palette_selected = 0;
+                    }
+                    if ui
+                        .small_button(RichText::new("⚙").color(theme::TEXT_DIM()))
+                        .on_hover_text("Settings (Ctrl+5)")
+                        .clicked()
+                    {
+                        self.current_tab = AppTab::Settings;
+                    }
+                    let inbox_label = if self.feedback_pending_count > 0 {
+                        format!("🗳 {}", self.feedback_pending_count)
+                    } else {
+                        "🗳".to_string()
+                    };
+                    if ui
+                        .small_button(RichText::new(inbox_label).color(theme::TEXT_DIM()))
+                        .on_hover_text("Inbox (Ctrl+I)")
+                        .clicked()
+                    {
+                        self.current_tab = AppTab::Feedback;
+                        self.scan_feedback_requests();
                     }
                     if self.is_recording {
                         let e = self.recording_elapsed_secs();
@@ -3680,15 +3739,135 @@ impl eframe::App for VibecapApp {
                     }
                 });
             });
-            ui.add_space(self.density.sp(theme::SP_3));
+            ui.add_space(self.density.sp(theme::SP_2));
 
             match self.current_tab {
-                AppTab::Capture => ui::capture_tab::show(self, ui, ctx),
-                AppTab::Library => ui::library_tab::show(self, ui, ctx),
-                AppTab::Clip => ui::clip_tab::show(self, ui, ctx),
-                AppTab::Still => ui::still_tab::show(self, ui, ctx),
-                AppTab::Feedback => ui::inbox_tab::show(self, ui, ctx),
-                AppTab::Settings => ui::settings_tab::show(self, ui, ctx),
+                // ── The funnel: Capture → Review → Library, one column.
+                //    Active stage expands; the others collapse to stripes
+                //    (animated — the column visibly squeezes/reveals).
+                AppTab::Capture | AppTab::Still | AppTab::Clip | AppTab::Library => {
+                    const STRIPE_H: f32 = 40.0;
+                    let gap = theme::SP_2;
+                    // The Review slot shows whichever editor is live — if we're
+                    // already on Still/Clip, keep it so the active stage never
+                    // collapses to a stripe mid-review.
+                    let review = if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
+                        self.current_tab
+                    } else {
+                        self.review_tab()
+                    };
+                    let order = [AppTab::Capture, review, AppTab::Library];
+                    let avail_h = ui.available_height().max(120.0);
+                    let expanded_h =
+                        (avail_h - 2.0 * (STRIPE_H + gap)).max(160.0);
+
+                    let mut heights = [0.0_f32; 3];
+                    let mut sum = 0.0_f32;
+                    for (i, t) in order.iter().enumerate() {
+                        let f = ctx.animate_value_with_time(
+                            egui::Id::new("funnel_stage").with(i),
+                            if self.current_tab == *t { 1.0 } else { 0.0 },
+                            0.22,
+                        );
+                        let h = STRIPE_H + (expanded_h - STRIPE_H) * f;
+                        heights[i] = h;
+                        sum += h;
+                    }
+                    // Keep the column exactly avail_h during transitions.
+                    let scale = if sum + 2.0 * gap > avail_h {
+                        ((avail_h - 2.0 * gap) / sum).max(0.0)
+                    } else {
+                        1.0
+                    };
+
+                    let lib_n = self.library_items.len();
+                    let mut switch_to: Option<AppTab> = None;
+                    for (i, tab) in order.iter().enumerate() {
+                        let h = (heights[i] * scale).max(30.0);
+                        let w = ui.available_width();
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(w, h),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                if self.current_tab == *tab {
+                                    egui::ScrollArea::vertical()
+                                        .id_source(("funnel_scroll", i))
+                                        .auto_shrink([false; 2])
+                                        .show(ui, |ui| {
+                                            ui.set_width(ui.available_width());
+                                            match tab {
+                                                AppTab::Capture => {
+                                                    ui::capture_tab::show(self, ui, ctx)
+                                                }
+                                                AppTab::Library => {
+                                                    ui::library_tab::show(self, ui, ctx)
+                                                }
+                                                AppTab::Clip => {
+                                                    ui::clip_tab::show(self, ui, ctx)
+                                                }
+                                                AppTab::Still => {
+                                                    ui::still_tab::show(self, ui, ctx)
+                                                }
+                                                _ => {}
+                                            }
+                                        });
+                                } else {
+                                    let (icon, title, hint): (
+                                        ui::icons::Icon,
+                                        &str,
+                                        String,
+                                    ) = match tab {
+                                        AppTab::Capture => (
+                                            ui::icons::Icon::Shutter,
+                                            "Capture",
+                                            "grab a shot or clip".to_string(),
+                                        ),
+                                        AppTab::Library => (
+                                            ui::icons::Icon::Media,
+                                            "Library",
+                                            if lib_n == 0 {
+                                                "your captures land here".to_string()
+                                            } else {
+                                                format!("{lib_n} items")
+                                            },
+                                        ),
+                                        _ => (
+                                            ui::icons::Icon::Still,
+                                            "Review",
+                                            "mark it · trim it · ship it".to_string(),
+                                        ),
+                                    };
+                                    if funnel_stripe(ui, icon, title, &hint) {
+                                        switch_to = Some(*tab);
+                                    }
+                                }
+                            },
+                        );
+                        if i < 2 {
+                            ui.add_space(gap);
+                        }
+                    }
+                    if let Some(t) = switch_to {
+                        self.current_tab = t;
+                    }
+                }
+                // Off-funnel stages: slim way back, then the content.
+                AppTab::Feedback | AppTab::Settings => {
+                    if funnel_stripe(
+                        ui,
+                        ui::icons::Icon::Shutter,
+                        "Capture",
+                        "back to the funnel",
+                    ) {
+                        self.current_tab = AppTab::Capture;
+                    } else {
+                        match self.current_tab {
+                            AppTab::Feedback => ui::inbox_tab::show(self, ui, ctx),
+                            AppTab::Settings => ui::settings_tab::show(self, ui, ctx),
+                            _ => {}
+                        }
+                    }
+                }
             }
         });
 
