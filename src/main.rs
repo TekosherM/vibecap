@@ -257,6 +257,12 @@ pub(crate) struct VibecapApp {
     is_selecting_region: bool,
     region_start: Option<Pos2>,
     region_end: Option<Pos2>,
+    /// True while a real drag is live in the region overlay — lets a
+    /// missed drag_stopped still confirm on pointer release.
+    region_was_dragging: bool,
+    /// Frames to keep re-asserting foreground after the region overlay closes —
+    /// the closing child viewport can steal focus back on its way out.
+    region_refocus_frames: u8,
     selected_region: Option<Rect>,
     /// Ghost outline for next region select (session-persisted).
     last_region: Option<Rect>,
@@ -2675,6 +2681,8 @@ impl VibecapApp {
 
     fn exit_region_overlay(&mut self, ctx: &egui::Context) {
         self.is_selecting_region = false;
+        self.region_was_dragging = false;
+        self.region_refocus_frames = 4;
         self.region_start = None;
         self.region_end = None;
         self.region_backdrop = None;
@@ -3266,7 +3274,16 @@ impl eframe::App for VibecapApp {
             app::capture_flow::assert_unparked(&self.pre_capture_outer, in_flight);
         }
 
-        
+        // The region overlay just closed — its child viewport can steal focus
+        // on teardown, so re-assert the studio's foreground for a few frames.
+        if self.region_refocus_frames > 0 {
+            self.region_refocus_frames -= 1;
+            #[cfg(windows)]
+            crate::platform::restore_studio_to_taskbar();
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+            ctx.request_repaint();
+        }
+
         // --- Capture HUD: region selection (thirds + handles + W×H) ---
         if self.is_selecting_region {
             match show_region_selector(
@@ -3277,6 +3294,7 @@ impl eframe::App for VibecapApp {
                 self.last_region,
                 self.region_backdrop.as_ref(),
                 self.region_backdrop_rgba.as_ref(),
+                &mut self.region_was_dragging,
             ) {
                 RegionHudResult::Continue => {}
                 RegionHudResult::Confirmed { selected, overlay } => {

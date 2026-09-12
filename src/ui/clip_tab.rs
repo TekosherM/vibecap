@@ -643,29 +643,54 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-            if btn_secondary(ui, "Select video") {
-                if let Some(path) = FileDialog::new()
-                    .add_filter("Video", &["mp4", "mov", "webm", "mkv"])
-                    .pick_file()
-                {
-                    app.edit_file = Some(path.clone());
-                    app.load_filmstrip(ctx, path);
+            ui.menu_button(RichText::new("⋯").size(16.0), |ui| {
+                ui.set_min_width(180.0);
+                if ui.button("Select video…").clicked() {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("Video", &["mp4", "mov", "webm", "mkv"])
+                        .pick_file()
+                    {
+                        app.edit_file = Some(path.clone());
+                        app.load_filmstrip(ui.ctx(), path);
+                    }
+                    ui.close_menu();
                 }
-            }
-            if let Some(f) = app.edit_file.clone() {
+                if let Some(f) = app.edit_file.clone() {
+                    if ui.button("Reload preview").clicked() {
+                        app.load_filmstrip(ui.ctx(), f.clone());
+                        ui.close_menu();
+                    }
+                    if ui.button("Open in default app").clicked() {
+                        let _ = open_path(&f);
+                        ui.close_menu();
+                    }
+                    if ui.button("Reveal in Explorer").clicked() {
+                        let _ = reveal_in_file_manager(&f);
+                        ui.close_menu();
+                    }
+                }
+            });
+            if app.edit_file.is_some() {
+                if btn_secondary(ui, "Open") {
+                    if let Some(f) = &app.edit_file {
+                        let _ = open_path(f);
+                    }
+                }
                 if btn_primary(ui, "✓ Done") {
+                    let f = app.edit_file.clone().unwrap();
                     ui.ctx().copy_text(f.display().to_string());
                     app.show_toast("Clip path copied — back to Capture");
                     app.current_tab = crate::AppTab::Capture;
                 }
-                if btn_small(ui, "Reload") {
-                    app.load_filmstrip(ctx, f.clone());
-                }
-                if btn_small(ui, "Reveal") {
-                    let _ = reveal_in_file_manager(&f);
-                }
-                if btn_small(ui, "Open") {
-                    let _ = open_path(&f);
+            } else {
+                if btn_secondary(ui, "Select video…") {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("Video", &["mp4", "mov", "webm", "mkv"])
+                        .pick_file()
+                    {
+                        app.edit_file = Some(path.clone());
+                        app.load_filmstrip(ctx, path);
+                    }
                 }
             }
         });

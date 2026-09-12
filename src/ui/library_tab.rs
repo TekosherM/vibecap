@@ -15,12 +15,67 @@ use crate::ui::{empty_state, loop_position_badge};
 use crate::{AppTab, VibecapApp};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
+    let live = default_live_dir().display().to_string();
+    let stats = app.live_stats_snapshot();
+    let live_n = stats.count;
+
     ui.horizontal(|ui| {
         ui.heading(RichText::new("Library").color(theme::TEXT()).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Refresh").clicked() {
-                app.refresh_library();
-            }
+            ui.menu_button(RichText::new("⋯").size(16.0), |ui| {
+                ui.set_min_width(180.0);
+                if ui.button("Refresh").clicked() {
+                    app.refresh_library();
+                    ui.close_menu();
+                }
+                if live_n > 0 && ui.button("Free live frames").clicked() {
+                    let _ = std::fs::remove_dir_all(&live);
+                    let _ = std::fs::create_dir_all(&live);
+                    app.show_toast("Live frames cleared");
+                    ui.close_menu();
+                }
+                ui.separator();
+                if !app.library_confirm_clear {
+                    if ui
+                        .button(
+                            RichText::new("Clear list…").color(theme::DANGER_SOFT()),
+                        )
+                        .on_hover_text("Delete all files in the current category from disk")
+                        .clicked()
+                    {
+                        app.library_confirm_clear = true;
+                        ui.close_menu();
+                    }
+                } else {
+                    if ui
+                        .button(
+                            RichText::new("Confirm clear — deletes files")
+                                .color(theme::DANGER_SOFT())
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        let paths: Vec<_> = app
+                            .library_filtered()
+                            .into_iter()
+                            .map(|i| i.path.clone())
+                            .collect();
+                        app.delete_library_paths(&paths);
+                        app.library_confirm_clear = false;
+                        app.library_show_limit = LIBRARY_PAGE_SIZE;
+                        ui.close_menu();
+                    }
+                    if ui.button("Cancel").clicked() {
+                        app.library_confirm_clear = false;
+                        ui.close_menu();
+                    }
+                }
+            });
+            ui.add(
+                egui::TextEdit::singleline(&mut app.library_search)
+                    .hint_text("Search…")
+                    .desired_width(160.0),
+            );
         });
     });
     ui.add_space(4.0);
@@ -28,27 +83,17 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     let shot_b = category_bytes(&app.library_items, MediaCategory::Screenshot);
     let vid_b = category_bytes(&app.library_items, MediaCategory::Video)
         + category_bytes(&app.library_items, MediaCategory::Gif);
-    let live = default_live_dir().display().to_string();
-    let stats = app.live_stats_snapshot();
-    let live_n = stats.count;
     let live_bytes = (stats.mb * 1024.0 * 1024.0) as u64;
-    ui.horizontal_wrapped(|ui| {
-        ui.label(
-            RichText::new(format!(
-                "Stills {} · Video {} · Live frames {} ({live_n})",
-                crate::app::library::format_size(shot_b),
-                crate::app::library::format_size(vid_b),
-                crate::app::library::format_size(live_bytes),
-            ))
-            .small()
-            .color(theme::TEXT_MUTED()),
-        );
-        if live_n > 0 && ui.small_button("Free live frames").clicked() {
-            let _ = std::fs::remove_dir_all(&live);
-            let _ = std::fs::create_dir_all(&live);
-            app.show_toast("Live frames cleared");
-        }
-    });
+    ui.label(
+        RichText::new(format!(
+            "Stills {} · Video {} · Live frames {} ({live_n})",
+            crate::app::library::format_size(shot_b),
+            crate::app::library::format_size(vid_b),
+            crate::app::library::format_size(live_bytes),
+        ))
+        .small()
+        .color(theme::TEXT_MUTED()),
+    );
     ui.add_space(4.0);
 
     ui.horizontal_wrapped(|ui| {
@@ -83,15 +128,6 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
     });
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Search").small().color(theme::TEXT_MUTED()));
-        ui.add(
-            egui::TextEdit::singleline(&mut app.library_search)
-                .hint_text("name or note")
-                .desired_width(220.0),
-        );
-    });
-    ui.add_space(4.0);
 
     let filtered: Vec<MediaItem> = app.library_filtered().into_iter().cloned().collect();
     let total_filtered = filtered.len();
@@ -99,68 +135,52 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     let visible: Vec<MediaItem> = filtered.into_iter().take(show_n).collect();
     let selected_count = app.library_selected.len();
 
-    ui.horizontal(|ui| {
-        if ui.button("Select all shown").clicked() {
-            for item in &visible {
-                app.library_selected.insert(item.path.clone());
+    // Selection bar — only appears once you've picked something; otherwise the
+    // grid is the whole story.
+    if selected_count > 0 {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("{selected_count} selected"))
+                    .small()
+                    .strong()
+                    .color(theme::ACCENT()),
+            );
+            if ui
+                .button(format!("Reveal ({selected_count})"))
+                .clicked()
+            {
+                let paths: Vec<_> = app.library_selected.iter().cloned().collect();
+                app.reveal_paths(&paths);
             }
-        }
-        if ui.button("Clear selection").clicked() {
-            app.library_selected.clear();
-        }
-        ui.label(
-            RichText::new(format!(
-                "{selected_count} selected · showing {show_n} of {total_filtered}"
-            ))
-            .small()
-            .color(theme::TEXT_DIM()),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if selected_count > 0 {
-                if ui
-                    .button(
-                        RichText::new(format!("Delete ({selected_count})"))
-                            .color(theme::DANGER_SOFT()),
-                    )
-                    .clicked()
-                {
-                    let paths: Vec<_> = app.library_selected.iter().cloned().collect();
-                    app.delete_library_paths(&paths);
-                }
-                if ui.button(format!("Reveal ({selected_count})")).clicked() {
-                    let paths: Vec<_> = app.library_selected.iter().cloned().collect();
-                    app.reveal_paths(&paths);
-                }
+            if ui
+                .button(
+                    RichText::new(format!("Delete ({selected_count})"))
+                        .color(theme::DANGER_SOFT()),
+                )
+                .clicked()
+            {
+                let paths: Vec<_> = app.library_selected.iter().cloned().collect();
+                app.delete_library_paths(&paths);
             }
-            if !app.library_confirm_clear {
-                if ui
-                    .button("Clear list…")
-                    .on_hover_text("Delete all files in the current category from disk")
-                    .clicked()
-                {
-                    app.library_confirm_clear = true;
-                }
-            } else {
-                if ui
-                    .button(RichText::new("Confirm clear").color(theme::DANGER_SOFT()).strong())
-                    .clicked()
-                {
-                    let paths: Vec<_> = app
-                        .library_filtered()
-                        .into_iter()
-                        .map(|i| i.path.clone())
-                        .collect();
-                    app.delete_library_paths(&paths);
-                    app.library_confirm_clear = false;
-                    app.library_show_limit = LIBRARY_PAGE_SIZE;
-                }
-                if ui.button("Cancel").clicked() {
-                    app.library_confirm_clear = false;
-                }
+            if ui.button("Clear selection").clicked() {
+                app.library_selected.clear();
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("Select all shown").clicked() {
+                    for item in &visible {
+                        app.library_selected.insert(item.path.clone());
+                    }
+                }
+            });
         });
-    });
-    ui.separator();
+        ui.separator();
+    } else if show_n < total_filtered || total_filtered > LIBRARY_PAGE_SIZE {
+        ui.label(
+            RichText::new(format!("Showing {show_n} of {total_filtered}"))
+                .small()
+                .color(theme::TEXT_DIM()),
+        );
+    }
 
     if total_filtered == 0 {
         empty_state(

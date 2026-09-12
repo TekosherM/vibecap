@@ -125,51 +125,75 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-            if btn_secondary(ui, "📁 Select image") {
-                if let Some(path) = FileDialog::new()
-                    .add_filter("Image", &["jpg", "jpeg", "png", "gif", "webp"])
-                    .pick_file()
-                {
-                    app.open_still_from_path(path);
+            // ⋯ the rest — secondary actions live in the menu, not the header.
+            ui.menu_button(RichText::new("⋯").size(16.0), |ui| {
+                ui.set_min_width(180.0);
+                if ui.button("Select image…").clicked() {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("Image", &["jpg", "jpeg", "png", "gif", "webp"])
+                        .pick_file()
+                    {
+                        app.open_still_from_path(path);
+                    }
+                    ui.close_menu();
                 }
-            }
-            if let Some(p) = app.img_edit_file.clone() {
+                if let Some(p) = app.img_edit_file.clone() {
+                    if ui.button("Save as copy").clicked() {
+                        app.save_current_still_copy();
+                        ui.close_menu();
+                    }
+                    if ui.button("Open in default app").clicked() {
+                        let _ = crate::platform::open_path(&p);
+                        ui.close_menu();
+                    }
+                    if ui.button("Reveal in Explorer").clicked() {
+                        let _ = reveal_in_file_manager(&p);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui
+                        .button(RichText::new("Reset all edits").color(theme::DANGER_SOFT()))
+                        .clicked()
+                    {
+                        app.img_rotate = 0;
+                        app.img_flip_h = false;
+                        app.img_flip_v = false;
+                        app.img_grayscale = false;
+                        app.img_brightness = 0;
+                        app.img_contrast = 0.0;
+                        app.img_blur = 0.0;
+                        app.img_resize_pct = 100;
+                        app.img_crop_x.clear();
+                        app.img_crop_y.clear();
+                        app.img_crop_w.clear();
+                        app.img_crop_h.clear();
+                        app.img_preview_params.clear();
+                        app.annotation_actions.clear();
+                        app.step_counter = 1;
+                        ui.close_menu();
+                    }
+                }
+            });
+            if let Some(_p) = app.img_edit_file.clone() {
+                if btn_secondary(ui, "Save") {
+                    app.save_current_still();
+                }
+                if btn_secondary(ui, "Copy") {
+                    app.copy_current_still_to_clipboard();
+                }
                 if btn_primary(ui, "✓ Done") {
                     app.copy_current_still_to_clipboard();
                     app.show_toast("Copied — back to Capture for the next shot");
                     app.current_tab = crate::AppTab::Capture;
                 }
-                if btn_secondary(ui, "Save (overwrite)") {
-                    app.save_current_still();
-                }
-                if btn_secondary(ui, "Save as copy") {
-                    app.save_current_still_copy();
-                }
-                if btn_secondary(ui, "Copy Image (⌘C)") {
-                    app.copy_current_still_to_clipboard();
-                }
-                if btn_small(ui, "Open") {
-                    let _ = crate::platform::open_path(&p);
-                }
-                if btn_small(ui, "🔄 Reset") {
-                    app.img_rotate = 0;
-                    app.img_flip_h = false;
-                    app.img_flip_v = false;
-                    app.img_grayscale = false;
-                    app.img_brightness = 0;
-                    app.img_contrast = 0.0;
-                    app.img_blur = 0.0;
-                    app.img_resize_pct = 100;
-                    app.img_crop_x.clear();
-                    app.img_crop_y.clear();
-                    app.img_crop_w.clear();
-                    app.img_crop_h.clear();
-                    app.img_preview_params.clear();
-                    app.annotation_actions.clear();
-                    app.step_counter = 1;
-                }
-                if btn_small(ui, "📂 Finder") {
-                    let _ = reveal_in_file_manager(&p);
+            } else {
+                if btn_secondary(ui, "Select image…") {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("Image", &["jpg", "jpeg", "png", "gif", "webp"])
+                        .pick_file()
+                    {
+                        app.open_still_from_path(path);
+                    }
                 }
             }
         });

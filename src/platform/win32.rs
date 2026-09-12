@@ -25,7 +25,6 @@ extern "system" {
     fn GetWindowTextW(hwnd: Hwnd, lp: *mut u16, n: i32) -> i32;
     fn ShowWindow(hwnd: Hwnd, cmd: i32) -> i32;
     fn SetForegroundWindow(hwnd: Hwnd) -> i32;
-    fn AllowSetForegroundWindow(pid: u32) -> i32;
     fn GetWindowLongPtrW(hwnd: Hwnd, n: i32) -> isize;
     fn SetWindowLongPtrW(hwnd: Hwnd, n: i32, v: isize) -> isize;
     fn IsWindow(hwnd: Hwnd) -> i32;
@@ -91,6 +90,9 @@ pub fn minimize_studio() {
 }
 
 /// Unminimize, keep AppWindow (taskbar), and foreground.
+/// SetForegroundWindow alone gets silently refused when our process doesn't
+/// hold foreground rights (e.g. coming back from a capture hide) — clear the
+/// lock timeout and attach to the foreground thread first, same as focus_window.
 pub fn restore_studio_to_taskbar() {
     let Some(hwnd) = find_studio_hwnd() else {
         return;
@@ -100,10 +102,37 @@ pub fn restore_studio_to_taskbar() {
     }
     force_appwindow(hwnd);
     unsafe {
-        ShowWindow(hwnd, SW_RESTORE);
-        ShowWindow(hwnd, SW_SHOW);
-        let _ = AllowSetForegroundWindow(std::process::id());
+        let mut prev_lock = 0u32;
+        SystemParametersInfoW(
+            SPI_GETFOREGROUNDLOCKTIMEOUT,
+            0,
+            &mut prev_lock as *mut u32 as *mut c_void,
+            0,
+        );
+        SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, std::ptr::null_mut(), 0);
+
+        let fg = GetForegroundWindow();
+        let fg_tid = GetWindowThreadProcessId(fg, std::ptr::null_mut());
+        let cur = GetCurrentThreadId();
+        if fg_tid != 0 && fg_tid != cur {
+            AttachThreadInput(cur, fg_tid, 1);
+        }
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        } else {
+            ShowWindow(hwnd, SW_SHOW);
+        }
+        BringWindowToTop(hwnd);
         SetForegroundWindow(hwnd);
+        if fg_tid != 0 && fg_tid != cur {
+            AttachThreadInput(cur, fg_tid, 0);
+        }
+        SystemParametersInfoW(
+            SPI_SETFOREGROUNDLOCKTIMEOUT,
+            0,
+            prev_lock as usize as *mut c_void,
+            0,
+        );
     }
 }
 

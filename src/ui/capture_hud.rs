@@ -88,6 +88,7 @@ pub fn show_region_selector(
     last_region: Option<Rect>,
     backdrop: Option<&egui::TextureHandle>,
     backdrop_rgba: Option<&(u32, u32, Vec<u8>)>,
+    was_dragging: &mut bool,
 ) -> RegionHudResult {
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
@@ -234,6 +235,7 @@ pub fn show_region_selector(
                 }
 
                 if response.drag_started() {
+                    *was_dragging = true;
                     if let Some(pos) = response.interact_pointer_pos() {
                         *region_start = Some(pos);
                         *region_end = Some(pos);
@@ -260,10 +262,26 @@ pub fn show_region_selector(
                 }
                 // Real drag (≥24px) captures on mouse-up. Tiny clicks keep the box for Enter.
                 if response.drag_stopped() {
+                    *was_dragging = false;
                     if let (Some(start), Some(end)) = (*region_start, *region_end) {
                         let selected = Rect::from_two_pos(start, end);
                         if selected.width() >= 24.0 && selected.height() >= 24.0 {
                             result = RegionHudResult::Confirmed { selected, overlay: screen };
+                        }
+                    }
+                }
+                // Immediate viewports occasionally miss drag_stopped (release at
+                // the screen edge). Any primary release that ends a real drag
+                // still confirms — this is the "release captures" contract.
+                if *was_dragging && ctx.input(|i| i.pointer.primary_released()) {
+                    *was_dragging = false;
+                    if !matches!(result, RegionHudResult::Confirmed { .. }) {
+                        if let (Some(start), Some(end)) = (*region_start, *region_end) {
+                            let selected = Rect::from_two_pos(start, end);
+                            if selected.width() >= 24.0 && selected.height() >= 24.0 {
+                                result =
+                                    RegionHudResult::Confirmed { selected, overlay: screen };
+                            }
                         }
                     }
                 }
