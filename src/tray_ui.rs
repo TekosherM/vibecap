@@ -287,6 +287,26 @@ impl TrayController {
         }
     }
 
+    /// `MenuId → action` pairs, for the wake pump that translates menu events
+    /// off the GUI thread while the window is minimized (update() is asleep).
+    pub fn menu_action_map(&self) -> Vec<(tray_icon::menu::MenuId, TrayAction)> {
+        vec![
+            (self.show_id.clone(), TrayAction::Show),
+            (self.hide_id.clone(), TrayAction::Hide),
+            (self.screenshot_id.clone(), TrayAction::Screenshot),
+            (self.record_id.clone(), TrayAction::ToggleRecord),
+            (self.shutter_id.clone(), TrayAction::GoShutter),
+            (self.media_id.clone(), TrayAction::GoMedia),
+            (self.review_id.clone(), TrayAction::GoReview),
+            (self.inbox_id.clone(), TrayAction::GoInbox),
+            (self.settings_id.clone(), TrayAction::GoSettings),
+            (self.bug_id.clone(), TrayAction::BugReport),
+            (self.approve_id.clone(), TrayAction::ApproveFirst),
+            (self.deny_id.clone(), TrayAction::DenyFirst),
+            (self.quit_id.clone(), TrayAction::Quit),
+        ]
+    }
+
     /// Drain pending tray / menu events (non-blocking).
     pub fn poll_actions(&self) -> Vec<TrayAction> {
         let mut actions = Vec::new();

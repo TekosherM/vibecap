@@ -8,10 +8,14 @@ mod ui;
 use eframe::egui;
 use std::process::Child;
 use std::path::PathBuf;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Local;
 use crossbeam_channel::Receiver;
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
 use global_hotkey::GlobalHotKeyEvent;
+use tray_icon::{menu::MenuEvent, TrayIconEvent};
 use egui::{
     Color32, Stroke, Pos2, Rect, Vec2, ViewportId, ViewportBuilder, ViewportCommand, RichText,
     Frame, Align2, FontId, UserAttentionType,
@@ -113,10 +117,264 @@ pub(crate) enum CaptureTarget {
     Window,
 }
 
+/// What the most recent finished capture was — drives the app-level Ctrl+C
+/// "copy last capture" shortcut from any tab.
+#[derive(Clone)]
+enum LastCapture {
+    Still(PathBuf),
+    Clip(PathBuf),
+}
+
 #[derive(PartialEq, Clone, Copy)]
-enum RegionPickKind {
+pub(crate) enum RegionPickKind {
     Screenshot,
     Record,
+    /// Click-to-pick a window inside the region overlay (Windows) — crops the
+    /// same freeze snap, so no focus juggling is needed at all.
+    WindowPick,
+}
+
+/// Events raised outside the GUI loop — global hotkeys and tray menu clicks.
+/// A minimized winit window receives no WM_PAINT on Windows, so `update()`
+/// stops ticking; these are queued by a pump thread and drained on the next
+/// frame after the pump wakes the window.
+#[derive(Clone, Copy, Debug)]
+enum WakeEvent {
+    /// Unconditional restore + foreground (summon fired while hidden).
+    Show,
+    /// `toggle_window` semantics (summon fired while the window was visible).
+    ToggleWindow,
+    Screenshot,
+    RecordToggle,
+    Tray(TrayAction),
+}
+
+/// Capture settings snapshot for the pump's minimized fast path — the app
+/// state is not Sync, so `update()` mirrors the fields a worker needs.
+#[derive(Clone)]
+struct CaptureCfg {
+    save_dir: PathBuf,
+    name_pattern: String,
+    monitor: Option<u32>,
+    draw_mouse: bool,
+    target: CaptureTarget,
+    /// Last observed front app — used only for the file-name token.
+    front_app: Option<String>,
+}
+
+#[derive(Default)]
+struct WakeShared {
+    queue: Mutex<VecDeque<WakeEvent>>,
+    cfg: Mutex<Option<CaptureCfg>>,
+    /// Cross-thread "a still is in flight" guard (GUI flag can't be read by
+    /// the pump). Set by whichever side claims the capture.
+    still_busy: AtomicBool,
+    /// `MenuId → action` for tray menu translation (filled once the tray exists).
+    tray_ids: Mutex<Vec<(tray_icon::menu::MenuId, TrayAction)>>,
+    /// Mirror of `pre_capture_outer.is_some()` — while a capture owns the
+    /// park, the pump must not un-hide the studio (it would enter its own
+    /// shot); queued events wait for the worker's own restore.
+    parked: AtomicBool,
+}
+
+impl WakeShared {
+    fn push(&self, ev: WakeEvent) {
+        if let Ok(mut q) = self.queue.lock() {
+            q.push_back(ev);
+        }
+    }
+}
+
+/// A still triggered while the studio is already hidden: no hide-settle wait,
+/// no focus yank — grab the desktop as-is, then wake the window so the next
+/// `update()` consumes the pending marker (opens Still, copies, toasts).
+fn spawn_pump_still(cfg: CaptureCfg, shared: Arc<WakeShared>, ctx: egui::Context) {
+    std::thread::spawn(move || {
+        let seq = app::naming::next_seq(&cfg.save_dir, "");
+        let stem = app::format_capture_stem(&cfg.name_pattern, cfg.front_app.as_deref(), seq);
+        let shot = cfg.save_dir.join(format!("{stem}.jpg"));
+        let result = capture_screenshot_opts(
+            &shot,
+            &CaptureOpts::default()
+                .with_draw_mouse(cfg.draw_mouse)
+                .with_monitor(cfg.monitor),
+        )
+        .map(|_| shot);
+        match &result {
+            Ok(p) => write_pending_still(p),
+            Err(e) => write_pending_still_error(e),
+        }
+        shared.still_busy.store(false, Ordering::SeqCst);
+        #[cfg(windows)]
+        crate::platform::restore_studio_to_taskbar();
+        ctx.request_repaint();
+    });
+}
+
+/// Pump daemon: blocks on the global-hotkey channel and, in 250 ms slices,
+/// drains tray icon + menu channels. For every event it pushes a `WakeEvent`
+/// and makes sure the GUI loop can actually tick to consume it — on Windows a
+/// minimized window gets no WM_PAINT, so the pump restores the HWND itself.
+/// Screenshots fired while already hidden take the fast path: captured
+/// entirely on a worker (the window never flashes up), then restored on done.
+fn spawn_wake_pump(
+    rx: Receiver<GlobalHotKeyEvent>,
+    id_shot: u32,
+    id_rec: u32,
+    id_summon: u32,
+    shared: Arc<WakeShared>,
+    ctx: egui::Context,
+) {
+    std::thread::spawn(move || loop {
+        match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(event) => {
+                if event.state != global_hotkey::HotKeyState::Pressed {
+                    // release events: ignore, but still drain tray below
+                } else if event.id == id_shot {
+                    pump_still_event(&shared, &ctx);
+                } else if event.id == id_rec {
+                    pump_event(&shared, &ctx, WakeEvent::RecordToggle);
+                } else if event.id == id_summon {
+                    pump_summon(&shared, &ctx);
+                }
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+        }
+        drain_tray_channels(&shared, &ctx);
+    });
+}
+
+/// Should a queued event un-hide the HWND so `update()` can consume it?
+/// While a capture owns the park the answer is usually no — restoring the
+/// studio mid-still would put it inside its own shot. But when *recording*
+/// owns the park (`parked` without `still_busy`), stop/show/quit intents must
+/// still wake the loop: they cannot wait for a REC-bar repaint that may never
+/// come. Stop already restores the window via `show_window`, so an early wake
+/// shows the same frames the tail of the recording would anyway.
+fn pump_needs_wake(ev: &WakeEvent, parked: bool, still_busy: bool) -> bool {
+    if !parked {
+        return true;
+    }
+    if still_busy {
+        return false; // a still owns the park — its worker restores on done
+    }
+    // A recording owns the park — only explicit user actions may surface it.
+    matches!(
+        ev,
+        WakeEvent::RecordToggle
+            | WakeEvent::Show
+            | WakeEvent::Tray(TrayAction::ToggleRecord)
+            | WakeEvent::Tray(TrayAction::Show)
+            | WakeEvent::Tray(TrayAction::Quit)
+    )
+}
+
+/// Push an event and wake the OS window if it is hidden — without the wake the
+/// queue is only consumed when the user next clicks the taskbar. While a
+/// capture owns the park (`parked`), `pump_needs_wake` decides whether this
+/// event may surface the window early (record stop/show/quit) or must wait
+/// for the capture worker's own restore (anything during a still).
+fn pump_event(shared: &Arc<WakeShared>, ctx: &egui::Context, ev: WakeEvent) {
+    shared.push(ev);
+    #[cfg(windows)]
+    if crate::platform::studio_is_minimized()
+        && pump_needs_wake(
+            &ev,
+            shared.parked.load(Ordering::SeqCst),
+            shared.still_busy.load(Ordering::SeqCst),
+        )
+    {
+        crate::platform::restore_studio_to_taskbar();
+    }
+    ctx.request_repaint();
+}
+
+fn pump_summon(shared: &Arc<WakeShared>, ctx: &egui::Context) {
+    #[cfg(windows)]
+    {
+        if crate::platform::studio_is_minimized() {
+            if shared.parked.load(Ordering::SeqCst) {
+                // A capture owns the park — drop the key, same as the old
+                // toggle_window guard (deferred toggles could hide the window
+                // right after the capture pops it back up).
+                return;
+            }
+            // Intent is unambiguously "show" — decide now, before the restore
+            // flips the minimized flag and `toggle_window` would hide again.
+            shared.push(WakeEvent::Show);
+            crate::platform::restore_studio_to_taskbar();
+            ctx.request_repaint();
+            return;
+        }
+    }
+    pump_event(shared, ctx, WakeEvent::ToggleWindow);
+}
+
+/// Minimized + Fullscreen + idle → the pump worker can grab the desktop
+/// directly; anything else goes through the GUI path (window focus, region
+/// overlay) or is already busy.
+fn fast_still_allowed(minimized: bool, target: Option<CaptureTarget>, still_busy: bool) -> bool {
+    minimized && matches!(target, Some(CaptureTarget::Fullscreen)) && !still_busy
+}
+
+/// Screenshot while hidden → capture on a worker, never flash the window.
+/// Visible / non-Fullscreen target → queue for the normal GUI path.
+fn pump_still_event(shared: &Arc<WakeShared>, ctx: &egui::Context) {
+    #[cfg(windows)]
+    {
+        let minimized = crate::platform::studio_is_minimized();
+        let cfg = shared.cfg.lock().ok().and_then(|c| c.clone());
+        let target = cfg.as_ref().map(|c| c.target);
+        // `swap` is the authoritative claim — the `load` inside the gate is
+        // just a fast reject before it.
+        if fast_still_allowed(minimized, target, shared.still_busy.load(Ordering::SeqCst))
+            && !shared.still_busy.swap(true, Ordering::SeqCst)
+        {
+            if let Some(cfg) = cfg {
+                spawn_pump_still(cfg, shared.clone(), ctx.clone());
+                return;
+            }
+            shared.still_busy.store(false, Ordering::SeqCst);
+        }
+    }
+    pump_event(shared, ctx, WakeEvent::Screenshot);
+}
+
+/// Tray icon clicks and menu items use the same global channels the tray
+/// controller polls — but that poll only runs inside `update()`. Drain them
+/// here too so clicks work while the window is parked.
+fn drain_tray_channels(shared: &Arc<WakeShared>, ctx: &egui::Context) {
+    let mut woke = false;
+    while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+        if let TrayIconEvent::Click {
+            button: tray_icon::MouseButton::Left,
+            button_state: tray_icon::MouseButtonState::Up,
+            ..
+        } = event
+        {
+            pump_event(shared, ctx, WakeEvent::Tray(TrayAction::Show));
+            woke = true;
+        }
+    }
+    while let Ok(event) = MenuEvent::receiver().try_recv() {
+        let action = shared
+            .tray_ids
+            .lock()
+            .ok()
+            .and_then(|ids| ids.iter().find(|(id, _)| *id == event.id).map(|(_, a)| *a));
+        match action {
+            Some(TrayAction::Screenshot) => pump_still_event(shared, ctx),
+            Some(TrayAction::Show) => pump_event(shared, ctx, WakeEvent::Show),
+            Some(TrayAction::ToggleRecord) => pump_event(shared, ctx, WakeEvent::RecordToggle),
+            Some(a) => pump_event(shared, ctx, WakeEvent::Tray(a)),
+            None => {}
+        }
+        woke = true;
+    }
+    if woke {
+        ctx.request_repaint();
+    }
 }
 
 #[derive(Default)]
@@ -235,7 +493,12 @@ pub(crate) struct VibecapApp {
     feedback_description: String,
     step_counter: usize,
     
-    hotkey_receiver: Option<Receiver<GlobalHotKeyEvent>>,
+    /// Pump-thread mailbox: hotkey + tray events queued while the GUI loop
+    /// was parked (a minimized Windows window gets no WM_PAINT → no update()).
+    wake_shared: Arc<WakeShared>,
+    /// Arm-cancel flag shared with the recording-spawn worker — a cancel
+    /// during the REC-bar grace window must stop the worker's own minimize.
+    arm_cancel: Arc<AtomicBool>,
     /// Kept alive so the global hotkey stays registered (drop unregisters).
     #[allow(dead_code)]
     hotkey_manager: Option<GlobalHotKeyManager>,
@@ -267,6 +530,12 @@ pub(crate) struct VibecapApp {
     /// Ghost outline for next region select (session-persisted).
     last_region: Option<Rect>,
     pending_region_kind: Option<RegionPickKind>,
+    /// Studio is capture-excluded (WDA_EXCLUDEFROMCAPTURE) rather than hidden
+    /// for this pick — must be released on every exit path.
+    region_affinity: bool,
+    /// Window-pick mode: topmost window under the cursor (title + OS-px rect).
+    window_pick_hover: Option<(String, i32, i32, i32, i32)>,
+    window_pick_poll_at: Option<Instant>,
     /// Pixel crop (w,h,x,y) mapped from the region overlay / snapshot.
     selected_screen_rect: Option<(i32, i32, i32, i32)>,
     region_backdrop: Option<egui::TextureHandle>,
@@ -291,7 +560,11 @@ pub(crate) struct VibecapApp {
     // Notification toast (message, shown_at, severity)
     toast_message: Option<(String, Instant, ToastLevel)>,
     /// Post-capture action card (path + shown_at); mutually preferred over simple toast.
-    capture_toast: Option<(PathBuf, Instant)>,
+    /// Last fresh capture card — `bool` is whether auto-copy already landed
+    /// on the clipboard, so the card title can say "Copied" honestly.
+    capture_toast: Option<(PathBuf, Instant, bool)>,
+    /// Most recent finished capture — target of the app-level Ctrl+C.
+    last_capture: Option<LastCapture>,
 
     // Phase 1d: palette, density, undo trash
     palette_open: bool,
@@ -454,7 +727,8 @@ impl VibecapApp {
             hotkey_shot_digit: 3,
             hotkey_rec_digit: 2,
             save_dir: default_dir,
-            hotkey_receiver,
+            wake_shared: Arc::new(WakeShared::default()),
+            arm_cancel: Arc::new(AtomicBool::new(false)),
             hotkey_manager,
             hotkey_id_record: 0,
             hotkey_id_screenshot: 0,
@@ -507,6 +781,7 @@ impl VibecapApp {
             density: Density::Comfortable,
             undo_trash: None,
             capture_toast: None,
+            last_capture: None,
             wizard_autostart: true,
             tab_back: Vec::new(),
             tab_fwd: Vec::new(),
@@ -519,6 +794,20 @@ impl VibecapApp {
         let session = load_session();
         app.apply_session(session);
         app.bind_global_hotkeys();
+        if let Some(rx) = hotkey_receiver {
+            spawn_wake_pump(
+                rx,
+                app.hotkey_id_screenshot,
+                app.hotkey_id_record,
+                app.hotkey_id_summon,
+                app.wake_shared.clone(),
+                cc.egui_ctx.clone(),
+            );
+        }
+        // Home is always Capture — a capture ends in Review, but the next
+        // launch must reopen the funnel at the top, not the last editor.
+        app.current_tab = AppTab::Capture;
+        app.prev_tab = AppTab::Capture;
         // Re-apply visuals if session asked for light (graphite was applied above).
         apply_current_theme(&cc.egui_ctx);
         app.brand_logo = load_brand_logo(&cc.egui_ctx);
@@ -1238,13 +1527,16 @@ impl VibecapApp {
             &mut self.pre_capture_outer,
             &mut self.pre_capture_size,
         );
+        self.wake_shared.parked.store(false, Ordering::SeqCst);
     }
 
     /// Ctrl+Alt+V: focused window → hide to tray; minimized/unfocused →
     /// restore + foreground. While parked mid-capture, ignore the key —
     /// restoring early would put the studio in its own screenshot.
     fn toggle_window(&mut self, ctx: &egui::Context) {
-        if self.pre_capture_outer.is_some() {
+        // Mid-capture park or mid-region-select: hiding the owner would take
+        // the overlay viewport down with it.
+        if self.pre_capture_outer.is_some() || self.is_selecting_region {
             return;
         }
         let (minimized, focused) = ctx.input(|i| {
@@ -1282,11 +1574,21 @@ impl VibecapApp {
 
     /// Hide the studio window so it is not in the shot.
     ///
-    /// Park off-screen and keep the window ordered-in. `Visible(false)` is
-    /// reserved for tray hide: on Windows it also destroys child viewports
-    /// (region overlay, REC bar), which is how capture "fixed" the grab and
-    /// broke the app.
+    /// Windows: SW_HIDE removes the window from the compositor synchronously —
+    /// no minimize animation, so the grab can start after ~100 ms (Snagit-class
+    /// hide). Recording-arm is the exception: it keeps `snapshot_park_geometry`
+    /// + worker `minimize_studio` because the taskbar button must persist for
+    /// the whole recording.
+    /// Other platforms park off-screen (no native instant hide).
     fn hide_for_capture(&mut self, ctx: &egui::Context) {
+        self.wake_shared.parked.store(true, Ordering::SeqCst);
+        #[cfg(windows)]
+        app::capture_flow::park_hidden(
+            ctx,
+            &mut self.pre_capture_outer,
+            &mut self.pre_capture_size,
+        );
+        #[cfg(not(windows))]
         app::capture_flow::park_offscreen(
             ctx,
             &mut self.pre_capture_outer,
@@ -1301,6 +1603,11 @@ impl VibecapApp {
             .map(|t| t.poll_actions())
             .unwrap_or_default();
         for action in actions {
+            self.on_tray_action(ctx, action);
+        }
+    }
+
+    fn on_tray_action(&mut self, ctx: &egui::Context, action: TrayAction) {
             match action {
                 TrayAction::Show => self.show_window(ctx),
                 TrayAction::Hide => self.hide_to_tray(ctx),
@@ -1347,7 +1654,6 @@ impl VibecapApp {
                 }
                 TrayAction::Quit => self.quit_app(),
             }
-        }
     }
 
     fn sync_tray_recording_progress(&mut self) {
@@ -2064,7 +2370,7 @@ impl VibecapApp {
         }
     }
 
-    fn copy_image_to_clipboard(&mut self, path: &PathBuf) {
+    fn copy_image_to_clipboard(&mut self, path: &PathBuf) -> bool {
         if let Ok(img) = image::open(path) {
             let rgba = img.to_rgba8();
             let (w, h) = (img.width() as usize, img.height() as usize);
@@ -2076,9 +2382,11 @@ impl VibecapApp {
                 };
                 if board.set_image(img_data).is_ok() {
                     self.show_toast("📋 Image copied to system clipboard!");
+                    return true;
                 }
             }
         }
+        false
     }
 
     fn recording_elapsed_secs(&self) -> u64 {
@@ -2113,6 +2421,7 @@ impl VibecapApp {
 
         if self.recording_arming {
             self.recording_cancel_armed = true;
+            self.arm_cancel.store(true, Ordering::SeqCst);
             self.recording_arming = false;
             // Drop receiver; worker may still finish — drain_record_spawn kills it.
             self.record_spawn_rx = None;
@@ -2231,10 +2540,18 @@ impl VibecapApp {
                     mp4.file_name().and_then(|n| n.to_str()).unwrap_or("video")
                 ));
             } else {
-                self.show_toast(format!(
-                    "💾 Video saved — open in Clip · {}",
-                    mp4.file_name().and_then(|n| n.to_str()).unwrap_or("video.mp4")
-                ));
+                // Same rule as stills: the fresh clip's path goes straight to
+                // the clipboard so it is pasteable without opening Vibecap.
+                let copied = arboard::Clipboard::new()
+                    .and_then(|mut b| b.set_text(mp4.display().to_string()))
+                    .is_ok();
+                self.last_capture = Some(LastCapture::Clip(mp4.clone()));
+                let name = mp4.file_name().and_then(|n| n.to_str()).unwrap_or("video.mp4");
+                self.show_toast(if copied {
+                    format!("💾 Video saved — path copied · {name}")
+                } else {
+                    format!("💾 Video saved · {name}")
+                });
             }
         } else {
             self.refresh_library();
@@ -2344,19 +2661,60 @@ impl VibecapApp {
         self.record_spawn_rx = Some(rx);
         self.recording_arming = true;
         self.recording_cancel_armed = false;
+        self.arm_cancel.store(false, Ordering::SeqCst);
         self.current_mp4_file = Some(mp4_file.clone());
 
+        #[cfg(windows)]
+        {
+            // Mark parked (restore + summon guards) but do NOT minimize yet:
+            // a minimized window gets no WM_PAINT, so update() would stall
+            // before it ever drew the "Starting…" REC bar. That visible
+            // viewport is what keeps the event loop alive while hidden —
+            // the worker minimizes the HWND once it has had a frame to appear.
+            app::capture_flow::snapshot_park_geometry(
+                ctx,
+                &mut self.pre_capture_outer,
+                &mut self.pre_capture_size,
+            );
+            self.wake_shared.parked.store(true, Ordering::SeqCst);
+            ctx.request_repaint();
+        }
+        #[cfg(not(windows))]
         self.hide_for_capture(ctx);
 
+        let arm_cancel = self.arm_cancel.clone();
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             // Let the compositor hide our UI before the grabber starts.
-            let wait_ms = if cfg!(target_os = "windows") { 450 } else { 350 };
-            std::thread::sleep(Duration::from_millis(wait_ms));
+            #[cfg(windows)]
+            {
+                std::thread::sleep(Duration::from_millis(150));
+                if !arm_cancel.load(Ordering::SeqCst) {
+                    crate::platform::minimize_studio();
+                }
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            #[cfg(not(windows))]
+            std::thread::sleep(Duration::from_millis(350));
+            if arm_cancel.load(Ordering::SeqCst) {
+                // Cancelled during arm — do not spawn a headless recorder.
+                #[cfg(windows)]
+                crate::platform::restore_studio_to_taskbar();
+                ctx_clone.request_repaint();
+                return;
+            }
             let result =
                 spawn_screen_recorder_opts(&mp4_file, fps, with_audio, crop, &record_opts, false)
                     .map(|child| (child, mp4_file));
-            let _ = tx.send(result);
+            if let Err(unsent) = tx.send(result) {
+                // Receiver dropped by a cancel that raced the spawn — a Child
+                // dropped without kill keeps writing a headless MP4.
+                if let Ok((mut child, path)) = unsent.into_inner() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(path);
+                }
+            }
             ctx_clone.request_repaint();
         });
     }
@@ -2419,8 +2777,9 @@ impl VibecapApp {
 
         // Ignore a second trigger while a capture worker is already in flight
         // (hotkey + tray + button pressed together would otherwise race on
-        // focus/hide and restore).
-        if self.screenshot_in_flight {
+        // focus/hide and restore). `still_busy` also covers the pump thread's
+        // hidden-capture fast path, which bypasses this function.
+        if self.screenshot_in_flight || self.wake_shared.still_busy.load(Ordering::SeqCst) {
             return;
         }
 
@@ -2459,6 +2818,10 @@ impl VibecapApp {
             return;
         }
         self.screenshot_in_flight = true;
+        self.wake_shared.still_busy.store(true, Ordering::SeqCst);
+        // Flash now — the press visibly registered even though the file lands
+        // ~0.5–1 s later (hide settle + grab). finish_screenshot flashes again.
+        self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
         self.hide_for_capture(ctx);
 
         let ctx_clone = ctx.clone();
@@ -2469,17 +2832,20 @@ impl VibecapApp {
         let app_token = focus_target.clone();
 
         std::thread::spawn(move || {
-            // Give DWM / the compositor time to hide our window before the
-            // grabber reads the screen. Too short ⇒ our own UI is in the shot.
-            let hide_ms = if cfg!(target_os = "windows") { 450 } else { 450 };
+            // Resolve the output name while the compositor is still hiding our
+            // window — the directory walk overlaps the settle, not adds to it.
+            let seq = app::naming::next_seq(&save_dir, "");
+            let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
+            let shot_file = save_dir.join(format!("{stem}.jpg"));
+            // SW_HIDE removes the window from the compositor synchronously —
+            // a couple of frames of propagation is plenty. The old 450 ms
+            // covered the minimize ANIMATION, which no longer happens.
+            let hide_ms = if cfg!(target_os = "windows") { 100 } else { 450 };
             std::thread::sleep(Duration::from_millis(hide_ms));
             if is_window {
                 // Window path focuses + crops inside capture_screenshot_opts;
                 // do not pre-focus here (double focus races the grab).
                 let name = focus_target.clone().unwrap_or_default();
-                let seq = app::naming::next_seq(&save_dir, "");
-                let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
-                let shot_file = save_dir.join(format!("{stem}.jpg"));
                 let result = capture_screenshot_opts(
                     &shot_file,
                     &CaptureOpts::from_parts(None, Some(name))
@@ -2491,31 +2857,50 @@ impl VibecapApp {
                     Ok(p) => write_pending_still(p),
                     Err(e) => write_pending_still_error(e),
                 }
+                // A minimized winit window gets no WM_PAINT, so update() may be
+                // asleep — unminimize the HWND directly so the pending marker is
+                // consumed now, not when the user clicks the taskbar.
+                #[cfg(windows)]
+                crate::platform::restore_studio_to_taskbar();
                 ctx_clone.request_repaint();
                 return;
             }
             if let Some(app) = &focus_target {
-                // If focus fails, the shot would be bare desktop — abort
-                // with the reason instead of saving a useless image.
-                if let Err(e) = focus_app(app) {
-                    write_pending_still_error(&format!(
-                        "{} — click the app you want in the shot first, then capture again",
-                        e
-                    ));
-                    ctx_clone.request_repaint();
-                    return;
+                // After our hide, Windows usually returns foreground to the
+                // app that was under us — when that already IS the target its
+                // content is up, so skip the refocus and the redraw settle.
+                #[cfg(windows)]
+                let already_front = crate::platform::foreground_process_name()
+                    .map(|n| {
+                        let n = n.to_ascii_lowercase();
+                        let t = app.to_ascii_lowercase();
+                        !t.is_empty() && (n.contains(&t) || t.contains(&n))
+                    })
+                    .unwrap_or(false);
+                #[cfg(not(windows))]
+                let already_front = false;
+                if !already_front {
+                    // If focus fails, the shot would be bare desktop — abort
+                    // with the reason instead of saving a useless image.
+                    if let Err(e) = focus_app(app) {
+                        write_pending_still_error(&format!(
+                            "{} — click the app you want in the shot first, then capture again",
+                            e
+                        ));
+                        #[cfg(windows)]
+                        crate::platform::restore_studio_to_taskbar();
+                        ctx_clone.request_repaint();
+                        return;
+                    }
+                    // Native focus verifies GetForegroundWindow before returning;
+                    // the remaining settle covers the target app's redraw before
+                    // the grab reads the frame.
+                    let focus_ms = if cfg!(target_os = "windows") { 350 } else { 700 };
+                    std::thread::sleep(Duration::from_millis(focus_ms));
                 }
-                // Native focus verifies GetForegroundWindow before returning;
-                // the remaining settle covers the target app's redraw. ffmpeg's
-                // own spawn adds ~300-500ms before the first frame is read.
-                let focus_ms = if cfg!(target_os = "windows") { 350 } else { 700 };
-                std::thread::sleep(Duration::from_millis(focus_ms));
             } else if !cfg!(target_os = "windows") {
                 std::thread::sleep(Duration::from_millis(500));
             }
-            let seq = app::naming::next_seq(&save_dir, "");
-            let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
-            let shot_file = save_dir.join(format!("{stem}.jpg"));
             let result = capture_screenshot_opts(
                 &shot_file,
                 &CaptureOpts::from_parts(None, None)
@@ -2527,6 +2912,11 @@ impl VibecapApp {
                 Ok(p) => write_pending_still(p),
                 Err(e) => write_pending_still_error(e),
             }
+            // A minimized winit window gets no WM_PAINT, so update() may be
+            // asleep — unminimize the HWND directly so the pending marker is
+            // consumed now, not when the user clicks the taskbar.
+            #[cfg(windows)]
+            crate::platform::restore_studio_to_taskbar();
             // No activation from this worker thread: AppKit calls belong on the
             // main thread, and the repaint below + screenshot_in_flight cadence
             // wake `update`, which restores geometry via `finish_screenshot`.
@@ -2536,10 +2926,15 @@ impl VibecapApp {
     }
 
     pub(crate) fn trigger_gif_clip(&mut self, ctx: &egui::Context) {
-        if self.screenshot_in_flight || self.is_recording || self.recording_arming {
+        if self.screenshot_in_flight
+            || self.wake_shared.still_busy.load(Ordering::SeqCst)
+            || self.is_recording
+            || self.recording_arming
+        {
             return;
         }
         self.screenshot_in_flight = true;
+        self.wake_shared.still_busy.store(true, Ordering::SeqCst);
         self.hide_for_capture(ctx);
         let ctx_clone = ctx.clone();
         let save_dir = self.save_dir.clone();
@@ -2548,11 +2943,9 @@ impl VibecapApp {
         let opts = CaptureOpts::from_parts(None, app_token.clone())
             .with_monitor(self.capture_monitor);
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(if cfg!(target_os = "windows") {
-                450
-            } else {
-                350
-            }));
+            // SW_HIDE is synchronous — ~100 ms covers compositor propagation.
+            let hide_ms = if cfg!(target_os = "windows") { 100 } else { 350 };
+            std::thread::sleep(Duration::from_millis(hide_ms));
             let seq = app::naming::next_seq(&save_dir, "");
             let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
             let mp4 = save_dir.join(format!("{stem}.mp4"));
@@ -2570,6 +2963,8 @@ impl VibecapApp {
                 Ok(p) => write_pending_still(p),
                 Err(e) => write_pending_still_error(e),
             }
+            #[cfg(windows)]
+            crate::platform::restore_studio_to_taskbar();
             ctx_clone.request_repaint();
         });
         ctx.request_repaint_after(Duration::from_millis(50));
@@ -2580,6 +2975,7 @@ impl VibecapApp {
             return;
         }
         self.screenshot_in_flight = true;
+        self.wake_shared.still_busy.store(true, Ordering::SeqCst);
         self.hide_for_capture(ctx);
         let ctx_clone = ctx.clone();
         let save_dir = self.save_dir.clone();
@@ -2608,6 +3004,8 @@ impl VibecapApp {
         self.region_end = None;
         self.region_backdrop = None;
         self.is_selecting_region = false;
+        self.window_pick_hover = None;
+        self.window_pick_poll_at = None;
 
         // macOS: live transparent overlay. Windows/Linux: freeze a still first
         // (transparent overlays do not composite; the overlay viewport is opaque).
@@ -2617,14 +3015,38 @@ impl VibecapApp {
             return;
         }
 
+        // Snagit-style instant pick on Windows: exclude the studio from the
+        // grab (WDA_EXCLUDEFROMCAPTURE) instead of hiding it — the window stays
+        // put, the snap is clean, and the overlay landing is the only
+        // transition. Falls back to the SW_HIDE path when the API is
+        // unavailable (pre-Win10-2004).
+        #[cfg(windows)]
+        {
+            self.region_affinity = crate::platform::set_studio_capture_excluded(true);
+            if !self.region_affinity {
+                self.hide_for_capture(ctx);
+            }
+        }
+        #[cfg(not(windows))]
         self.hide_for_capture(ctx);
         self.screenshot_in_flight = true;
+        self.wake_shared.still_busy.store(true, Ordering::SeqCst);
 
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.region_snap_rx = Some(rx);
         let ctx_clone = ctx.clone();
+        let affinity_used = self.region_affinity;
         std::thread::spawn(move || {
-            let wait_ms = if cfg!(target_os = "windows") { 450 } else { 350 };
+            // Affinity: exclusion applies synchronously — a short wait lets DWM
+            // drop us from the composed frame. Hide path: ~100 ms compositor
+            // settle; other platforms park off-screen (longer).
+            let wait_ms = if affinity_used {
+                80
+            } else if cfg!(target_os = "windows") {
+                100
+            } else {
+                350
+            };
             std::thread::sleep(Duration::from_millis(wait_ms));
             let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
             let snap = std::env::temp_dir().join(format!("vibecap_region_snap_{}.jpg", timestamp));
@@ -2634,6 +3056,13 @@ impl VibecapApp {
                 Ok((snap, rgba.width(), rgba.height(), rgba.into_raw()))
             });
             let _ = tx.send(result);
+            // Unminimize the HWND directly: while minimized the GUI loop is
+            // asleep, and the region overlay cannot appear until it wakes.
+            // (Affinity path never hid — nothing to restore.)
+            #[cfg(windows)]
+            if !affinity_used {
+                crate::platform::restore_studio_to_taskbar();
+            }
             ctx_clone.request_repaint();
         });
         ctx.request_repaint_after(Duration::from_millis(50));
@@ -2648,12 +3077,14 @@ impl VibecapApp {
         };
         self.region_snap_rx = None;
         self.screenshot_in_flight = false;
+        self.wake_shared.still_busy.store(false, Ordering::SeqCst);
         match result {
             Ok((path, w, h, pixels)) => {
                 let expected = w as usize * h as usize * 4;
                 if w == 0 || h == 0 || pixels.len() != expected {
                     let _ = std::fs::remove_file(&path);
                     self.pending_region_kind = None;
+                    self.end_region_affinity();
                     self.show_window(ctx);
                     self.show_toast("❌ Region snap was empty");
                     return;
@@ -2673,13 +3104,40 @@ impl VibecapApp {
             }
             Err(e) => {
                 self.pending_region_kind = None;
+                self.end_region_affinity();
                 self.show_window(ctx);
                 self.show_toast(format!("❌ {e}"));
             }
         }
     }
 
+    /// Release WDA_EXCLUDEFROMCAPTURE if this pick used it (Windows only).
+    /// No-op on the hide path and on other platforms.
+    fn end_region_affinity(&mut self) {
+        if self.region_affinity {
+            self.region_affinity = false;
+            #[cfg(windows)]
+            crate::platform::set_studio_capture_excluded(false);
+        }
+    }
+
+    /// Topmost pickable window under the cursor for window-pick mode.
+    /// Off-Windows the pick UI is unreachable — always None.
+    #[cfg(windows)]
+    fn poll_window_pick() -> Option<(String, i32, i32, i32, i32)> {
+        let (x, y) = crate::platform::cursor_pos()?;
+        crate::platform::window_at_point(x, y).map(|w| {
+            let label = if w.title.is_empty() { w.process } else { w.title };
+            (label, w.x, w.y, w.w, w.h)
+        })
+    }
+    #[cfg(not(windows))]
+    fn poll_window_pick() -> Option<(String, i32, i32, i32, i32)> {
+        None
+    }
+
     fn exit_region_overlay(&mut self, ctx: &egui::Context) {
+        self.end_region_affinity();
         self.is_selecting_region = false;
         self.region_was_dragging = false;
         self.region_refocus_frames = 4;
@@ -2687,6 +3145,8 @@ impl VibecapApp {
         self.region_end = None;
         self.region_backdrop = None;
         self.region_backdrop_rgba = None;
+        self.window_pick_hover = None;
+        self.window_pick_poll_at = None;
         self.show_window(ctx);
     }
 
@@ -2711,10 +3171,17 @@ impl VibecapApp {
         self.persist_session();
 
         let kind = self.pending_region_kind.take();
+        // Window pick: remember the chosen window so CaptureTarget::Window
+        // aims at it next run (exit_region_overlay clears the hover state).
+        if kind == Some(RegionPickKind::WindowPick) {
+            if let Some((name, ..)) = self.window_pick_hover.take() {
+                self.window_app = name;
+            }
+        }
         self.exit_region_overlay(ctx);
 
         match kind {
-            Some(RegionPickKind::Screenshot) => {
+            Some(RegionPickKind::Screenshot) | Some(RegionPickKind::WindowPick) => {
                 if let Some(snap) = self.region_snap_path.clone() {
                     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
                     let dest = self.save_dir.join(format!("screenshot_{}.jpg", timestamp));
@@ -2751,6 +3218,7 @@ impl VibecapApp {
     /// Apply a finished screenshot (from channel or disk marker).
     fn finish_screenshot(&mut self, ctx: &egui::Context, result: Result<PathBuf, String>) {
         self.screenshot_in_flight = false;
+        self.wake_shared.still_busy.store(false, Ordering::SeqCst);
         match result {
             Ok(shot_file) => {
                 self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
@@ -2759,13 +3227,23 @@ impl VibecapApp {
                 }
                 self.refresh_library();
                 self.toast_message = None;
-                self.capture_toast = Some((shot_file, Instant::now()));
+                // Snipping-Tool rule: a fresh capture is immediately pasteable —
+                // no need to open the app and press Ctrl+C first. The card
+                // reports the copy result honestly ("Copied" vs "Captured").
+                let copied = self.copy_image_to_clipboard(&shot_file);
+                self.capture_toast = Some((shot_file.clone(), Instant::now(), copied));
+                self.last_capture = Some(LastCapture::Still(shot_file.clone()));
                 self.show_window(ctx);
                 self.persist_session();
+                let ready = if copied {
+                    "📋 Screenshot copied — ready in Still"
+                } else {
+                    "Screenshot ready in Still"
+                };
                 if self.is_annotating {
                     self.show_toast("Screenshot saved — finish this markup first");
                 } else {
-                    self.show_toast("Screenshot ready in Still");
+                    self.show_toast(ready);
                 }
             }
             Err(e) => {
@@ -3042,6 +3520,17 @@ impl eframe::App for VibecapApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Hand workers a wake handle (Context is an Arc clone — cheap).
         self.ui_ctx = Some(ctx.clone());
+        // Mirror capture settings for the pump thread's hidden-capture path.
+        if let Ok(mut cfg) = self.wake_shared.cfg.lock() {
+            *cfg = Some(CaptureCfg {
+                save_dir: self.save_dir.clone(),
+                name_pattern: self.name_pattern.clone(),
+                monitor: self.capture_monitor,
+                draw_mouse: self.draw_mouse,
+                target: self.capture_target,
+                front_app: self.last_front_app.clone(),
+            });
+        }
         // Remember which Review editor was last used (rail Review returns here).
         if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
             self.last_review_tab = Some(self.current_tab);
@@ -3286,6 +3775,22 @@ impl eframe::App for VibecapApp {
 
         // --- Capture HUD: region selection (thirds + handles + W×H) ---
         if self.is_selecting_region {
+            // Window-pick mode: hit-test the top-level window under the cursor
+            // (throttled — EnumWindows costs a few ms) so the HUD highlights
+            // the pick target live.
+            let picking_window =
+                matches!(self.pending_region_kind, Some(RegionPickKind::WindowPick));
+            if picking_window {
+                let due = self
+                    .window_pick_poll_at
+                    .map(|t| t.elapsed() > Duration::from_millis(60))
+                    .unwrap_or(true);
+                if due {
+                    self.window_pick_poll_at = Some(Instant::now());
+                    self.window_pick_hover = Self::poll_window_pick();
+                }
+                ctx.request_repaint_after(Duration::from_millis(60));
+            }
             match show_region_selector(
                 ctx,
                 &mut self.region_start,
@@ -3295,6 +3800,11 @@ impl eframe::App for VibecapApp {
                 self.region_backdrop.as_ref(),
                 self.region_backdrop_rgba.as_ref(),
                 &mut self.region_was_dragging,
+                if picking_window {
+                    self.window_pick_hover.as_ref()
+                } else {
+                    None
+                },
             ) {
                 RegionHudResult::Continue => {}
                 RegionHudResult::Confirmed { selected, overlay } => {
@@ -3477,26 +3987,46 @@ impl eframe::App for VibecapApp {
             ctx.request_repaint();
         }
 
-        // Global hotkeys (work even when window is hidden in tray).
+        // Hotkeys + tray actions queued by the wake pump. The pump owns the
+        // OS event channels now and restores the window so this loop ticks —
+        // draining here keeps working when the window was parked/minimized.
         let mut hotkey_shots = 0u32;
         let mut hotkey_recs = 0u32;
-        let mut hotkey_summons = 0u32;
-        if let Some(rx) = &self.hotkey_receiver {
-            while let Ok(event) = rx.try_recv() {
-                if event.state != global_hotkey::HotKeyState::Pressed {
-                    continue;
+        let wake_events: Vec<WakeEvent> = self
+            .wake_shared
+            .queue
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default();
+        for ev in wake_events {
+            match ev {
+                WakeEvent::Show => {
+                    // Mid-still / mid-arm: restoring now would put the studio
+                    // inside its own shot — the capture worker restores on
+                    // done. While a recording owns the park an explicit Show
+                    // is honored (the tail frames would show the restore that
+                    // stop_recording performs anyway).
+                    let capture_parked = self.screenshot_in_flight
+                        || self.wake_shared.still_busy.load(Ordering::SeqCst)
+                        || self.is_selecting_region
+                        || self.region_snap_rx.is_some()
+                        || self.recording_arming;
+                    // is_selecting_region is checked separately: on the
+                    // affinity path the studio was never parked, but a Show
+                    // here would focus-steal the overlay mid-drag.
+                    if (self.pre_capture_outer.is_none() || !capture_parked)
+                        && !self.is_selecting_region
+                    {
+                        self.show_window(ctx);
+                        #[cfg(windows)]
+                        crate::platform::restore_studio_to_taskbar();
+                    }
                 }
-                if event.id == self.hotkey_id_screenshot {
-                    hotkey_shots += 1;
-                } else if event.id == self.hotkey_id_record {
-                    hotkey_recs += 1;
-                } else if event.id == self.hotkey_id_summon {
-                    hotkey_summons += 1;
-                }
+                WakeEvent::ToggleWindow => self.toggle_window(ctx),
+                WakeEvent::Screenshot => hotkey_shots += 1,
+                WakeEvent::RecordToggle => hotkey_recs += 1,
+                WakeEvent::Tray(action) => self.on_tray_action(ctx, action),
             }
-        }
-        for _ in 0..hotkey_summons {
-            self.toggle_window(ctx);
         }
         for _ in 0..hotkey_shots {
             self.trigger_capture(ctx, true);
@@ -3582,6 +4112,37 @@ impl eframe::App for VibecapApp {
                 }
             } else if press_z {
                 self.undo_last_delete();
+            }
+            // Ctrl/Cmd+C outside Still copies the last fresh capture: still →
+            // image pixels, clip → file path. Still has its own annotated
+            // copy, and a focused text field keeps normal text copy.
+            let press_copy = self.current_tab != AppTab::Still
+                && !ctx.wants_keyboard_input()
+                && ctx.input(|i| {
+                    (i.modifiers.command || i.modifiers.ctrl)
+                        && !i.modifiers.shift
+                        && !i.modifiers.alt
+                        && i.key_pressed(egui::Key::C)
+                });
+            if press_copy {
+                match self.last_capture.clone() {
+                    Some(LastCapture::Still(p)) => {
+                        if !self.copy_image_to_clipboard(&p) {
+                            self.show_toast("❌ Could not copy the image");
+                        }
+                    }
+                    Some(LastCapture::Clip(p)) => {
+                        if arboard::Clipboard::new()
+                            .and_then(|mut b| b.set_text(p.display().to_string()))
+                            .is_ok()
+                        {
+                            self.show_toast("📋 Clip path copied");
+                        } else {
+                            self.show_toast("❌ Could not copy the path");
+                        }
+                    }
+                    None => {}
+                }
             }
         } else if self.palette_open {
             // Allow re-toggle close with ⌘K
@@ -3890,10 +4451,10 @@ impl eframe::App for VibecapApp {
         });
 
         // Capture action toast takes priority over plain toasts.
-        if let Some((path, at)) = self.capture_toast.clone() {
+        if let Some((path, at, copied)) = self.capture_toast.clone() {
             if at.elapsed() > Duration::from_secs(12) {
                 self.capture_toast = None;
-            } else if let Some(act) = show_capture_toast(ctx, &path) {
+            } else if let Some(act) = show_capture_toast(ctx, &path, copied) {
                 match act {
                     CaptureToastAction::Annotate => {
                         self.capture_toast = None;
@@ -4000,6 +4561,9 @@ fn main() -> eframe::Result<()> {
             if enable_tray {
                 match TrayController::try_new("Vibecap — click to show") {
                     Ok(tray) => {
+                        if let Ok(mut ids) = app.wake_shared.tray_ids.lock() {
+                            *ids = tray.menu_action_map();
+                        }
                         app.tray = Some(tray);
                         app.allow_exit = false;
                     }
@@ -4060,5 +4624,75 @@ mod tests {
         assert!(icon.width >= 16 && icon.height >= 16);
         assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
         assert!(icon.rgba.iter().any(|&b| b != 0));
+    }
+
+    #[test]
+    fn fast_still_only_when_hidden_fullscreen_idle() {
+        // The minimized fast path: grab the desktop on a worker, no window flash.
+        assert!(fast_still_allowed(
+            true,
+            Some(CaptureTarget::Fullscreen),
+            false
+        ));
+        // Visible window → normal hide→focus→grab GUI path.
+        assert!(!fast_still_allowed(
+            false,
+            Some(CaptureTarget::Fullscreen),
+            false
+        ));
+        // Region needs the overlay; Window needs focus+crop — both GUI path.
+        for t in [CaptureTarget::Region, CaptureTarget::Window] {
+            assert!(!fast_still_allowed(true, Some(t), false));
+        }
+        // No mirrored cfg yet → cannot know the target.
+        assert!(!fast_still_allowed(true, None, false));
+        // A still already in flight → do not double-capture.
+        assert!(!fast_still_allowed(
+            true,
+            Some(CaptureTarget::Fullscreen),
+            true
+        ));
+    }
+
+    #[test]
+    fn wake_rules_let_record_stop_surface_but_never_a_still() {
+        // Not parked → everything wakes the window.
+        for ev in [
+            WakeEvent::Screenshot,
+            WakeEvent::RecordToggle,
+            WakeEvent::Show,
+            WakeEvent::ToggleWindow,
+            WakeEvent::Tray(TrayAction::Hide),
+        ] {
+            assert!(pump_needs_wake(&ev, false, false), "{ev:?} unparked");
+        }
+        // Still owns the park → nothing surfaces the studio into its own shot.
+        for ev in [
+            WakeEvent::Screenshot,
+            WakeEvent::RecordToggle,
+            WakeEvent::Show,
+            WakeEvent::Tray(TrayAction::Show),
+            WakeEvent::Tray(TrayAction::Quit),
+        ] {
+            assert!(!pump_needs_wake(&ev, true, true), "{ev:?} still-parked");
+        }
+        // Recording owns the park → stop/show/quit must wake the loop even if
+        // the REC bar is not repainting; other events stay queued.
+        for ev in [
+            WakeEvent::RecordToggle,
+            WakeEvent::Show,
+            WakeEvent::Tray(TrayAction::ToggleRecord),
+            WakeEvent::Tray(TrayAction::Show),
+            WakeEvent::Tray(TrayAction::Quit),
+        ] {
+            assert!(pump_needs_wake(&ev, true, false), "{ev:?} record-parked");
+        }
+        for ev in [
+            WakeEvent::Screenshot,
+            WakeEvent::ToggleWindow,
+            WakeEvent::Tray(TrayAction::GoSettings),
+        ] {
+            assert!(!pump_needs_wake(&ev, true, false), "{ev:?} record-parked");
+        }
     }
 }

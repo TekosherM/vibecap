@@ -80,6 +80,10 @@ pub fn pixels_to_overlay_rect(
 /// `last_region` — optional ghost of the previous selection (session memory).
 /// `backdrop` — frozen desktop still. Used on Windows/Linux where a *transparent*
 /// overlay does not composite; the viewport itself stays opaque in that case.
+/// `window_pick` — when `Some`, the overlay is a click-to-pick target: it
+/// highlights `(title, x, y, w, h)` in OS pixels and a click confirms that
+/// rect instead of a drag.
+#[allow(clippy::too_many_arguments)]
 pub fn show_region_selector(
     ctx: &egui::Context,
     region_start: &mut Option<Pos2>,
@@ -89,6 +93,7 @@ pub fn show_region_selector(
     backdrop: Option<&egui::TextureHandle>,
     backdrop_rgba: Option<&(u32, u32, Vec<u8>)>,
     was_dragging: &mut bool,
+    window_pick: Option<&(String, i32, i32, i32, i32)>,
 ) -> RegionHudResult {
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
@@ -100,11 +105,13 @@ pub fn show_region_selector(
         .with_transparent(!opaque)
         .with_always_on_top();
     let mons = crate::platform::list_monitors();
+    let mut origin = (0i32, 0i32);
     if !mons.is_empty() {
         let x = mons.iter().map(|m| m.x).min().unwrap_or(0);
         let y = mons.iter().map(|m| m.y).min().unwrap_or(0);
         let r = mons.iter().map(|m| m.x + m.w).max().unwrap_or(1920);
         let b = mons.iter().map(|m| m.y + m.h).max().unwrap_or(1080);
+        origin = (x, y);
         builder = builder
             .with_fullscreen(false)
             .with_position(Pos2::new(x as f32 / ppp, y as f32 / ppp))
@@ -139,8 +146,57 @@ pub fn show_region_selector(
                     );
                 }
 
+                // Window-pick mode: the hover rect arrives in OS pixels — map it
+                // into overlay points. Click confirms that rect; drag is off.
+                let pick_mode = window_pick.is_some();
+                let pick_rect = window_pick.map(|(_, wx, wy, ww, wh)| {
+                    let vppp = ctx.pixels_per_point().max(1.0);
+                    Rect::from_min_size(
+                        Pos2::new(
+                            (*wx - origin.0) as f32 / vppp,
+                            (*wy - origin.1) as f32 / vppp,
+                        ),
+                        Vec2::new(*ww as f32 / vppp, *wh as f32 / vppp),
+                    )
+                });
+                if pick_mode {
+                    painter.text(
+                        Pos2::new(screen.center().x, screen.min.y + 48.0),
+                        Align2::CENTER_CENTER,
+                        "Click a window to capture · Esc / right-click cancel",
+                        FontId::proportional(18.0),
+                        theme::TEXT(),
+                    );
+                    if let (Some(rect), Some((title, _, _, ww, wh))) = (pick_rect, window_pick)
+                    {
+                        painter.rect_filled(rect, 0.0, theme::ACCENT().gamma_multiply(0.15));
+                        painter.rect_stroke(rect, 0.0, Stroke::new(2.5_f32, theme::ACCENT()));
+                        let label = format!("{title}  {ww}×{wh}");
+                        let label_pos = rect.left_top() + Vec2::new(6.0, -28.0);
+                        let galley = painter.layout_no_wrap(
+                            label,
+                            FontId::proportional(13.0),
+                            theme::ON_SOLID(),
+                        );
+                        let pad = Vec2::new(8.0, 4.0);
+                        let mut plate =
+                            Rect::from_min_size(label_pos, galley.size() + pad * 2.0);
+                        if plate.min.y < 4.0 {
+                            plate = plate.translate(Vec2::new(0.0, rect.height() + 32.0));
+                        }
+                        painter.rect_filled(plate, 4.0, theme::ACCENT());
+                        painter.galley(plate.min + pad, galley, theme::ON_SOLID());
+                    }
+                    if response.clicked() {
+                        if let Some(rect) = pick_rect {
+                            result =
+                                RegionHudResult::Confirmed { selected: rect, overlay: screen };
+                        }
+                    }
+                }
+
                 // Ghost of last region in pixel space (falls back to overlay points).
-                if region_start.is_none() {
+                if !pick_mode && region_start.is_none() {
                     let (img_w, img_h) = backdrop_rgba
                         .map(|(w, h, _)| (*w, *h))
                         .unwrap_or((0, 0));
@@ -234,7 +290,8 @@ pub fn show_region_selector(
                     }
                 }
 
-                if response.drag_started() {
+                if !pick_mode {
+                    if response.drag_started() {
                     *was_dragging = true;
                     if let Some(pos) = response.interact_pointer_pos() {
                         *region_start = Some(pos);
@@ -293,6 +350,7 @@ pub fn show_region_selector(
                         }
                     }
                 }
+                }
                 if response.secondary_clicked() {
                     result = RegionHudResult::Cancelled;
                 }
@@ -312,12 +370,14 @@ pub fn show_region_selector(
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new("Region")
+                                        RichText::new(if pick_mode { "Window" } else { "Region" })
                                             .size(13.0)
                                             .strong()
                                             .color(theme::TEXT()),
                                     );
-                                    if ui.button(RichText::new("Capture").strong()).clicked() {
+                                    if !pick_mode
+                                        && ui.button(RichText::new("Capture").strong()).clicked()
+                                    {
                                         if let (Some(start), Some(end)) =
                                             (*region_start, *region_end)
                                         {

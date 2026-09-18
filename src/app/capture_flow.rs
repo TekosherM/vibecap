@@ -19,8 +19,14 @@ pub fn should_snapshot_geometry(already_parked: bool, size: Option<Vec2>) -> boo
     }
 }
 
-/// Record current outer geometry, then hide so it is not in the shot.
-pub fn park_offscreen(ctx: &Context, pre_outer: &mut Option<Pos2>, pre_size: &mut Option<Vec2>) {
+/// Record current outer geometry without hiding — the "parked" marker
+/// (`pre_outer.is_some()`) keeps summon guards + restore working while the
+/// actual hide is deferred to a worker (Windows recording arm).
+pub fn snapshot_park_geometry(
+    ctx: &Context,
+    pre_outer: &mut Option<Pos2>,
+    pre_size: &mut Option<Vec2>,
+) {
     let outer = ctx.input(|i| i.viewport().outer_rect);
     let size = outer.map(|r| r.size());
     if should_snapshot_geometry(pre_outer.is_some(), size) {
@@ -32,25 +38,30 @@ pub fn park_offscreen(ctx: &Context, pre_outer: &mut Option<Pos2>, pre_size: &mu
             *pre_size = Some(Vec2::new(1160.0, 800.0));
         }
     }
+}
 
-    #[cfg(windows)]
-    {
-        // Keep Visible(true) + a taskbar button. Minimize removes pixels from gdigrab.
-        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
-        crate::platform::minimize_studio();
-        ctx.request_repaint();
-        return;
-    }
+/// Snapshot geometry, then hide instantly via SW_HIDE (Windows only).
+/// Unlike minimize there is no animation, so a capture worker may grab after
+/// ~100 ms instead of ~450 ms. The taskbar button is gone while hidden — fine
+/// for a capture park (tray icon + worker restore are the way back); tray-hide
+/// and recording-arm keep `park_offscreen`/`minimize_studio` instead.
+#[cfg(windows)]
+pub fn park_hidden(ctx: &Context, pre_outer: &mut Option<Pos2>, pre_size: &mut Option<Vec2>) {
+    snapshot_park_geometry(ctx, pre_outer, pre_size);
+    crate::platform::hide_studio_window();
+    ctx.request_repaint();
+}
 
-    #[cfg(not(windows))]
-    {
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(-12_000.0, -12_000.0)));
-        ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(120.0, 80.0)));
-        ctx.request_repaint();
-    }
+/// Record current outer geometry, then park off-screen so it is not in the
+/// shot (non-Windows only — Windows uses `park_hidden`'s synchronous SW_HIDE).
+#[cfg(not(windows))]
+pub fn park_offscreen(ctx: &Context, pre_outer: &mut Option<Pos2>, pre_size: &mut Option<Vec2>) {
+    snapshot_park_geometry(ctx, pre_outer, pre_size);
+    ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(-12_000.0, -12_000.0)));
+    ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(120.0, 80.0)));
+    ctx.request_repaint();
 }
 
 /// Restore parked geometry and focus the studio (taskbar + foreground).

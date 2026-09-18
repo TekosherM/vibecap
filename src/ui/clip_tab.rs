@@ -664,6 +664,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         let _ = open_path(&f);
                         ui.close_menu();
                     }
+                    if ui.button("Copy path").clicked() {
+                        if let Ok(mut board) = arboard::Clipboard::new() {
+                            let _ = board.set_text(f.display().to_string());
+                        }
+                        app.show_toast("Clip path copied");
+                        ui.close_menu();
+                    }
                     if ui.button("Reveal in Explorer").clicked() {
                         let _ = reveal_in_file_manager(&f);
                         ui.close_menu();
@@ -671,6 +678,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             });
             if app.edit_file.is_some() {
+                if btn_secondary(ui, "⧉ Path") {
+                    if let Some(f) = &app.edit_file {
+                        if let Ok(mut board) = arboard::Clipboard::new() {
+                            let _ = board.set_text(f.display().to_string());
+                        }
+                        app.show_toast("Clip path copied");
+                    }
+                }
                 if btn_secondary(ui, "Open") {
                     if let Some(f) = &app.edit_file {
                         let _ = open_path(f);
@@ -678,7 +693,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
                 if btn_primary(ui, "✓ Done") {
                     let f = app.edit_file.clone().unwrap();
-                    ui.ctx().copy_text(f.display().to_string());
+                    // arboard, not egui copy_text — the path must reach the OS
+                    // clipboard, not just egui's internal paste buffer.
+                    let _ = arboard::Clipboard::new()
+                        .and_then(|mut b| b.set_text(f.display().to_string()));
                     app.show_toast("Clip path copied — back to Capture");
                     app.current_tab = crate::AppTab::Capture;
                 }

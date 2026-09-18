@@ -95,9 +95,11 @@ pub enum CaptureToastAction {
 }
 
 /// Bottom-right capture card: Annotate · Copy · Reveal · dismiss (does not auto-open studio).
+/// `copied` — auto-copy already landed on the clipboard, so the title can say so.
 pub fn show_capture_toast(
     ctx: &egui::Context,
     path: &std::path::Path,
+    copied: bool,
 ) -> Option<CaptureToastAction> {
     let mut action = None;
     let name = path
@@ -121,10 +123,14 @@ pub fn show_capture_toast(
                         icons::icon_button(ui, Icon::Camera, theme::ACCENT(), 18.0);
                         ui.vertical(|ui| {
                             ui.label(
-                                RichText::new("Captured")
-                                    .strong()
-                                    .color(theme::TEXT())
-                                    .size(14.0),
+                                RichText::new(if copied {
+                                    "Copied to clipboard"
+                                } else {
+                                    "Captured"
+                                })
+                                .strong()
+                                .color(theme::TEXT())
+                                .size(14.0),
                             );
                             ui.label(
                                 RichText::new(&name)

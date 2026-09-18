@@ -146,6 +146,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 if btn_small(ui, "↻") {
                                     app.refresh_window_list();
                                 }
+                                // Snagit-style: click the window itself.
+                                #[cfg(windows)]
+                                if btn_small(ui, "🎯 Pick") {
+                                    app.start_region_pick(
+                                        ctx,
+                                        crate::RegionPickKind::WindowPick,
+                                    );
+                                }
                             });
                             ui.add(
                                 egui::TextEdit::singleline(&mut app.window_app)

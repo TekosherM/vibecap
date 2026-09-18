@@ -161,6 +161,12 @@ pub fn capture_screenshot_opts(out: &Path, opts: &CaptureOpts) -> Result<(), Str
             match window_rect_on_screen(name) {
                 Some((hwnd, x, y, w, h)) => {
                     if focus_ok {
+                        // Focus verification returns once the target is
+                        // foreground; give it a couple of frames to raise +
+                        // repaint before the desktop crop reads pixels. (The
+                        // old path got this settle for free from PowerShell
+                        // helper + ffmpeg spawn latency.)
+                        std::thread::sleep(std::time::Duration::from_millis(150));
                         windows_gdigrab_still_cropped(
                             out,
                             ScreenRect::even(x, y, w, h),
@@ -324,6 +330,11 @@ fn windows_gdigrab_still(
     region: Option<ScreenRect>,
     draw_mouse: bool,
 ) -> Result<(), String> {
+    // GDI BitBlt reads the same composited desktop as gdigrab without the
+    // ~300–500 ms process spawn; fall back to ffmpeg on any failure.
+    if super::win32::native_desktop_still(Path::new(out_s), region, draw_mouse).is_ok() {
+        return Ok(());
+    }
     let mut cmd = super::ffmpeg::ffmpeg_command()?;
     cmd.args([
         "-y",
