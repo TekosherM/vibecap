@@ -10,7 +10,7 @@ use std::process::Child;
 use std::path::PathBuf;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use chrono::Local;
 use crossbeam_channel::Receiver;
 use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
@@ -175,6 +175,11 @@ struct WakeShared {
     /// park, the pump must not un-hide the studio (it would enter its own
     /// shot); queued events wait for the worker's own restore.
     parked: AtomicBool,
+    /// Region-pick instant overlay: 0 = waiting for update() to apply
+    /// capture-exclusion to the "Vibecap Region" viewport, 1 = excluded
+    /// (snap may proceed), 2 = give up waiting — snap anyway (overlay is
+    /// closing or never appeared).
+    region_overlay_state: AtomicU8,
 }
 
 impl WakeShared {
@@ -209,6 +214,32 @@ fn spawn_pump_still(cfg: CaptureCfg, shared: Arc<WakeShared>, ctx: egui::Context
         crate::platform::restore_studio_to_taskbar();
         ctx.request_repaint();
     });
+}
+
+/// True when ≥90% of sampled pixels share one dark color — the tell-tale of
+/// a region snap that froze our own un-excluded dim overlay. A real desktop
+/// is never this uniform; a false hit only costs a retry toast. JPEG decode
+/// noise means "equal" needs a per-channel tolerance.
+fn snap_is_uniform_dim(pixels: &[u8]) -> bool {
+    let stride = (pixels.len() / 4 / 128).max(1) * 4;
+    let mut n = 0usize;
+    let mut same = 0usize;
+    let mut first = [0u8; 3];
+    for (i, px) in pixels.chunks(stride).enumerate() {
+        if px.len() < 4 {
+            break;
+        }
+        let c = [px[0], px[1], px[2]];
+        if i == 0 {
+            first = c;
+        }
+        n += 1;
+        if c.iter().zip(first).all(|(a, b)| (*a as i32 - b as i32).abs() <= 10) {
+            same += 1;
+        }
+    }
+    let dark = (first[0] as u32 + first[1] as u32 + first[2] as u32) < 200;
+    n > 0 && same * 100 >= n * 90 && dark
 }
 
 /// Pump daemon: blocks on the global-hotkey channel and, in 250 ms slices,
@@ -533,6 +564,9 @@ pub(crate) struct VibecapApp {
     /// Studio is capture-excluded (WDA_EXCLUDEFROMCAPTURE) rather than hidden
     /// for this pick — must be released on every exit path.
     region_affinity: bool,
+    /// Frames spent waiting for the region overlay's own capture-exclusion
+    /// before degrading to the delayed-overlay path.
+    region_excl_attempts: u8,
     /// Window-pick mode: topmost window under the cursor (title + OS-px rect).
     window_pick_hover: Option<(String, i32, i32, i32, i32)>,
     window_pick_poll_at: Option<Instant>,
@@ -3016,14 +3050,21 @@ impl VibecapApp {
         }
 
         // Snagit-style instant pick on Windows: exclude the studio from the
-        // grab (WDA_EXCLUDEFROMCAPTURE) instead of hiding it — the window stays
-        // put, the snap is clean, and the overlay landing is the only
-        // transition. Falls back to the SW_HIDE path when the API is
-        // unavailable (pre-Win10-2004).
+        // grab (WDA_EXCLUDEFROMCAPTURE) instead of hiding it — and show the
+        // selector immediately (dim until the freeze lands). The overlay gets
+        // its own exclusion in update() before the snap fires, so it cannot
+        // freeze into its own backdrop. Falls back to the SW_HIDE +
+        // delayed-overlay path when the API is unavailable (pre-Win10-2004).
         #[cfg(windows)]
         {
             self.region_affinity = crate::platform::set_studio_capture_excluded(true);
-            if !self.region_affinity {
+            if self.region_affinity {
+                self.is_selecting_region = true;
+                self.wake_shared
+                    .region_overlay_state
+                    .store(0, Ordering::SeqCst);
+                self.region_excl_attempts = 0;
+            } else {
                 self.hide_for_capture(ctx);
             }
         }
@@ -3036,12 +3077,32 @@ impl VibecapApp {
         self.region_snap_rx = Some(rx);
         let ctx_clone = ctx.clone();
         let affinity_used = self.region_affinity;
+        let shared = self.wake_shared.clone();
         std::thread::spawn(move || {
-            // Affinity: exclusion applies synchronously — a short wait lets DWM
-            // drop us from the composed frame. Hide path: ~100 ms compositor
-            // settle; other platforms park off-screen (longer).
+            // Track whether the overlay's exclusion status is genuinely
+            // unknown — only then can it contaminate the snap.
+            let mut overlay_unknown = false;
             let wait_ms = if affinity_used {
-                80
+                // Instant-overlay path: the selector may already be up — wait
+                // until update() has excluded its HWND (1) or given up (2)
+                // before reading the screen, else our own dim freezes into
+                // the backdrop.
+                let mut st = 0u8;
+                for _ in 0..80 {
+                    st = shared.region_overlay_state.load(Ordering::SeqCst);
+                    if st != 0 {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                overlay_unknown = st == 0;
+                // Excluded → one more beat for DWM to drop it from the frame;
+                // otherwise the overlay is closing/absent — a hair longer.
+                if st == 1 {
+                    60
+                } else {
+                    160
+                }
             } else if cfg!(target_os = "windows") {
                 100
             } else {
@@ -3053,7 +3114,12 @@ impl VibecapApp {
             let result = capture_screenshot(&snap).and_then(|_| {
                 let img = image::open(&snap).map_err(|e| format!("could not read snap: {e}"))?;
                 let rgba = img.to_rgba8();
-                Ok((snap, rgba.width(), rgba.height(), rgba.into_raw()))
+                let (w, h) = (rgba.width(), rgba.height());
+                let px = rgba.into_raw();
+                if overlay_unknown && snap_is_uniform_dim(&px) {
+                    return Err("snap caught our own overlay — please retry".into());
+                }
+                Ok((snap, w, h, px))
             });
             let _ = tx.send(result);
             // Unminimize the HWND directly: while minimized the GUI loop is
@@ -3080,6 +3146,14 @@ impl VibecapApp {
         self.wake_shared.still_busy.store(false, Ordering::SeqCst);
         match result {
             Ok((path, w, h, pixels)) => {
+                // A cancel/Esc during the instant-overlay phase cleared the
+                // kind — the snap is stale; don't resurrect the selector.
+                if self.pending_region_kind.is_none() {
+                    let _ = std::fs::remove_file(&path);
+                    self.end_region_affinity();
+                    self.show_window(ctx);
+                    return;
+                }
                 let expected = w as usize * h as usize * 4;
                 if w == 0 || h == 0 || pixels.len() != expected {
                     let _ = std::fs::remove_file(&path);
@@ -3097,9 +3171,18 @@ impl VibecapApp {
                 self.region_backdrop_rgba = Some((w, h, pixels));
                 self.region_snap_path = Some(path);
                 self.is_selecting_region = true;
-                // Child viewports hide with a minimized owner. Restore the studio
-                // (covered by the overlay) so the region HUD can take the mouse.
-                self.show_window(ctx);
+                // Restore the owner so the child overlay can take the mouse —
+                // but only when it needs restoring: on the affinity path the
+                // studio stayed visible and show_window would focus-steal the
+                // already-open overlay.
+                #[cfg(windows)]
+                let needs_restore =
+                    self.pre_capture_outer.is_some() || crate::platform::studio_is_minimized();
+                #[cfg(not(windows))]
+                let needs_restore = self.pre_capture_outer.is_some();
+                if needs_restore {
+                    self.show_window(ctx);
+                }
                 ctx.request_repaint();
             }
             Err(e) => {
@@ -3817,6 +3900,42 @@ impl eframe::App for VibecapApp {
                     self.pending_region_kind = None;
                     self.exit_region_overlay(ctx);
                     self.show_toast("Region select cancelled");
+                }
+            }
+            // Instant-overlay path: the selector is up showing the dim while
+            // the freeze snap is in flight — exclude its HWND from that grab
+            // or it freezes into its own backdrop. On Denied / persistent
+            // NotFound, close the overlay so the worker's snap stays clean;
+            // the delayed overlay returns when the snap arrives.
+            #[cfg(windows)]
+            if self.region_affinity
+                && self.region_backdrop.is_none()
+                && self.wake_shared.region_overlay_state.load(Ordering::SeqCst) == 0
+            {
+                match crate::platform::set_title_capture_excluded("Vibecap Region", true) {
+                    crate::platform::ExcludeStatus::Applied => {
+                        self.wake_shared
+                            .region_overlay_state
+                            .store(1, Ordering::SeqCst);
+                    }
+                    crate::platform::ExcludeStatus::Denied => {
+                        self.wake_shared
+                            .region_overlay_state
+                            .store(2, Ordering::SeqCst);
+                        self.is_selecting_region = false;
+                    }
+                    crate::platform::ExcludeStatus::NotFound => {
+                        self.region_excl_attempts += 1;
+                        if self.region_excl_attempts > 40 {
+                            self.wake_shared
+                                .region_overlay_state
+                                .store(2, Ordering::SeqCst);
+                            self.is_selecting_region = false;
+                        } else {
+                            // Viewport HWND not materialized yet — retry next frame.
+                            ctx.request_repaint();
+                        }
+                    }
                 }
             }
             return;

@@ -33,6 +33,7 @@ extern "system" {
 
 struct EnumState {
     pid: u32,
+    prefix: String,
     hwnd: Hwnd,
 }
 
@@ -49,17 +50,17 @@ unsafe extern "system" fn enum_cb(hwnd: Hwnd, lparam: isize) -> i32 {
         return 1;
     }
     let title = String::from_utf16_lossy(&buf[..n as usize]);
-    // Main studio, not the region overlay / REC bar / countdown.
-    if title.starts_with("Vibecap Studio") {
+    if title.starts_with(&state.prefix) {
         state.hwnd = hwnd;
         return 0;
     }
     1
 }
 
-fn find_studio_hwnd() -> Option<Hwnd> {
+fn find_hwnd_by_title_prefix(prefix: &str) -> Option<Hwnd> {
     let mut state = EnumState {
         pid: std::process::id(),
+        prefix: prefix.to_string(),
         hwnd: std::ptr::null_mut(),
     };
     unsafe {
@@ -70,6 +71,11 @@ fn find_studio_hwnd() -> Option<Hwnd> {
     } else {
         Some(state.hwnd)
     }
+}
+
+// Main studio, not the region overlay / REC bar / countdown.
+fn find_studio_hwnd() -> Option<Hwnd> {
+    find_hwnd_by_title_prefix("Vibecap Studio")
 }
 
 fn force_appwindow(hwnd: Hwnd) {
@@ -183,6 +189,41 @@ pub fn set_studio_capture_excluded(excluded: bool) -> bool {
             ) != 0
         })
         .unwrap_or(false)
+}
+
+/// Result of applying display-affinity to one of our windows by title prefix.
+pub enum ExcludeStatus {
+    /// HWND found and affinity applied.
+    Applied,
+    /// No window with that prefix in this process — maybe not created yet;
+    /// the caller may retry next frame.
+    NotFound,
+    /// Window exists but SetWindowDisplayAffinity refused.
+    Denied,
+}
+
+/// Toggle WDA_EXCLUDEFROMCAPTURE on one of our windows by title prefix —
+/// used on the "Vibecap Region" overlay so it can sit on screen during the
+/// region freeze snap without freezing itself into the backdrop.
+pub fn set_title_capture_excluded(title_prefix: &str, excluded: bool) -> ExcludeStatus {
+    let Some(hwnd) = find_hwnd_by_title_prefix(title_prefix) else {
+        return ExcludeStatus::NotFound;
+    };
+    let ok = unsafe {
+        SetWindowDisplayAffinity(
+            hwnd,
+            if excluded {
+                WDA_EXCLUDEFROMCAPTURE
+            } else {
+                WDA_NONE
+            },
+        )
+    };
+    if ok != 0 {
+        ExcludeStatus::Applied
+    } else {
+        ExcludeStatus::Denied
+    }
 }
 
 // ── Native desktop still (GDI BitBlt) ───────────────────────────────────────
