@@ -4598,6 +4598,9 @@ impl eframe::App for VibecapApp {
                         .inner_margin(0.0),
                 )
                 .show(ctx, |ui| {
+                    if theme::is_celestial() {
+                        theme::paint_celestial_sky(ui.painter(), ui.clip_rect());
+                    }
                     let rec_live =
                         self.is_recording || self.recording_arming || self.recording_finalizing;
                     if let Some(stage) = loop_rail(
@@ -4625,6 +4628,9 @@ impl eframe::App for VibecapApp {
                             .inner_margin(egui::Margin::symmetric(theme::SP_2, theme::SP_1)),
                     )
                     .show(ctx, |ui| {
+                        if theme::is_celestial() {
+                            theme::paint_celestial_sky(ui.painter(), ui.clip_rect());
+                        }
                         status_strip(ui, &snap, self.current_tab != AppTab::Capture);
                     });
             }
@@ -4661,7 +4667,11 @@ impl eframe::App for VibecapApp {
                     egui::Sense::hover(),
                 );
                 let lp = ui.painter_at(logo);
-                lp.rect_filled(logo, 6.0, theme::PRIMARY());
+                if theme::is_celestial() {
+                    theme::paint_aurora_button(&lp, logo, 6.0);
+                } else {
+                    lp.rect_filled(logo, 6.0, theme::PRIMARY());
+                }
                 lp.text(
                     logo.center(),
                     egui::Align2::CENTER_CENTER,

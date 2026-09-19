@@ -502,11 +502,23 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
 /// Section card: SURFACE fill, 1px BORDER hairline, lg (12px) rounding,
 /// 14px padding, letterspaced caps title — mono-ui `.card` + `.section-title`.
 pub fn section_card(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
-    Frame::none()
+    let frame = Frame::none()
         .fill(theme::SURFACE())
         .stroke(Stroke::new(1.0_f32, theme::BORDER()))
         .rounding(theme::rounding_lg())
-        .inner_margin(Margin::same(14.0))
+        .inner_margin(Margin::same(14.0));
+    // Chromie celestial .card shadow: 0 4px 14px rgba(7,6,26,.4).
+    let frame = if theme::is_celestial() {
+        frame.shadow(egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 4.0),
+            blur: 14.0,
+            spread: 0.0,
+            color: egui::Color32::from_rgba_premultiplied(7, 6, 26, 102),
+        })
+    } else {
+        frame
+    };
+    frame
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             theme::caps_label(ui, title);

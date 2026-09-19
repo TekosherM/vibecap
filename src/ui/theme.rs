@@ -685,83 +685,140 @@ pub fn apply_celestial_pink_theme(ctx: &egui::Context) {
 
 // ── Celestial flourish ──────────────────────────────────────────────
 
-/// Deterministic starfield + soft aurora glows for the Celestial canvas.
-/// Paint first inside the root panel so all widgets draw on top.
+/// Deterministic starfield + radial aurora glows for the Celestial canvas,
+/// matching Chromie's `body` background: vertical gradient base, radial
+/// teal/pink glows, scattered stars. Paint first inside a panel.
 pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
-    // Normalized star positions (x, y, radius, color) — fixed so the sky
-    // doesn't twinkle between frames.
-    const STARS: &[(f32, f32, f32, Color32)] = &[
-        (0.04, 0.07, 1.0, Color32::from_rgba_premultiplied(178, 178, 178, 178)),
-        (0.15, 0.21, 1.0, Color32::from_rgba_premultiplied(128, 128, 128, 128)),
-        (0.28, 0.12, 1.5, CELESTIAL_STAR),
-        (0.39, 0.33, 1.0, Color32::from_rgba_premultiplied(153, 153, 153, 153)),
-        (0.52, 0.08, 1.0, Color32::from_rgba_premultiplied(38, 214, 192, 217)),
-        (0.67, 0.29, 1.0, Color32::from_rgba_premultiplied(140, 140, 140, 140)),
-        (0.80, 0.46, 1.5, Color32::from_rgba_premultiplied(236, 79, 142, 217)),
-        (0.92, 0.19, 1.0, Color32::from_rgba_premultiplied(128, 128, 128, 128)),
-        (0.07, 0.40, 1.0, Color32::from_rgba_premultiplied(102, 102, 102, 102)),
-        (0.23, 0.56, 1.0, Color32::from_rgba_premultiplied(140, 140, 140, 140)),
-        (0.44, 0.67, 1.0, Color32::from_rgba_premultiplied(115, 115, 115, 115)),
-        (0.62, 0.78, 1.0, Color32::from_rgba_premultiplied(128, 128, 128, 128)),
-        (0.14, 0.84, 1.0, Color32::from_rgba_premultiplied(153, 153, 153, 153)),
-        (0.85, 0.92, 1.0, Color32::from_rgba_premultiplied(102, 102, 102, 102)),
-        (0.36, 0.90, 1.0, Color32::from_rgba_premultiplied(38, 214, 192, 140)),
-        (0.74, 0.62, 1.0, Color32::from_rgba_premultiplied(236, 79, 142, 140)),
-    ];
+    let pink = theme_mode() == ThemeMode::CelestialPink;
     let w = rect.width().max(1.0);
     let h = rect.height().max(1.0);
-    // Soft aurora glows: teal top-left, pink lower-right, violet center.
-    // CelestialPink swaps the teal for rose so the sky reads pink-forward.
-    let pink = theme_mode() == ThemeMode::CelestialPink;
-    let (glow_a, glow_c) = if pink {
+    let dim = w.min(h);
+
+    // Base: vertical gradient — Chromie `linear-gradient(180deg, #0F0D29, #0A0820)`.
+    let top = if pink {
+        Color32::from_rgb(0x20, 0x11, 0x36)
+    } else {
+        Color32::from_rgb(0x0f, 0x0d, 0x29)
+    };
+    let mut base = egui::epaint::Mesh::default();
+    base.colored_vertex(rect.left_top(), top);
+    base.colored_vertex(rect.right_top(), top);
+    base.colored_vertex(rect.left_bottom(), CANVAS());
+    base.colored_vertex(rect.right_bottom(), CANVAS());
+    base.add_triangle(0, 1, 2);
+    base.add_triangle(1, 3, 2);
+    painter.add(egui::Shape::mesh(base));
+
+    // Radial glows — Chromie `radial-gradient(60% 60% at X Y, …)`.
+    // CelestialPink swaps teal for rose so the sky reads pink-forward.
+    let (g_teal, g_ambient) = if pink {
         (
-            Color32::from_rgba_premultiplied(242, 111, 164, 9),
-            Color32::from_rgba_premultiplied(192, 132, 252, 7),
+            Color32::from_rgba_premultiplied(244, 114, 182, 34),
+            Color32::from_rgba_premultiplied(251, 113, 133, 22),
         )
     } else {
         (
-            Color32::from_rgba_premultiplied(38, 214, 192, 7),
-            Color32::from_rgba_premultiplied(103, 76, 209, 6),
+            Color32::from_rgba_premultiplied(38, 214, 192, 40),
+            Color32::from_rgba_premultiplied(103, 76, 209, 26),
         )
     };
-    let dim = w.min(h);
-    painter.circle_filled(
+    radial_glow(
+        painter,
         egui::pos2(rect.left() + w * 0.18, rect.top() + h * 0.08),
-        dim * 0.42,
-        glow_a,
+        dim * 0.50,
+        g_teal,
     );
-    painter.circle_filled(
-        egui::pos2(rect.left() + w * 0.82, rect.top() + h * 0.86),
-        dim * 0.46,
-        Color32::from_rgba_premultiplied(236, 79, 142, 8),
+    radial_glow(
+        painter,
+        egui::pos2(rect.left() + w * 0.82, rect.top() + h * 0.06),
+        dim * 0.52,
+        Color32::from_rgba_premultiplied(236, 79, 142, 34),
     );
-    painter.circle_filled(
-        egui::pos2(rect.left() + w * 0.55, rect.top() + h * 0.45),
-        dim * 0.55,
-        glow_c,
+    radial_glow(
+        painter,
+        egui::pos2(rect.left() + w * 0.08, rect.top() + h * 0.94),
+        dim * 0.45,
+        g_ambient,
     );
+
+    // Stars — positions from Chromie's body starfield (normalized here).
+    const STARS: &[(f32, f32, f32, Color32)] = &[
+        (0.04, 0.07, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 178)),
+        (0.15, 0.19, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 128)),
+        (0.28, 0.11, 1.5, CELESTIAL_STAR),
+        (0.39, 0.30, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 153)),
+        (0.52, 0.07, 1.0, Color32::from_rgba_premultiplied(38, 214, 192, 217)),
+        (0.67, 0.27, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 140)),
+        (0.80, 0.42, 1.5, Color32::from_rgba_premultiplied(236, 79, 142, 217)),
+        (0.92, 0.17, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 128)),
+        (0.07, 0.36, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 102)),
+        (0.23, 0.51, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 140)),
+        (0.44, 0.61, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 115)),
+        (0.62, 0.72, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 128)),
+        (0.14, 0.77, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 153)),
+        (0.85, 0.87, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 102)),
+        (0.36, 0.86, 1.0, Color32::from_rgba_premultiplied(38, 214, 192, 140)),
+        (0.74, 0.58, 1.0, Color32::from_rgba_premultiplied(236, 79, 142, 140)),
+        (0.57, 0.92, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 120)),
+        (0.95, 0.62, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 100)),
+    ];
     for &(fx, fy, r, color) in STARS {
         // Teal-tinted stars become rose under CelestialPink.
         let color = if pink && (color.r(), color.g(), color.b()) == (38, 214, 192) {
-            Color32::from_rgba_premultiplied(242, 111, 164, color.a())
+            Color32::from_rgba_premultiplied(244, 114, 182, color.a())
         } else {
             color
         };
-        painter.circle_filled(
-            egui::pos2(rect.left() + fx * w, rect.top() + fy * h),
-            r,
-            color,
-        );
+        painter.circle_filled(egui::pos2(rect.left() + fx * w, rect.top() + fy * h), r, color);
     }
 }
 
-/// The aurora's three stops for a given theme.
+/// Soft radial glow — two-ring fan mesh, alpha falls center → edge.
+/// (egui has no radial gradient; this approximates `radial-gradient`.)
+fn radial_glow(painter: &egui::Painter, c: egui::Pos2, r: f32, color: Color32) {
+    const SEG: usize = 32;
+    let mut mesh = egui::epaint::Mesh::default();
+    let mid = Color32::from_rgba_premultiplied(color.r(), color.g(), color.b(), color.a() / 3);
+    mesh.colored_vertex(c, color);
+    for i in 0..SEG {
+        let a = i as f32 / SEG as f32 * std::f32::consts::TAU;
+        mesh.colored_vertex(
+            c + egui::vec2(a.cos(), a.sin()) * r * 0.55,
+            mid,
+        );
+    }
+    for i in 0..SEG {
+        let a = i as f32 / SEG as f32 * std::f32::consts::TAU;
+        mesh.colored_vertex(
+            c + egui::vec2(a.cos(), a.sin()) * r,
+            Color32::TRANSPARENT,
+        );
+    }
+    for i in 0..SEG {
+        let n = (i + 1) % SEG;
+        // inner fan
+        mesh.add_triangle(0, 1 + i as u32, 1 + n as u32);
+        // outer band
+        let (a1, a2, b1, b2) = (
+            1 + i as u32,
+            1 + n as u32,
+            1 + SEG as u32 + i as u32,
+            1 + SEG as u32 + n as u32,
+        );
+        mesh.add_triangle(a1, b1, a2);
+        mesh.add_triangle(a2, b1, b2);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// The aurora's three stops for a given theme. CelestialPink uses
+/// Chromie's `dawn` accent palette (rose → pink → rose).
 fn aurora_stops_for(mode: ThemeMode) -> [Color32; 3] {
     if mode == ThemeMode::CelestialPink {
         [
-            Color32::from_rgb(0xf2, 0x6f, 0xa4),
-            Color32::from_rgb(0xc0, 0x84, 0xfc),
-            AURORA_PINK,
+            Color32::from_rgb(0xf4, 0x72, 0xb6),
+            Color32::from_rgb(0xf3, 0x72, 0x9e),
+            Color32::from_rgb(0xfb, 0x71, 0x85),
         ]
     } else {
         [AURORA_TEAL, AURORA_MID, AURORA_PINK]
