@@ -322,3 +322,349 @@ Scrolling capture + OCR/grab-text (need a real engine, not a feature flag);
 transparent live overlay (egui child viewports can't composite transparency
 on Windows — a native layered HWND is a separate project); PrintScreen
 *takeover* of the OS key (registry-level, revisit).
+
+---
+
+# Round 3 — 300 improvements (2026-09-20)
+
+Third tranche. Assumes rounds 1–2 plus the five-theme design system
+(Carbon / Mono Dark / Mono Light / Celestial / Celestial Pink), the mono-ui
+component port (font weights, caps labels, chips, ghost icon buttons), and the
+exclusion-based record flow all hold. Grounded in the tree as of `d337634`.
+Numbered 1–300 for this round. Sections sized 25 each.
+
+## A · Design system & theme polish (1–25)
+
+1. **Per-theme density scale** — compact/cozy/comfortable spacing token per theme; Celestial can afford airier gaps than Mono.
+2. **Theme-aware elevation model** — three shadow tiers (rest/raised/overlay) in tokens instead of only `popup_shadow`/`window_shadow`.
+3. **Accent-hue slider for celestial modes** — rotate the aurora hue ±40° while keeping the sky structure.
+4. **Theme preview in picker shows real chrome** — mini mock of rail + card + CTA inside each swatch, not just an aurora strip.
+5. **Auto theme** — follow Windows light/dark for the Mono pair; celestial modes stay manual.
+6. **Scheduled themes** — Light by day, Dark/Celestial by night (opt-in).
+7. **Contrast audit pass** — run a contrast checker over every `TEXT_MUTED`/`TEXT_FAINT` usage; celestial muted on plum is borderline.
+8. **Focus ring token** — real `FOCUS_RING` color per theme, painted on keyboard focus for every interactive widget.
+9. **Disabled-state token set** — `*_DISABLED` fill/text pair instead of ad-hoc `.weak()` calls.
+10. **Hover animation** — egui `ctx.animate` on button fills; 80–120 ms ease like the mockup's `--ease`.
+11. **Pressed-state scale** — 0.98 shrink on primary CTAs for tactile feel.
+12. **Icon stroke-width consistency** — audit `icons.rs` strokes; loupe/camera glyphs draw heavier than nav glyphs.
+13. **Icon sizing token** — `ICON_SM/MD/LG` (14/18/22) instead of scattered pixel sizes.
+14. **Letter-spacing token for caps labels** — `caps_label` hardcodes 1.0; make it a token so Celestial can track wider.
+15. **Numeric font feature** — tabular figures for REC timer, size columns, budget readouts (Segoe UI `tnum` or a mono face).
+16. **Mono face for code/path text** — paths, durations, and `kbd` chips should share one mono family token.
+17. **Theme diff in screenshot tests** — golden-frame capture per theme to catch alpha/token regressions like the premultiplied bug.
+18. **Carbon accent review** — Carbon currently inherits zinc accent; give it a slate-blue tint to match Tailwind slate-400 hover states.
+19. **Celestial card inner-glow** — 1 px top inner highlight (`rgba(255,255,255,.06)`) like Chromie's glass cards.
+20. **Toast severity left-bar** — already colored; add matching icon tint + semantic icon per severity.
+21. **Empty-state art** — one small line-art glyph per empty surface (Library, Inbox, Recents) instead of bare text.
+22. **Skeleton loaders** — shimmer rect where thumbs/frames are pending instead of blank tiles.
+23. **Reduced-motion setting** — disable aurora pulse, hover fades, toast slide.
+24. **Starfield parallax** — stars drift 1–2 px on window resize for depth (cheap: offset by rect delta).
+25. **Theme export/import** — share a theme as a JSON snippet; community themes later.
+
+## B · Layout, rail & navigation (26–50)
+
+26. **Collapsible rail** — icon-only 48 px mode; labels on hover tooltip.
+27. **Rail badges** — numeric badge on Inbox (pending count), dot on Library (new items since open).
+28. **Rail section labels** — CAPTURE / REVIEW / SYSTEM group dividers in expanded mode.
+29. **Rail drag-reorder** — let users pin favorite stages to top.
+30. **Keyboard rail nav** — Ctrl+1..5 jump to stages; shown in `?` sheet.
+31. **Breadcrumb in Review** — `Library › clip_name` so Esc-depth is visible.
+32. **Back button** — in-header ‹ Back for Review/Clip/Still; Alt+← binding.
+33. **Window-size memory per stage** — Library wants wide; Capture wants narrow.
+34. **Min window size enforcement** — below 720 px the rail overlaps content; clamp or collapse.
+35. **Adaptive column width** — the 720 px content column should widen on >1100 px windows.
+36. **Status strip resize drag** — give the bottom bar a 2 px taller hit target.
+37. **Status strip segments clickable** — click "2 recordings" → jump to Library filtered.
+38. **Right-side inspector mode** — optional docked metadata panel in Review screens.
+39. **Zen mode** — hide rail + status strip; palette + hotkeys only.
+40. **Header title dynamic** — show contextual title (recording name in Clip, file name in Still) instead of always stage name.
+41. **Subtitle slot in header** — second line under title for context ("unsaved changes", "recording 00:12").
+42. **Command palette recent verbs** — MRU section above the flat list.
+43. **Palette fuzzy match** — substring scoring; "gif" should rank "Export GIF" first.
+44. **Palette actions show shortcuts** — right-aligned kbd hint per row.
+45. **Palette media jump** — typing a filename jumps to its review.
+46. **Tab-strip alternative** — optional top tabs instead of rail for users who want Snagit familiarity.
+47. **Drag window by any dead space** — today only header drags; padding zones should too.
+48. **Snap-layout friendly sizing** — default size lands cleanly in Windows 11 half-snap.
+49. **Restore-last-stage on launch** — setting: always Capture vs resume where you left.
+50. **Stage transition direction** — slide left/right matching rail order, not a single wipe.
+
+## C · Capture tab & flow (51–75)
+
+51. **Per-target memory** — remember Region vs Window per session *and* per hour-of-day.
+52. **Shutter button split-menu** — chevron on Screenshot offering Region/Window/Full variants without leaving the row.
+53. **Capture preview strip on hover** — hovering a recent tile grows it 1.5× with play.
+54. **Drag recent tile out** — straight to Explorer/Slack from the capture card.
+55. **Recent tile quick-actions** — hover overlay: copy / annotate / delete on recents.
+56. **Recents carousel** — horizontal scroll when >3 items instead of hiding them.
+57. **"Waiting for capture" state** — while armed+hidden, the studio (if shown) should say so.
+58. **Options card quick toggles** — cursor/audio/display as icon toggles, not buried in disclosure.
+59. **Audio device picker** — dropdown of dshow devices when Include audio is on.
+60. **Estimated file size** — live "≈4 MB/min @ 30fps" under Record.
+61. **Disk-space guard** — warn <500 MB free on the target dir before arming.
+62. **Battery-aware hint** — on battery, suggest 24 fps / shorter clips.
+63. **Capture history sparkline** — tiny 7-day activity graph on the Capture card.
+64. **Quick-capture tray-free mode** — double-press hotkey within 500 ms = instant region with last settings.
+65. **Countdown cancel UX** — click anywhere or Esc during countdown aborts cleanly with toast.
+66. **Post-capture inline undo** — toast gets an Undo for 5 s on auto-save.
+67. **Auto-scroll to options** — when Record selected, scroll options card into view.
+68. **Source icons state-colored** — the From segment icons tint to accent when active.
+69. **Window target shows last pick** — "Window: Chrome — DevTools" persisted on the card.
+70. **Confirm-before-overwrite** — same-name collision in output dir prompts once per session.
+71. **Multi-shot batch** — hold modifier + click regions repeatedly = rapid sequence of stills.
+72. **Time-lapse mode** — capture frame every N sec into a video (stills → mp4).
+73. **Scheduled capture** — "in 10 min, grab this window" for meetings.
+74. **Clipboard watcher mode** — studio stays parked; a shot auto-opens Still review.
+75. **Capture sound per action** — distinct subtle tones for still/record-start/record-stop.
+
+## D · Region & window pick HUD (76–100)
+
+76. **HUD size readout follows cursor** — W×H plate avoids cursor side automatically.
+77. **HUD crosshair magnifier on demand** — hold Ctrl for loupe instead of always-on.
+78. **Region edge snapping** — snap to window edges/screen edges within 8 px.
+79. **Region guides** — smart alignment guides to other visible window rects.
+80. **Dark/light HUD chrome auto** — HUD inverts on very bright backdrops for contrast.
+81. **HUD button size scales with selection** — tiny regions get a compact toolbar.
+82. **Region from keyboard only** — arrows move a growing box from center; Enter commits.
+83. **Preset aspect preview tint** — locked-aspect regions tint the dim outside differently.
+84. **Multi-monitor dim** — only the active monitor dims; others stay lit.
+85. **Pick-confirm sound** — soft tick on mouse-up valid region.
+86. **Region min-size guard** — <8×8 drag shows "too small" instead of capturing noise.
+87. **Region grid overlay** — thirds/quarters toggle in HUD for composition.
+88. **Window pick confidence flash** — highlight border pulses once on hover-lock.
+89. **Window pick excludes overlays** — our own HUD/REC bar never appear in the pick list.
+90. **Alt=child-window pick** — drill into tooltips/menus as separate regions.
+91. **Region coordinates copy** — click W×H plate copies `x,y,w,h` for scripts.
+92. **Region color-sampler mode** — click samples hex under cursor to clipboard (design pick).
+93. **Freeze-frame toggle** — optional freeze of backdrop while picking (already static on Windows; make it a toggle for parity).
+94. **HUD remembers toolbar side** — toolbar docks top or bottom per last use.
+95. **Cancel zone hint** — first-time hint "Esc to cancel" fades after 3 uses.
+96. **Region history stack** — Ctrl+Z steps back through previous rects this session.
+97. **Scroll-wheel region resize** — wheel adjusts width, Shift+wheel height.
+98. **Touch/stylus support** — pen drag works; palm rejection via contact size.
+99. **Pick while maximized** — studio shouldn't restore to pick; verify parked path keeps working.
+100. **HUD theme variant** — HUD always uses a neutral dark chrome regardless of app theme.
+
+## E · Still review & annotation (101–125)
+
+101. **Undo/redo stack** — per-stroke Ctrl+Z/Ctrl+Y (open since round 1).
+102. **Real blur bake** — box-blur/mosaic into pixels on export, not a translucent overlay.
+103. **Drag-crop on canvas** — visual crop handles replace the four numeric fields.
+104. **Zoom/pan canvas** — wheel zoom, space-drag pan, Ctrl+0 fit, Ctrl+1 100 %.
+105. **Arrow tool** — with head size + color from the stroke state.
+106. **Shape tools** — rect/ellipse outline + filled modes.
+107. **Highlighter** — 50 % alpha stroke.
+108. **Step tool** — auto-numbered badges that renumber on delete.
+109. **Spotlight** — dim outside a rect.
+110. **Measure tool** — px distance + angle readout.
+111. **In-place text editing** — click canvas, type there; no separate field.
+112. **Text background chip** — filled label look with padding + radius.
+113. **Annotation color palette** — 6 swatch row + custom hex.
+114. **Stroke width presets** — 2/4/8 chips + slider.
+115. **Copy original vs annotated** — explicit choice in the copy menu.
+116. **Save-as-copy default** — never silently overwrite the source still.
+117. **Export format picker** — PNG/JPEG/WebP + quality slider.
+118. **Resize-on-export** — % or max-width field with pixel preview.
+119. **Paste-onto-canvas** — clipboard image becomes a movable layer.
+120. **Before/after hold** — hold Space to peek the un-annotated original.
+121. **Watermark preset** — corner text/logo with opacity.
+122. **Canvas padding** — add uniform border pixels with fill color on export.
+123. **Annotation list panel** — side list of strokes; click selects, Del removes.
+124. **Snap annotations** — arrows/shapes snap to 15° angles and edges.
+125. **Esc depth-fix** — Esc exits annotate → Still → Capture, never a blank tab.
+
+## F · Clip review, video & GIF (126–150)
+
+126. **Preview audio** — extract audio track alongside filmstrip; play in sync.
+127. **Determinate extract progress** — "frame i/n" bar instead of indeterminate label.
+128. **Scrub-bar seek** — click/drag the ruler moves the preview head.
+129. **Frame-step keys** — ←/→ one frame, J/K 10 frames.
+130. **In/out loop** — preview loops the marked range.
+131. **Trim-verify export** — assert ffmpeg `-ss/-to` equals the ruler seconds.
+132. **Stream-copy trim** — `-c copy` when codec allows; instant cut.
+133. **Export preset chips** — Discord 8 MB / README 480p / lossless.
+134. **GIF settings dialog** — fps, width, loop mode, size estimate pre-encode.
+135. **GIF ping-pong** — boomerang loop toggle.
+136. **GIF frame ops** — delete frames, per-frame delay in filmstrip.
+137. **Re-GIF existing MP4** — new settings without re-recording.
+138. **WebM/AV1 export** — codec picker on the export row.
+139. **Extract audio** — one-click `.m4a` from clip.
+140. **Frame-grab** — current preview frame → new still in Library.
+141. **Chapter markers** — marker hotkey during record; ticks on the ruler.
+142. **Marker list** — click a marker to jump the preview.
+143. **Auto-trim dead air** — detect frozen head/tail, offer trim.
+144. **Speed ramp** — 0.5×/2× segments (stretch goal, simple `-setpts`).
+145. **Clip notes** — text sidecar shown under the player.
+146. **Compare mode** — split-screen before/after trim preview.
+147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error.
+148. **Preview quality toggle** — half-res filmstrip for long clips.
+149. **Auto-play setting** — the autoplay we shipped becomes a Settings toggle.
+150. **Clip deletion guard** — deleting a recording with unsaved trims asks once.
+
+## G · Library (151–175)
+
+151. **Filename search** — filter-as-you-type in the header.
+152. **Search sidecars** — `.txt` notes + transcript text indexed.
+153. **Sort menu** — date/size/duration/name/type.
+154. **Favorites** — ★ floats to top, filter chip.
+155. **Tags** — free-form tags + colored filter chips.
+156. **Date groups** — Today/Yesterday/This week/Earlier headers (round-1 open item).
+157. **List view** — dense row alternative to the tile grid.
+158. **Tile size slider** — S/M/L thumbnails.
+159. **Hover-scrub** — moving across a video tile plays frames (filmstrip reuse).
+160. **Hover quick-actions** — copy/reveal/delete overlay on tiles.
+161. **Multi-select ops** — bulk export ZIP, bulk delete, bulk tag.
+162. **Export selection as ZIP** — one archive via system dialog.
+163. **Drag out to Explorer** — real OS drag source (open since round 1).
+164. **Drag in to import** — drop files onto Library to copy in.
+165. **Duplicate detection** — content-hash warning badge.
+166. **Retention rules** — keep N days/files; run on idle.
+167. **Storage bar** — per-type usage + "free X by cleaning frames_temp".
+168. **Recently deleted** — undo_trash surfaced as a shelf with restore.
+169. **Open-with menu** — per item, system default vs pick app.
+170. **Thumbnail repair** — regenerate missing/failed thumbs in background.
+171. **Sidecar hygiene** — extend denylist; sweep stale `frames_temp`, `.clean.mp4`, `.ffmpeg.log`.
+172. **GIF↔clip routing** — GIFs offer both "trim as clip" and "still frame".
+173. **Reveal-in-folder on tile** — hover icon opens Explorer with file selected.
+174. **Selection count bar** — floating action bar appears when ≥1 selected.
+175. **Library empty-state CTA** — "Take your first screenshot" button routes to Capture.
+
+## H · Inbox & HITL (176–200)
+
+176. **j/k thread nav** — keyboard-first list traversal.
+177. **a = first chip** — one-key approve for choice requests.
+178. **Esc returns to list** — consistent back-depth.
+179. **Snooze + pin** — thread-level controls with restore.
+180. **Tray quick-reply** — approve/deny from tray without showing window.
+181. **Poll age readout** — "agent polled 12 s ago" per thread.
+182. **Answered-history search** — find past Q&A + attached media.
+183. **Saved snippets** — reusable replies ("blur the token", "re-record 16:9").
+184. **Voice reply preview** — waveform + re-record before send.
+185. **Compose lock** — new arrivals never steal selection mid-compose.
+186. **Markdown-lite composer** — backticks, links render on the agent side.
+187. **Deep links** — `vibecap://feedback/<id>` opens exact thread.
+188. **Request grouping** — threads collapse by agent/session.
+189. **Unread divider** — "new since you last looked" line.
+190. **Bulk approve** — shift-select threads → approve all.
+191. **SLA colors** — threads age-tint (green→amber→red) as they wait.
+192. **Attachment preview** — media_path renders inline thumb in thread.
+193. **Reply templates per request type** — screenshot-needed vs approval prompts get different quick replies.
+194. **Notification dedupe** — repeat polls for same request don't re-toast.
+195. **Quiet hours** — inbox toasts suppressed, badge still counts.
+196. **Agent identity** — which harness/model filed the request, in the header.
+197. **Request cost** — budget spent by this thread's session so far.
+198. **One-click resolve** — mark done without a reply.
+199. **Inbox filter chips** — pending / answered / snoozed / expired.
+200. **Keyboard composer send** — Ctrl+Enter sends; documented hint in-field.
+
+## I · Tray, hotkeys & OS integration (201–225)
+
+201. **Hotkey rebind UI** — Settings editor, applies live (round-1 open).
+202. **Per-mode hotkeys** — region-still, window-still, GIF, pause each rebindable.
+203. **Hotkey conflict detect** — warn when binding collides with OS/browser.
+204. **Tray recent-captures** — last 5 items submenu with copy/reveal.
+205. **Tray pause/resume** — during record.
+206. **Tray double-click action** — configurable (screenshot / open / record).
+207. **Tray icon state** — REC blink baked into icon while recording.
+208. **Tray recording elapsed** — tooltip shows `REC 02:41`.
+209. **Single-instance GUI** — second launch focuses first unless `--mcp`/`--screenshot`.
+210. **CLI poke** — `vibecap --capture` forwards to the running instance.
+211. **Watch-folder import** — monitor a dir, auto-add shots.
+212. **Portable mode** — config/session beside the exe.
+213. **Profile export/import** — settings + hotkeys as one file.
+214. **Update checker** — GitHub Releases poll, opt-in, changelog toast.
+215. **Auto-update channel** — staged: check → download → apply on exit.
+216. **Context-menu verb** — Explorer right-click "Annotate with Vibecap" on images.
+217. **Share target** — Windows share contract so apps can send Vibecap images.
+218. **Startup-on-login option** — tray-only resident mode.
+219. **Notification-area copy** — all "menu bar" strings fixed for Windows.
+220. **Windows permissions card** — mic/loopback device, tray status, gdigrab test.
+221. **First-run health check** — ffmpeg, write-perms, DPI awareness, tray — one green card.
+222. **Crash-recovery** — unsaved annotations/session state restored on relaunch.
+223. **? cheat-sheet kept current** — auto-generate from the binding table, not hand-maintained.
+224. **Keyboard-only walkthrough** — wizard step that teaches S/R/Esc in 30 s.
+225. **OS dark-mode event** — live-switch Mono themes when Windows toggles.
+
+## J · Performance (226–250)
+
+226. **Thumb decode off-thread** — `egui_extras` loader already async; verify no decode on UI thread for large files.
+227. **Thumb disk cache** — `.vibecap/thumbs` exists; add LRU cap (e.g. 500 MB) + stale sweep.
+228. **Filmstrip parallel extract** — ffmpeg `-vsync` batch or threaded frame pull.
+229. **Lazy library page** — only render visible tiles; 1000-file folders shouldn't instantiate 1000 widgets.
+230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old.
+231. **DPI-aware texture cache** — don't re-rasterize icons on scale change storms.
+232. **Font load once** — semibold/bold loads measured; cache family lookups.
+233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change.
+234. **Recording finalize off-thread** — shipped for stop; extend to remux/GIF queue.
+235. **GIF encode queue** — background worker with progress, not a stop-blocking transcode.
+236. **Startup time budget** — cold launch → interactive <800 ms; measure and track.
+237. **Memory ceiling check** — long sessions with big thumbs shouldn't exceed ~300 MB.
+238. **PowerShell spawn removal** — replace `frontmost_app_name`/`window_rect_on_screen` shell-outs with `windows` crate calls (round-1 #28, still the biggest latency item).
+239. **Window-list cache** — 500 ms TTL on the pick-list enumeration.
+240. **ffmpeg path resolve once** — resolved at startup, not per-capture.
+241. **Starfield precomputation** — star positions hashed once, not per-frame.
+242. **Gradient mesh cache** — sky mesh rebuilt only on resize/theme change, not repaint.
+243. **Toast timer coalescing** — one timer drives all toast lifetimes.
+244. **Session write debounce** — don't serialize+write session on every state change; batch 500 ms.
+245. **Log ring-buffer** — `.ffmpeg.log` tail kept in memory for doctor, not re-read from disk.
+246. **Parallel test capture** — smoke tests run gdigrab in parallel with unit tests.
+247. **Binary size audit** — strip symbols, LTO release; target <15 MB installed.
+248. **Cold-start no-network** — update check must never block first paint.
+249. **Large-file still guard** — >25 MP stills decode at half-res for canvas, full-res on export.
+250. **Idle CPU zero** — hidden/tray app should sit at 0 % CPU, verified in CI.
+
+## K · Reliability, diagnostics & telemetry (251–275)
+
+251. **doctor --fix** — auto-remediate missing ffmpeg PATH, bad output dir, stale session.
+252. **doctor JSON mode** — `--json` for agent parsing.
+253. **Last-error surface** — persistent "last capture error" in Settings + tray tooltip.
+254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session.
+255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem.
+256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry.
+257. **Session schema versioning** — migrate old session.json fields cleanly.
+258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash.
+259. **Windows CI smoke** — gdigrab one-frame test asserting file size (round-1 #99, still open).
+260. **Golden-theme CI** — screenshot-diff the five themes to catch alpha regressions.
+261. **Input-fuzz test** — rapid region-drag/cancel sequences can't orphan the overlay.
+262. **Kill-recovery test** — terminate mid-record; next launch must finalize or clean the partial file.
+263. **ffmpeg-missing UX** — capture buttons disable with a clear fix-it card, not a post-click error.
+264. **Self-update rollback** — bad update keeps previous binary.
+265. **Instance handshake** — MCP + GUI detect each other; avoid dual capture locks.
+266. **Clock-skew guard** — recording timestamps survive timezone changes mid-clip.
+267. **Output-dir move handling** — deleted/moved dir → recreate or prompt, never silent fail.
+268. **Long-path support** — >260 char paths via `\\?\` prefix on Windows.
+269. **Unicode filename safety** — emoji/non-ASCII in naming tokens don't break ffmpeg args.
+270. **Concurrent capture guard** — two rapid hotkey presses can't spawn two ffmpeg procs.
+271. **Tray-missing fallback** — if tray creation fails, keep a floating mini-bar alive.
+272. **DPI-change mid-pick** — region rect re-maps if scaling changes while overlay is up.
+273. **Monitor-hotplug handling** — disappearing display re-targets fullscreen gracefully.
+274. **Timestamp monotonicity** — output names use monotonic seq when clock steps back.
+275. **Telemetry opt-in** — anonymous capture-success/fail counts; off by default, no content ever leaves.
+
+## L · CLI / MCP, settings & onboarding (276–300)
+
+276. **`--json` on all CLI verbs** — machine-readable output for agents.
+277. **CLI progress events** — `--record-status --watch` streams JSON lines.
+278. **MCP tool parity check** — doctor verifies every documented tool is registered.
+279. **MCP error codes** — stable `ERR_*` codes agents can branch on.
+280. **CLI dry-run** — `record start --dry-run` validates ffmpeg line without running.
+281. **`vibecap open <id>`** — open a Library item straight in Review from CLI.
+282. **CLI list** — `vibecap list [--type video] [--limit n]` prints media.
+283. **CLI annotate** — `vibecap annotate file.png --arrow x1,y1,x2,y2` headless.
+284. **Settings search** — filter box over all prefs.
+285. **Settings sections as rail** — left-nav inside Settings instead of scroll.
+286. **Setting tooltips** — every toggle explains its effect + default.
+287. **Reset-to-default per section** — not just global reset.
+288. **Wizard Windows page** — ffmpeg test-shot, mic check, hotkey conflict check.
+289. **Wizard MCP detect** — find Cursor/Claude/Codex configs, offer snippet paste.
+290. **Wizard theme pick** — live preview of all five, sets preference at first run.
+291. **Re-open wizard** — "Replay setup" in Settings.
+292. **In-app changelog** — What's New card after update.
+293. **Docs links in-app** — ? icon → relevant doc section per tab.
+294. **Stats card** — captures/week, bytes saved, streaks (round-2 #99, still open).
+295. **Budget dashboard** — per-session spend sparkline in Inbox.
+296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview.
+297. **Export diagnostics bundle** — one click → zip of logs+session+doctor for bug reports.
+298. **Community theme repo hook** — `--theme-import URL` fetch+validate.
+299. **Locale-ready strings** — wrap UI strings in a `tr()` macro now so i18n isn't a rewrite later.
+300. **API surface freeze** — document which CLI/MCP contracts are stable vs internal for agent authors.
