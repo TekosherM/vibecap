@@ -1274,9 +1274,11 @@ impl VibecapApp {
 
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, mode: ThemeMode) {
         match mode {
+            ThemeMode::Carbon => theme::apply_carbon_theme(ctx),
             ThemeMode::Dark => apply_graphite_theme(ctx),
             ThemeMode::Light => theme::apply_light_theme(ctx),
             ThemeMode::Celestial => apply_celestial_theme(ctx),
+            ThemeMode::CelestialPink => theme::apply_celestial_pink_theme(ctx),
         }
         self.persist_session();
     }
@@ -1546,11 +1548,12 @@ impl VibecapApp {
                 ));
             }
             PaletteAction::ToggleTheme => {
-                let next = match theme::theme_mode() {
-                    ThemeMode::Dark => ThemeMode::Light,
-                    ThemeMode::Light => ThemeMode::Celestial,
-                    ThemeMode::Celestial => ThemeMode::Dark,
-                };
+                let order = &theme::THEME_ORDER;
+                let cur = order
+                    .iter()
+                    .position(|m| *m == theme::theme_mode())
+                    .unwrap_or(0);
+                let next = order[(cur + 1) % order.len()];
                 self.set_theme(ctx, next);
                 self.show_toast(format!("Theme: {}", theme::theme_mode_label(next)));
             }
@@ -4630,7 +4633,7 @@ impl eframe::App for VibecapApp {
         egui::CentralPanel::default()
             .frame(Frame::none().fill(theme::CANVAS()).inner_margin(theme::SP_4))
             .show(ctx, |ui| {
-            if theme::theme_mode() == ThemeMode::Celestial {
+            if theme::is_celestial() {
                 let clip = ui.clip_rect();
                 theme::paint_celestial_sky(ui.painter(), clip);
                 theme::paint_aurora_strip(

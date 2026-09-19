@@ -360,11 +360,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 });
                 setting_row(ui, "Theme", |ui| {
                     ui.horizontal(|ui| {
-                        for mode in [
-                            theme::ThemeMode::Dark,
-                            theme::ThemeMode::Light,
-                            theme::ThemeMode::Celestial,
-                        ] {
+                        for mode in theme::THEME_ORDER {
                             if theme_swatch(ui, mode) {
                                 app.set_theme(ctx, mode);
                             }
@@ -523,8 +519,8 @@ fn theme_swatch(ui: &mut egui::Ui, mode: theme::ThemeMode) -> bool {
         egui::pos2(rect.max.x - 6.0, rect.min.y + 32.0),
     );
     match mode {
-        theme::ThemeMode::Celestial => {
-            theme::paint_aurora_strip(&p, pv);
+        theme::ThemeMode::Celestial | theme::ThemeMode::CelestialPink => {
+            theme::paint_aurora_strip_for(&p, pv, mode);
         }
         _ => {
             p.rect_filled(pv, 3.0, canvas);

@@ -363,7 +363,7 @@ pub fn loop_rail(
                         Pos2::new(r.left() + 2.0, r.top() + 8.0),
                         Vec2::new(3.0, r.height() - 16.0),
                     );
-                    if theme::theme_mode() == theme::ThemeMode::Celestial {
+                    if theme::is_celestial() {
                         theme::paint_aurora_strip_v(ui.painter(), tick);
                     } else {
                         ui.painter().rect_filled(tick, Rounding::same(1.5), theme::ACCENT());
@@ -573,8 +573,20 @@ fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
     };
 
     let p = ui.painter();
-    p.rect_filled(rect, theme::rounding_md(), fill);
-    p.rect_stroke(rect, theme::rounding_md(), Stroke::new(1.0_f32, stroke));
+    let r = theme::rounding_md();
+    // Chromie --cta-gradient: celestial primaries are the aurora itself.
+    if matches!(kind, BtnKind::Primary) && theme::is_celestial() {
+        theme::paint_aurora_button(p, rect, r.nw);
+        if down {
+            p.rect_filled(rect, r, egui::Color32::from_black_alpha(60));
+        } else if resp.hovered() {
+            p.rect_filled(rect, r, egui::Color32::from_black_alpha(28));
+        }
+        p.rect_stroke(rect, r, Stroke::new(1.0_f32, egui::Color32::from_white_alpha(30)));
+    } else {
+        p.rect_filled(rect, r, fill);
+        p.rect_stroke(rect, r, Stroke::new(1.0_f32, stroke));
+    }
     p.galley(
         egui::pos2(
             rect.center().x - galley.size().x / 2.0,

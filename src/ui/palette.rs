@@ -53,7 +53,7 @@ impl PaletteAction {
             (Self::GoSettings, "Go to Settings", "Budget · shortcuts"),
             (Self::RefreshLibrary, "Refresh library", "Rescan media folder"),
             (Self::ToggleDensity, "Toggle density", "Comfortable ↔ Compact"),
-            (Self::ToggleTheme, "Toggle theme", "Dark ↔ Light"),
+            (Self::ToggleTheme, "Toggle theme", "Cycle all five themes"),
             (
                 Self::ToggleRetro,
                 "Toggle retro buffer",

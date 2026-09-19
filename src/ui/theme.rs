@@ -14,11 +14,15 @@ use egui::{Color32, Rounding, Stroke, Visuals};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum ThemeMode {
+    /// Chromie `dark` — Tailwind slate greys ("carbon").
+    Carbon,
     #[default]
     Dark,
     Light,
     /// Celestial Pathfinder — dark cosmic surfaces, pink↔teal aurora accents.
     Celestial,
+    /// Pink-forward celestial — plum surfaces, pink aurora, gradient CTAs.
+    CelestialPink,
 }
 
 thread_local! {
@@ -42,9 +46,11 @@ pub fn apply_current_theme(ctx: &egui::Context) {
     install_ui_fonts(ctx);
     install_chrome_style(ctx);
     match theme_mode() {
+        ThemeMode::Carbon => apply_carbon_theme(ctx),
         ThemeMode::Dark => apply_graphite_theme(ctx),
         ThemeMode::Light => apply_light_theme(ctx),
         ThemeMode::Celestial => apply_celestial_theme(ctx),
+        ThemeMode::CelestialPink => apply_celestial_pink_theme(ctx),
     }
 }
 
@@ -196,7 +202,8 @@ macro_rules! dual {
 }
 
 /// Three-way token: dark / light / celestial. `dual!` tokens automatically
-/// give Celestial the dark value (it is a dark-class theme).
+/// give Celestial the dark value (it is a dark-class theme); Carbon and
+/// CelestialPink fall through to the dark arm too.
 macro_rules! tri {
     ($name:ident, $dark:expr, $light:expr, $celestial:expr) => {
         #[inline]
@@ -205,119 +212,176 @@ macro_rules! tri {
             match theme_mode() {
                 ThemeMode::Light => $light,
                 ThemeMode::Celestial => $celestial,
-                ThemeMode::Dark => $dark,
+                _ => $dark,
             }
         }
     };
 }
 
-// ── Canvas (Mono zinc neutrals; Celestial cosmic indigo) ────────────
+/// Five-way token: carbon / dark / light / celestial / celestial-pink.
+macro_rules! pent {
+    ($name:ident, $carbon:expr, $dark:expr, $light:expr, $celestial:expr, $pink:expr) => {
+        #[inline]
+        #[allow(non_snake_case)]
+        pub fn $name() -> Color32 {
+            match theme_mode() {
+                ThemeMode::Carbon => $carbon,
+                ThemeMode::Dark => $dark,
+                ThemeMode::Light => $light,
+                ThemeMode::Celestial => $celestial,
+                ThemeMode::CelestialPink => $pink,
+            }
+        }
+    };
+}
 
-tri!(
+/// True for the two cosmic themes (starfield + aurora accents apply).
+pub fn is_celestial() -> bool {
+    matches!(theme_mode(), ThemeMode::Celestial | ThemeMode::CelestialPink)
+}
+
+// ── Canvas ──────────────────────────────────────────────────────────
+// Order: carbon / mono-dark / mono-light / celestial / celestial-pink.
+// Carbon = Chromie `dark` (Tailwind slate); Celestial = cosmic indigo;
+// CelestialPink = plum surfaces under the same aurora.
+
+pent!(
     CANVAS,
+    Color32::from_rgb(0x11, 0x18, 0x27),
     Color32::from_rgb(0x0b, 0x0b, 0x0c),
     Color32::from_rgb(0xf4, 0xf4, 0xf5),
-    Color32::from_rgb(0x0a, 0x08, 0x20)
+    Color32::from_rgb(0x0a, 0x08, 0x20),
+    Color32::from_rgb(0x12, 0x08, 0x1e)
 );
-tri!(
+pent!(
     SURFACE,
+    Color32::from_rgb(0x1f, 0x29, 0x37),
     Color32::from_rgb(0x14, 0x14, 0x16),
     Color32::from_rgb(0xff, 0xff, 0xff),
-    Color32::from_rgb(0x16, 0x14, 0x3b)
+    Color32::from_rgb(0x16, 0x14, 0x3b),
+    Color32::from_rgb(0x1c, 0x0f, 0x30)
 );
-tri!(
+pent!(
     SURFACE_2,
+    Color32::from_rgb(0x25, 0x30, 0x44),
     Color32::from_rgb(0x1a, 0x1a, 0x1d),
     Color32::from_rgb(0xfa, 0xfa, 0xfa),
-    Color32::from_rgb(0x1d, 0x1a, 0x4c)
+    Color32::from_rgb(0x1d, 0x1a, 0x4c),
+    Color32::from_rgb(0x25, 0x14, 0x3f)
 );
-tri!(
+pent!(
     SURFACE_3,
+    Color32::from_rgb(0x37, 0x41, 0x51),
     Color32::from_rgb(0x22, 0x22, 0x25),
     Color32::from_rgb(0xf0, 0xf0, 0xf2),
-    Color32::from_rgb(0x26, 0x21, 0x5c)
+    Color32::from_rgb(0x26, 0x21, 0x5c),
+    Color32::from_rgb(0x30, 0x19, 0x4f)
 );
 
 // ── Text ────────────────────────────────────────────────────────────
 
-tri!(
+pent!(
     TEXT,
+    Color32::from_rgb(0xf9, 0xfa, 0xfb),
     Color32::from_rgb(0xf4, 0xf4, 0xf5),
     Color32::from_rgb(0x18, 0x18, 0x1b),
-    Color32::from_rgb(0xf4, 0xf1, 0xff)
+    Color32::from_rgb(0xf4, 0xf1, 0xff),
+    Color32::from_rgb(0xfd, 0xf1, 0xf8)
 );
-tri!(
+pent!(
     TEXT_MUTED,
+    Color32::from_rgb(0xd1, 0xd5, 0xdb),
     Color32::from_rgb(0xa1, 0xa1, 0xaa),
     Color32::from_rgb(0x52, 0x52, 0x5b),
-    Color32::from_rgb(0xc7, 0xc2, 0xe6)
+    Color32::from_rgb(0xc7, 0xc2, 0xe6),
+    Color32::from_rgb(0xe3, 0xc2, 0xdd)
 );
-tri!(
+pent!(
     TEXT_DIM,
+    Color32::from_rgb(0x6b, 0x72, 0x80),
     Color32::from_rgb(0x6b, 0x6b, 0x72),
     Color32::from_rgb(0xa1, 0xa1, 0xaa),
-    Color32::from_rgb(0x8f, 0x89, 0xbc)
+    Color32::from_rgb(0x8f, 0x89, 0xbc),
+    Color32::from_rgb(0xa0, 0x7c, 0xb8)
 );
 
 // ── Brand / live accent ─────────────────────────────────────────────
-// Mono: color is reserved for *data* — the accent is ink. Celestial:
-// brand pink carries live state; teal is the secondary data hue.
+// Mono & Carbon: color is reserved for *data* — the accent is ink.
+// Celestial: brand pink carries live state; teal is the data hue.
 
-tri!(
+pent!(
     ACCENT,
+    Color32::from_rgb(0xf9, 0xfa, 0xfb),
     Color32::from_rgb(0xf4, 0xf4, 0xf5),
     Color32::from_rgb(0x18, 0x18, 0x1b),
-    Color32::from_rgb(0xec, 0x4f, 0x8e)
+    Color32::from_rgb(0xec, 0x4f, 0x8e),
+    Color32::from_rgb(0xf2, 0x6f, 0xa4)
 );
-tri!(
+pent!(
     ACCENT_INK,
+    Color32::from_rgb(0x11, 0x18, 0x27),
     Color32::from_rgb(0x0b, 0x0b, 0x0c),
     Color32::from_rgb(0xff, 0xff, 0xff),
-    Color32::from_rgb(0xf4, 0xf1, 0xff)
+    Color32::from_rgb(0xf4, 0xf1, 0xff),
+    Color32::from_rgb(0x12, 0x08, 0x1e)
 );
-tri!(
+pent!(
     PRIMARY,
+    Color32::from_rgb(0xf9, 0xfa, 0xfb),
     Color32::from_rgb(0xf4, 0xf4, 0xf5),
     Color32::from_rgb(0x18, 0x18, 0x1b),
-    Color32::from_rgb(0xf4, 0xf1, 0xff)
+    Color32::from_rgb(0xf4, 0xf1, 0xff),
+    Color32::from_rgb(0xfd, 0xf1, 0xf8)
 );
-tri!(
+pent!(
     PRIMARY_INK,
+    Color32::from_rgb(0x11, 0x18, 0x27),
     Color32::from_rgb(0x0b, 0x0b, 0x0c),
     Color32::from_rgb(0xff, 0xff, 0xff),
-    Color32::from_rgb(0x0f, 0x0d, 0x29)
+    Color32::from_rgb(0x0f, 0x0d, 0x29),
+    Color32::from_rgb(0x12, 0x08, 0x1e)
 );
 // Ink button hover / pressed — the mockup's `opacity: .88` / `.76`
 // pre-blended over each canvas (egui fills are opaque).
-tri!(
+pent!(
     PRIMARY_HOVER,
+    Color32::from_rgb(0xdd, 0xdd, 0xe0),
     Color32::from_rgb(0xd8, 0xd8, 0xda),
     Color32::from_rgb(0x33, 0x33, 0x38),
-    Color32::from_rgb(0xd8, 0xd5, 0xe4)
+    Color32::from_rgb(0xd8, 0xd5, 0xe4),
+    Color32::from_rgb(0xe1, 0xd5, 0xde)
 );
-tri!(
+pent!(
     PRIMARY_DOWN,
+    Color32::from_rgb(0xc1, 0xc1, 0xc5),
     Color32::from_rgb(0xbc, 0xbc, 0xbf),
     Color32::from_rgb(0x48, 0x48, 0x4e),
-    Color32::from_rgb(0xbc, 0xb9, 0xca)
+    Color32::from_rgb(0xbc, 0xb9, 0xca),
+    Color32::from_rgb(0xc5, 0xb9, 0xc4)
 );
-tri!(
+pent!(
     BORDER,
+    Color32::from_rgb(0x37, 0x41, 0x51),
     Color32::from_rgb(0x23, 0x23, 0x27),
     Color32::from_rgb(0xe5, 0xe5, 0xe7),
-    Color32::from_rgba_premultiplied(173, 195, 255, 31)
+    Color32::from_rgba_premultiplied(173, 195, 255, 31),
+    Color32::from_rgba_premultiplied(236, 140, 190, 31)
 );
-tri!(
+pent!(
     BORDER_STRONG,
+    Color32::from_rgb(0x4b, 0x55, 0x63),
     Color32::from_rgb(0x30, 0x30, 0x34),
     Color32::from_rgb(0xd7, 0xd7, 0xda),
-    Color32::from_rgba_premultiplied(173, 195, 255, 56)
+    Color32::from_rgba_premultiplied(173, 195, 255, 56),
+    Color32::from_rgba_premultiplied(236, 140, 190, 58)
 );
-tri!(
+pent!(
     SELECTION_FILL,
+    Color32::from_rgba_premultiplied(249, 250, 251, 38),
     Color32::from_rgba_premultiplied(244, 244, 245, 38),
     Color32::from_rgba_premultiplied(24, 24, 27, 26),
-    Color32::from_rgba_premultiplied(236, 79, 142, 60)
+    Color32::from_rgba_premultiplied(236, 79, 142, 60),
+    Color32::from_rgba_premultiplied(242, 111, 164, 60)
 );
 tri!(
     OVERLAY_DIM,
@@ -325,23 +389,29 @@ tri!(
     Color32::from_black_alpha(90),
     Color32::from_black_alpha(120)
 );
-tri!(
+pent!(
     OVERLAY_LABEL,
+    Color32::from_rgba_premultiplied(17, 24, 39, 210),
     Color32::from_black_alpha(180),
     Color32::from_rgba_premultiplied(28, 30, 36, 200),
-    Color32::from_rgba_premultiplied(15, 13, 41, 210)
+    Color32::from_rgba_premultiplied(15, 13, 41, 210),
+    Color32::from_rgba_premultiplied(18, 8, 30, 215)
 );
-tri!(
+pent!(
     OVERLAY_BLUR,
+    Color32::from_rgba_premultiplied(17, 24, 39, 220),
     Color32::from_black_alpha(220),
     Color32::from_rgba_premultiplied(28, 30, 36, 220),
-    Color32::from_rgba_premultiplied(10, 8, 32, 230)
+    Color32::from_rgba_premultiplied(10, 8, 32, 230),
+    Color32::from_rgba_premultiplied(18, 8, 30, 230)
 );
-tri!(
+pent!(
     NEUTRAL_STROKE,
+    Color32::from_rgb(0xd1, 0xd5, 0xdb),
     Color32::from_rgb(0xa1, 0xa1, 0xaa),
     Color32::from_rgb(0x52, 0x52, 0x5b),
-    Color32::from_rgb(0xc7, 0xc2, 0xe6)
+    Color32::from_rgb(0xc7, 0xc2, 0xe6),
+    Color32::from_rgb(0xe3, 0xc2, 0xdd)
 );
 
 // ── Semantic (shared hues; celestial uses its palette's ok/danger) ──
@@ -370,11 +440,13 @@ tri!(
     Color32::from_rgb(0xe0, 0x31, 0x31),
     Color32::from_rgb(0xef, 0x44, 0x44)
 );
-tri!(
+pent!(
     INFO,
     Color32::from_rgb(0x60, 0xa5, 0xfa),
+    Color32::from_rgb(0x60, 0xa5, 0xfa),
     Color32::from_rgb(0x3b, 0x82, 0xf6),
-    Color32::from_rgb(0x67, 0xa2, 0xd9)
+    Color32::from_rgb(0x67, 0xa2, 0xd9),
+    Color32::from_rgb(0xc0, 0x84, 0xfc)
 );
 tri!(
     AGENT_TEAL,
@@ -407,17 +479,21 @@ tri!(
     Color32::from_rgba_premultiplied(0x52, 0x52, 0x5b, 36),
     Color32::from_rgba_premultiplied(0xc7, 0xc2, 0xe6, 40)
 );
-tri!(
+pent!(
     SURFACE_GLASS,
+    Color32::from_rgba_premultiplied(0x1f, 0x29, 0x37, 217),
     Color32::from_rgba_premultiplied(0x14, 0x14, 0x16, 230),
     Color32::from_rgba_premultiplied(0xff, 0xff, 0xff, 235),
-    Color32::from_rgba_premultiplied(0x16, 0x14, 0x3b, 235)
+    Color32::from_rgba_premultiplied(0x16, 0x14, 0x3b, 235),
+    Color32::from_rgba_premultiplied(0x1c, 0x0f, 0x30, 232)
 );
-tri!(
+pent!(
     SURFACE_GLASS_DIM,
+    Color32::from_rgba_premultiplied(0x1f, 0x29, 0x37, 212),
     Color32::from_rgba_premultiplied(0x14, 0x14, 0x16, 220),
     Color32::from_rgba_premultiplied(0xff, 0xff, 0xff, 220),
-    Color32::from_rgba_premultiplied(0x16, 0x14, 0x3b, 225)
+    Color32::from_rgba_premultiplied(0x16, 0x14, 0x3b, 225),
+    Color32::from_rgba_premultiplied(0x1c, 0x0f, 0x30, 222)
 );
 
 // ── Celestial aurora stops (signature teal→pink gradient) ───────────
@@ -488,10 +564,14 @@ impl Density {
 
 // ── Apply themes ────────────────────────────────────────────────────
 
-/// Apply Mono dark visuals to the egui context.
-pub fn apply_graphite_theme(ctx: &egui::Context) {
-    set_theme_mode(ThemeMode::Dark);
-    let mut visuals = Visuals::dark();
+/// Shared widget chrome — all five schemes differ only in tokens + shadow.
+fn apply_visuals(ctx: &egui::Context, mode: ThemeMode, shadow: egui::epaint::Shadow) {
+    set_theme_mode(mode);
+    let mut visuals = if mode == ThemeMode::Light {
+        Visuals::light()
+    } else {
+        Visuals::dark()
+    };
     visuals.panel_fill = CANVAS();
     visuals.window_fill = CANVAS();
     visuals.extreme_bg_color = SURFACE();
@@ -524,114 +604,83 @@ pub fn apply_graphite_theme(ctx: &egui::Context) {
     visuals.warn_fg_color = WARN();
     visuals.error_fg_color = DANGER();
 
-    // mono-ui --shadow-pop (dark): soft deep lift under popups/windows.
-    let shadow = egui::epaint::Shadow {
-        offset: egui::vec2(0.0, 12.0),
-        blur: 32.0,
-        spread: 0.0,
-        color: Color32::from_black_alpha(128),
-    };
     visuals.popup_shadow = shadow;
     visuals.window_shadow = shadow;
 
     ctx.set_visuals(visuals);
+}
+
+/// Carbon — Chromie `dark` (Tailwind slate greys).
+pub fn apply_carbon_theme(ctx: &egui::Context) {
+    apply_visuals(
+        ctx,
+        ThemeMode::Carbon,
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 10.0),
+            blur: 28.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(110),
+        },
+    );
+}
+
+/// Apply Mono dark visuals to the egui context.
+pub fn apply_graphite_theme(ctx: &egui::Context) {
+    apply_visuals(
+        ctx,
+        ThemeMode::Dark,
+        // mono-ui --shadow-pop (dark): soft deep lift under popups/windows.
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 12.0),
+            blur: 32.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(128),
+        },
+    );
 }
 
 /// Mono light — full token parity with dark chrome.
 pub fn apply_light_theme(ctx: &egui::Context) {
-    set_theme_mode(ThemeMode::Light);
-    let mut visuals = Visuals::light();
-    visuals.panel_fill = CANVAS();
-    visuals.window_fill = CANVAS();
-    visuals.extreme_bg_color = SURFACE();
-    visuals.faint_bg_color = SURFACE_2();
-    visuals.override_text_color = Some(TEXT());
-
-    visuals.widgets.noninteractive.bg_fill = SURFACE();
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER());
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT());
-    visuals.widgets.noninteractive.rounding = rounding_md();
-
-    visuals.widgets.inactive.bg_fill = SURFACE_2();
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER());
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT());
-    visuals.widgets.inactive.rounding = rounding_md();
-
-    visuals.widgets.hovered.bg_fill = SURFACE_3();
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, BORDER_STRONG());
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT());
-    visuals.widgets.hovered.rounding = rounding_md();
-
-    visuals.widgets.active.bg_fill = PRIMARY();
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, PRIMARY_INK());
-    visuals.widgets.active.rounding = rounding_md();
-
-    visuals.selection.bg_fill = SELECTION_FILL();
-    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT());
-    visuals.hyperlink_color = INFO();
-    visuals.warn_fg_color = WARN();
-    visuals.error_fg_color = DANGER();
-
-    // mono-ui --shadow-pop (light): faint, close lift.
-    let shadow = egui::epaint::Shadow {
-        offset: egui::vec2(0.0, 8.0),
-        blur: 24.0,
-        spread: 0.0,
-        color: Color32::from_black_alpha(15),
-    };
-    visuals.popup_shadow = shadow;
-    visuals.window_shadow = shadow;
-
-    ctx.set_visuals(visuals);
+    apply_visuals(
+        ctx,
+        ThemeMode::Light,
+        // mono-ui --shadow-pop (light): faint, close lift.
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 8.0),
+            blur: 24.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(15),
+        },
+    );
 }
 
 /// Celestial Pathfinder — same chrome as dark, cosmic tokens.
 pub fn apply_celestial_theme(ctx: &egui::Context) {
-    set_theme_mode(ThemeMode::Celestial);
-    let mut visuals = Visuals::dark();
-    visuals.panel_fill = CANVAS();
-    visuals.window_fill = CANVAS();
-    visuals.extreme_bg_color = SURFACE();
-    visuals.faint_bg_color = SURFACE_2();
-    visuals.override_text_color = Some(TEXT());
+    apply_visuals(
+        ctx,
+        ThemeMode::Celestial,
+        // Celestial shadow — deep, faintly violet.
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 12.0),
+            blur: 36.0,
+            spread: 0.0,
+            color: Color32::from_rgba_premultiplied(5, 3, 26, 150),
+        },
+    );
+}
 
-    visuals.widgets.noninteractive.bg_fill = SURFACE();
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER());
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT());
-    visuals.widgets.noninteractive.rounding = rounding_md();
-
-    visuals.widgets.inactive.bg_fill = SURFACE_2();
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER());
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT());
-    visuals.widgets.inactive.rounding = rounding_md();
-
-    visuals.widgets.hovered.bg_fill = SURFACE_3();
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, BORDER_STRONG());
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT());
-    visuals.widgets.hovered.rounding = rounding_md();
-
-    visuals.widgets.active.bg_fill = PRIMARY();
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, PRIMARY_INK());
-    visuals.widgets.active.rounding = rounding_md();
-
-    visuals.selection.bg_fill = SELECTION_FILL();
-    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT());
-
-    visuals.hyperlink_color = INFO();
-    visuals.warn_fg_color = WARN();
-    visuals.error_fg_color = DANGER();
-
-    // Celestial shadow — deep, faintly violet.
-    let shadow = egui::epaint::Shadow {
-        offset: egui::vec2(0.0, 12.0),
-        blur: 36.0,
-        spread: 0.0,
-        color: Color32::from_rgba_premultiplied(5, 3, 26, 150),
-    };
-    visuals.popup_shadow = shadow;
-    visuals.window_shadow = shadow;
-
-    ctx.set_visuals(visuals);
+/// Celestial Pink — plum surfaces, pink aurora, rose shadows.
+pub fn apply_celestial_pink_theme(ctx: &egui::Context) {
+    apply_visuals(
+        ctx,
+        ThemeMode::CelestialPink,
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 12.0),
+            blur: 36.0,
+            spread: 0.0,
+            color: Color32::from_rgba_premultiplied(40, 5, 25, 150),
+        },
+    );
 }
 
 // ── Celestial flourish ──────────────────────────────────────────────
@@ -662,11 +711,24 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
     let w = rect.width().max(1.0);
     let h = rect.height().max(1.0);
     // Soft aurora glows: teal top-left, pink lower-right, violet center.
+    // CelestialPink swaps the teal for rose so the sky reads pink-forward.
+    let pink = theme_mode() == ThemeMode::CelestialPink;
+    let (glow_a, glow_c) = if pink {
+        (
+            Color32::from_rgba_premultiplied(242, 111, 164, 9),
+            Color32::from_rgba_premultiplied(192, 132, 252, 7),
+        )
+    } else {
+        (
+            Color32::from_rgba_premultiplied(38, 214, 192, 7),
+            Color32::from_rgba_premultiplied(103, 76, 209, 6),
+        )
+    };
     let dim = w.min(h);
     painter.circle_filled(
         egui::pos2(rect.left() + w * 0.18, rect.top() + h * 0.08),
         dim * 0.42,
-        Color32::from_rgba_premultiplied(38, 214, 192, 7),
+        glow_a,
     );
     painter.circle_filled(
         egui::pos2(rect.left() + w * 0.82, rect.top() + h * 0.86),
@@ -676,9 +738,15 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
     painter.circle_filled(
         egui::pos2(rect.left() + w * 0.55, rect.top() + h * 0.45),
         dim * 0.55,
-        Color32::from_rgba_premultiplied(103, 76, 209, 6),
+        glow_c,
     );
     for &(fx, fy, r, color) in STARS {
+        // Teal-tinted stars become rose under CelestialPink.
+        let color = if pink && (color.r(), color.g(), color.b()) == (38, 214, 192) {
+            Color32::from_rgba_premultiplied(242, 111, 164, color.a())
+        } else {
+            color
+        };
         painter.circle_filled(
             egui::pos2(rect.left() + fx * w, rect.top() + fy * h),
             r,
@@ -687,8 +755,25 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
     }
 }
 
-/// Teal→blue→pink aurora gradient strip (celestial signature accent).
-/// Drawn as a 3-stop vertex-colored mesh — square-edged by design for
+/// The aurora's three stops for a given theme.
+fn aurora_stops_for(mode: ThemeMode) -> [Color32; 3] {
+    if mode == ThemeMode::CelestialPink {
+        [
+            Color32::from_rgb(0xf2, 0x6f, 0xa4),
+            Color32::from_rgb(0xc0, 0x84, 0xfc),
+            AURORA_PINK,
+        ]
+    } else {
+        [AURORA_TEAL, AURORA_MID, AURORA_PINK]
+    }
+}
+
+fn aurora_stops() -> [Color32; 3] {
+    aurora_stops_for(theme_mode())
+}
+
+/// Teal→blue→pink aurora gradient strip (celestial signature accent;
+/// pink→violet→pink under CelestialPink). Square-edged by design for
 /// hairline accents; callers place it under headers or on rail ticks.
 pub fn paint_aurora_strip(painter: &egui::Painter, rect: egui::Rect) {
     paint_aurora(painter, rect, true);
@@ -699,13 +784,46 @@ pub fn paint_aurora_strip_v(painter: &egui::Painter, rect: egui::Rect) {
     paint_aurora(painter, rect, false);
 }
 
-fn paint_aurora(painter: &egui::Painter, rect: egui::Rect, horizontal: bool) {
-    let mut mesh = egui::epaint::Mesh::default();
-    let cols = if horizontal {
-        [AURORA_TEAL, AURORA_MID, AURORA_PINK]
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
+    Color32::from_rgba_premultiplied(
+        l(a.r(), b.r()),
+        l(a.g(), b.g()),
+        l(a.b(), b.b()),
+        l(a.a(), b.a()),
+    )
+}
+
+fn aurora_color(t: f32) -> Color32 {
+    let cols = aurora_stops();
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.5 {
+        lerp_color(cols[0], cols[1], t * 2.0)
     } else {
-        [AURORA_PINK, AURORA_MID, AURORA_TEAL]
-    };
+        lerp_color(cols[1], cols[2], (t - 0.5) * 2.0)
+    }
+}
+
+/// Horizontal aurora strip painted with an explicit theme's stops —
+/// used by the theme-picker swatches where `theme_mode()` is the active
+/// theme, not the one being previewed.
+pub fn paint_aurora_strip_for(painter: &egui::Painter, rect: egui::Rect, mode: ThemeMode) {
+    paint_aurora_with(painter, rect, aurora_stops_for(mode), true);
+}
+
+fn paint_aurora(painter: &egui::Painter, rect: egui::Rect, horizontal: bool) {
+    let s = aurora_stops();
+    let cols = if horizontal { s } else { [s[2], s[1], s[0]] };
+    paint_aurora_with(painter, rect, cols, horizontal);
+}
+
+fn paint_aurora_with(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    cols: [Color32; 3],
+    horizontal: bool,
+) {
+    let mut mesh = egui::epaint::Mesh::default();
     for (i, c) in cols.iter().enumerate() {
         let t = i as f32 / 2.0;
         let (a, b) = if horizontal {
@@ -725,9 +843,53 @@ fn paint_aurora(painter: &egui::Painter, rect: egui::Rect, horizontal: bool) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
+/// Rounded-corner aurora fill for celestial CTAs (Chromie's
+/// `--cta-gradient`). Trapezoid slices follow the corner arcs.
+pub fn paint_aurora_button(painter: &egui::Painter, rect: egui::Rect, rounding: f32) {
+    const SLICES: usize = 24;
+    let r = rounding.min(rect.height() / 2.0).min(rect.width() / 2.0);
+    // Vertical inset of the rounded edge at a given x.
+    let inset = |x: f32| -> f32 {
+        let dl = rect.left() + r - x; // distance inside left corner arc
+        let dr = x - (rect.right() - r); // distance inside right corner arc
+        let d = dl.max(dr);
+        if d <= 0.0 {
+            0.0
+        } else if d >= r {
+            r
+        } else {
+            r - (r * r - d * d).sqrt()
+        }
+    };
+    let mut mesh = egui::epaint::Mesh::default();
+    for i in 0..SLICES {
+        let x0 = rect.left() + rect.width() * i as f32 / SLICES as f32;
+        let x1 = rect.left() + rect.width() * (i + 1) as f32 / SLICES as f32;
+        let top0 = rect.top() + inset(x0);
+        let top1 = rect.top() + inset(x1);
+        let bot0 = rect.bottom() - inset(x0);
+        let bot1 = rect.bottom() - inset(x1);
+        let c0 = aurora_color(i as f32 / SLICES as f32);
+        let c1 = aurora_color((i + 1) as f32 / SLICES as f32);
+        let base = mesh.vertices.len() as u32;
+        mesh.colored_vertex(egui::pos2(x0, top0), c0);
+        mesh.colored_vertex(egui::pos2(x0, bot0), c0);
+        mesh.colored_vertex(egui::pos2(x1, top1), c1);
+        mesh.colored_vertex(egui::pos2(x1, bot1), c1);
+        mesh.add_triangle(base, base + 2, base + 1);
+        mesh.add_triangle(base + 1, base + 2, base + 3);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 /// Preview swatch colors for the theme picker (canvas, surface, ink).
 pub fn preview_colors(mode: ThemeMode) -> (Color32, Color32, Color32) {
     match mode {
+        ThemeMode::Carbon => (
+            Color32::from_rgb(0x11, 0x18, 0x27),
+            Color32::from_rgb(0x1f, 0x29, 0x37),
+            Color32::from_rgb(0xf9, 0xfa, 0xfb),
+        ),
         ThemeMode::Dark => (
             Color32::from_rgb(0x0b, 0x0b, 0x0c),
             Color32::from_rgb(0x14, 0x14, 0x16),
@@ -743,29 +905,49 @@ pub fn preview_colors(mode: ThemeMode) -> (Color32, Color32, Color32) {
             Color32::from_rgb(0x16, 0x14, 0x3b),
             Color32::from_rgb(0xec, 0x4f, 0x8e),
         ),
+        ThemeMode::CelestialPink => (
+            Color32::from_rgb(0x12, 0x06, 0x1c),
+            Color32::from_rgb(0x26, 0x10, 0x30),
+            Color32::from_rgb(0xf2, 0x6f, 0xa4),
+        ),
     }
 }
 
+/// Picker order — Carbon first, then Mono pair, then both Celestials.
+pub const THEME_ORDER: [ThemeMode; 5] = [
+    ThemeMode::Carbon,
+    ThemeMode::Dark,
+    ThemeMode::Light,
+    ThemeMode::Celestial,
+    ThemeMode::CelestialPink,
+];
+
 pub fn theme_mode_label(m: ThemeMode) -> &'static str {
     match m {
+        ThemeMode::Carbon => "Carbon",
         ThemeMode::Dark => "Mono Dark",
         ThemeMode::Light => "Mono Light",
         ThemeMode::Celestial => "Celestial",
+        ThemeMode::CelestialPink => "Celestial Pink",
     }
 }
 
 pub fn theme_mode_from_str(s: &str) -> ThemeMode {
     match s {
+        "carbon" => ThemeMode::Carbon,
         "light" => ThemeMode::Light,
         "celestial" => ThemeMode::Celestial,
+        "celestial-pink" => ThemeMode::CelestialPink,
         _ => ThemeMode::Dark,
     }
 }
 
 pub fn theme_mode_to_str(m: ThemeMode) -> &'static str {
     match m {
+        ThemeMode::Carbon => "carbon",
         ThemeMode::Dark => "dark",
         ThemeMode::Light => "light",
         ThemeMode::Celestial => "celestial",
+        ThemeMode::CelestialPink => "celestial-pink",
     }
 }
