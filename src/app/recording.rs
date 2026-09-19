@@ -55,9 +55,11 @@ pub fn extract_filmstrip_thumbs(
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("Could not create frames_temp: {e}"))?;
 
     let duration = crate::platform::probe_duration(file).unwrap_or(0.0);
-    let target = 24.0_f64;
+    // 64 frames: a ~40 s clip flips every ~0.6 s — visibly alive in the
+    // flipbook. Fewer frames made long clips look frozen ("won't start").
+    let target = 64.0_f64;
     let fps = if duration > 0.5 {
-        (target / duration).clamp(0.25, 4.0)
+        (target / duration).clamp(0.25, 6.0)
     } else {
         1.0
     };

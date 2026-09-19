@@ -50,9 +50,17 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "Extracting preview (~24 frames)…",
+            "Extracting preview…",
             egui::FontId::proportional(13.0),
             theme::TEXT_MUTED(),
+        );
+    } else if let Some(err) = &app.filmstrip_error {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("Preview failed: {err}\nOpen plays the file in a real media player."),
+            egui::FontId::proportional(13.0),
+            theme::WARN(),
         );
     } else {
         painter.text(
@@ -64,14 +72,25 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         );
     }
 
+    // With no decoded frames Play is a dead button — fall back to the real
+    // media player so the click never feels ignored.
+    let open_external = |app: &mut VibecapApp| {
+        if let Some(f) = &app.edit_file {
+            let _ = open_path(f);
+            app.show_toast("No in-app preview — opened in default player");
+        }
+    };
+
     if resp.clicked() {
         if app.player_playing {
             app.player_playing = false;
-        } else {
+        } else if n > 0 {
             if app.player_pos >= duration {
                 app.player_pos = 0.0;
             }
-            app.player_playing = n > 0;
+            app.player_playing = true;
+        } else if !app.filmstrip_loading {
+            open_external(app);
         }
     }
     if !ctx.wants_keyboard_input() {
@@ -135,11 +154,13 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         if pr.clicked() {
             if app.player_playing {
                 app.player_playing = false;
-            } else {
+            } else if n > 0 {
                 if app.player_pos >= duration {
                     app.player_pos = 0.0;
                 }
-                app.player_playing = n > 0;
+                app.player_playing = true;
+            } else if !app.filmstrip_loading {
+                open_external(app);
             }
         }
         pr.on_hover_text(if app.player_playing { "Pause" } else { "Play" });
@@ -611,6 +632,12 @@ fn tools_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path)
 // ── Tab body ───────────────────────────────────────────────────────
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
+    // Esc always backs out to Capture — a review screen should never feel
+    // like a dead end.
+    if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.current_tab = crate::AppTab::Capture;
+        return;
+    }
     // Toolbar: file info left · actions right.
     ui.horizontal(|ui| {
         ui.vertical(|ui| {

@@ -458,6 +458,12 @@ pub(crate) struct VibecapApp {
     recording_arming: bool,
     /// User cancelled during arming (worker result is discarded / killed).
     recording_cancel_armed: bool,
+    /// Windows: the studio is on screen during this recording but excluded via
+    /// WDA_EXCLUDEFROMCAPTURE — release on every recording exit path.
+    record_excluded: bool,
+    /// Bounded retries while excluding the floating "Vibecap Recorder" bar —
+    /// its HWND can take a frame to exist after show_viewport_immediate.
+    rec_bar_exclude_attempts: u8,
     is_paused: bool,
     accumulated_duration: Duration,
     segment_start: Option<Instant>,
@@ -2526,6 +2532,7 @@ impl VibecapApp {
             self.recording_arming = false;
             // Drop receiver; worker may still finish — drain_record_spawn kills it.
             self.record_spawn_rx = None;
+            self.release_record_exclusion();
             self.show_window(ctx);
             self.show_toast("❌ Recording cancelled");
             return;
@@ -2552,6 +2559,7 @@ impl VibecapApp {
         self.recording_arming = false;
         self.recording_cancel_armed = false;
 
+        self.release_record_exclusion();
         self.show_window(ctx);
         self.show_toast("❌ Recording cancelled");
     }
@@ -2619,6 +2627,7 @@ impl VibecapApp {
 
     /// Post-stop steps — safe only after ffmpeg has written the moov atom.
     fn finish_stop_recording(&mut self, ctx: &egui::Context) {
+        self.release_record_exclusion();
         if let Some(mp4) = self.current_mp4_file.clone() {
             if !self.record_markers.is_empty() {
                 let side = mp4.with_extension("markers.txt");
@@ -2713,6 +2722,10 @@ impl VibecapApp {
                     self.filmstrip_error = Some(
                         "No frames extracted — video may be corrupt or too short.".into(),
                     );
+                } else {
+                    // Land playing: a still first frame reads as "won't start".
+                    self.player_playing = true;
+                    self.player_last_time = None;
                 }
             }
             Err(e) => {
@@ -2765,21 +2778,29 @@ impl VibecapApp {
         self.arm_cancel.store(false, Ordering::SeqCst);
         self.current_mp4_file = Some(mp4_file.clone());
 
+        // Windows: keep the studio on screen but invisible to the capture
+        // (WDA_EXCLUDEFROMCAPTURE). A minimized window gets no WM_PAINT, so
+        // update() stalls while minimized — drain_record_spawn then never
+        // adopts the ffmpeg child, recording_arming sticks at "Starting…",
+        // and the recorder runs headless until the user reopens the window.
+        // Excluded-but-visible keeps the event loop alive and leaves a REC
+        // surface with a Stop button on screen. Fall back to parking when
+        // the API refuses (pre-Win10-2004).
         #[cfg(windows)]
-        {
-            // Mark parked (restore + summon guards) but do NOT minimize yet:
-            // a minimized window gets no WM_PAINT, so update() would stall
-            // before it ever drew the "Starting…" REC bar. That visible
-            // viewport is what keeps the event loop alive while hidden —
-            // the worker minimizes the HWND once it has had a frame to appear.
-            app::capture_flow::snapshot_park_geometry(
-                ctx,
-                &mut self.pre_capture_outer,
-                &mut self.pre_capture_size,
-            );
-            self.wake_shared.parked.store(true, Ordering::SeqCst);
+        let arm_excluded = {
+            let excluded = crate::platform::set_studio_capture_excluded(true);
+            self.record_excluded = excluded;
+            if !excluded {
+                app::capture_flow::snapshot_park_geometry(
+                    ctx,
+                    &mut self.pre_capture_outer,
+                    &mut self.pre_capture_size,
+                );
+                self.wake_shared.parked.store(true, Ordering::SeqCst);
+            }
             ctx.request_repaint();
-        }
+            excluded
+        };
         #[cfg(not(windows))]
         self.hide_for_capture(ctx);
 
@@ -2789,11 +2810,17 @@ impl VibecapApp {
             // Let the compositor hide our UI before the grabber starts.
             #[cfg(windows)]
             {
-                std::thread::sleep(Duration::from_millis(150));
-                if !arm_cancel.load(Ordering::SeqCst) {
-                    crate::platform::minimize_studio();
+                if arm_excluded {
+                    // Affinity applies synchronously; a short settle lets DWM
+                    // drop us from the composed frame before gdigrab reads it.
+                    std::thread::sleep(Duration::from_millis(120));
+                } else {
+                    std::thread::sleep(Duration::from_millis(150));
+                    if !arm_cancel.load(Ordering::SeqCst) {
+                        crate::platform::minimize_studio();
+                    }
+                    std::thread::sleep(Duration::from_millis(300));
                 }
-                std::thread::sleep(Duration::from_millis(300));
             }
             #[cfg(not(windows))]
             std::thread::sleep(Duration::from_millis(350));
@@ -2838,6 +2865,7 @@ impl VibecapApp {
                 let _ = std::fs::remove_file(path);
             }
             self.current_mp4_file = None;
+            self.release_record_exclusion();
             return;
         }
 
@@ -2850,14 +2878,20 @@ impl VibecapApp {
                 self.is_paused = false;
                 self.accumulated_duration = Duration::ZERO;
                 self.segment_start = Some(Instant::now());
-                // Keep main hidden; floating REC bar (macOS) or tray (Windows) is the control surface.
+                // Excluded path keeps the studio visible as the REC surface;
+                // the floating bar + tray still cover the parked fallback.
                 if cfg!(target_os = "windows") {
-                    self.show_toast("Recording — stop from the REC bar, tray, or Ctrl+Shift+2");
+                    self.show_toast(if self.record_excluded {
+                        "Recording — this window is hidden from the capture. Stop here, in the tray, or Ctrl+Shift+2"
+                    } else {
+                        "Recording — stop from the REC bar, tray, or Ctrl+Shift+2"
+                    });
                 }
                 ctx.request_repaint();
             }
             Err(e) => {
                 self.current_mp4_file = None;
+                self.release_record_exclusion();
                 self.show_window(ctx);
                 self.show_toast(format!("❌ Record failed: {e}"));
             }
@@ -3341,11 +3375,29 @@ impl VibecapApp {
 
     /// Release WDA_EXCLUDEFROMCAPTURE if this pick used it (Windows only).
     /// No-op on the hide path and on other platforms.
+    /// WDA_EXCLUDEFROMCAPTURE has two owners — the region overlay
+    /// (`region_affinity`) and recording (`record_excluded`). Re-derive the
+    /// flag from both so one owner releasing can never drop the other's
+    /// exclusion mid-use.
+    fn sync_capture_exclusion(&self) {
+        #[cfg(windows)]
+        crate::platform::set_studio_capture_excluded(
+            self.region_affinity || self.record_excluded,
+        );
+    }
+
+    fn release_record_exclusion(&mut self) {
+        if self.record_excluded {
+            self.record_excluded = false;
+            self.rec_bar_exclude_attempts = 0;
+            self.sync_capture_exclusion();
+        }
+    }
+
     fn end_region_affinity(&mut self) {
         if self.region_affinity {
             self.region_affinity = false;
-            #[cfg(windows)]
-            crate::platform::set_studio_capture_excluded(false);
+            self.sync_capture_exclusion();
         }
     }
 
@@ -4156,6 +4208,18 @@ impl eframe::App for VibecapApp {
         // Immediate viewport keeps the event loop awake while the main window is hidden.
         // Windows: opaque (transparent child viewports do not composite). Always
         // show it — tray-only stop is how recordings became unstoppable.
+        #[cfg(windows)]
+        if self.record_excluded && self.rec_bar_exclude_attempts < 8 {
+            // The bar HWND can take a frame to exist — retry briefly, stop on
+            // Applied or Denied (Denied never resolves on retry).
+            self.rec_bar_exclude_attempts += 1;
+            if !matches!(
+                crate::platform::set_title_capture_excluded("Vibecap Recorder", true),
+                crate::platform::ExcludeStatus::NotFound
+            ) {
+                self.rec_bar_exclude_attempts = 8;
+            }
+        }
         if self.is_recording || self.recording_arming || self.recording_finalizing {
             let builder = ViewportBuilder::default()
                 .with_title("Vibecap Recorder")

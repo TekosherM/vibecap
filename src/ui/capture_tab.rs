@@ -11,87 +11,142 @@ use crate::ui::{btn_small, switch};
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                     ui.vertical_centered(|ui| {
-                        ui.label(
-                            RichText::new("What do you want to grab?")
-                                .color(theme::TEXT_MUTED())
-                                .size(13.0),
-                        );
-                        ui.add_space(theme::SP_3);
-
-                        // ── Step 1: target cards — fixed thirds so none eats the row ──
-                        ui.horizontal(|ui| {
-                            let card_w =
-                                ((ui.available_width() - 2.0 * theme::SP_2) / 3.0).min(240.0);
-                            for (target, icon, label, hint) in [
-                                (
-                                    CaptureTarget::Fullscreen,
-                                    crate::ui::icons::Icon::Monitor,
-                                    "Full screen",
-                                    "everything",
-                                ),
-                                (
-                                    CaptureTarget::Region,
-                                    crate::ui::icons::Icon::Region,
-                                    "A region",
-                                    "drag a box",
-                                ),
-                                (
-                                    CaptureTarget::Window,
-                                    crate::ui::icons::Icon::Window,
-                                    "A window",
-                                    "one app",
-                                ),
-                            ] {
-                                let on = app.capture_target == target;
-                                let (fill, stroke_c) = if on {
-                                    (
-                                        theme::ACCENT().gamma_multiply(0.14),
-                                        theme::ACCENT(),
-                                    )
-                                } else {
-                                    (theme::SURFACE(), theme::BORDER())
-                                };
-                                let resp = egui::Frame::none()
-                                    .fill(fill)
-                                    .stroke(Stroke::new(if on { 1.5_f32 } else { 1.0_f32 }, stroke_c))
-                                    .rounding(theme::rounding_md())
-                                    .inner_margin(egui::Margin::symmetric(14.0, 10.0))
-                                    .show(ui, |ui| {
-                                        ui.set_width(card_w - 28.0);
-                                        ui.set_min_height(56.0);
-                                        ui.vertical_centered(|ui| {
-                                            let (r, _) = ui.allocate_exact_size(
-                                                egui::Vec2::splat(24.0),
-                                                egui::Sense::hover(),
-                                            );
-                                            crate::ui::icons::paint_icon(
-                                                ui,
-                                                r,
-                                                icon,
-                                                if on { theme::ACCENT() } else { theme::TEXT_MUTED() },
-                                            );
-                                            ui.add_space(2.0);
-                                            ui.label(
-                                                RichText::new(label)
-                                                    .size(13.0)
-                                                    .strong()
-                                                    .color(theme::TEXT()),
-                                            );
-                                            ui.label(
-                                                RichText::new(hint)
-                                                    .size(10.0)
-                                                    .color(theme::TEXT_DIM()),
-                                            );
-                                        });
-                                    })
-                                    .response
-                                    .interact(egui::Sense::click());
-                                if resp.clicked() {
-                                    app.capture_target = target;
+                        // ── Primary actions first: Screenshot / Record / GIF ──
+                        // The user decides WHAT to do before WHERE — the target
+                        // selector below is a secondary setting, not a step.
+                        let rec_label = if app.is_recording {
+                            let elapsed = app.recording_elapsed_secs();
+                            format!("Stop  [{:02}:{:02}]", elapsed / 60, elapsed % 60)
+                        } else if app.recording_arming {
+                            "Starting…".to_string()
+                        } else if app.recording_finalizing {
+                            "Saving…".to_string()
+                        } else {
+                            "Record  (R)".to_string()
+                        };
+                        if let Some(act) = shutter_strip(
+                            ui,
+                            app.is_recording,
+                            app.recording_arming || app.recording_finalizing,
+                            &rec_label,
+                        ) {
+                            match act {
+                                ShutterAction::Screenshot => app.trigger_capture(ctx, true),
+                                ShutterAction::RecordToggle => {
+                                    if app.is_recording {
+                                        app.stop_recording(ctx);
+                                    } else if app.recording_arming {
+                                        app.cancel_recording(ctx);
+                                    } else {
+                                        app.trigger_capture(ctx, false);
+                                    }
                                 }
-                                ui.add_space(theme::SP_2);
+                                ShutterAction::Gif => app.trigger_gif_clip(ctx),
                             }
+                        }
+                        if app.record_excluded {
+                            ui.add_space(theme::SP_1);
+                            ui.label(
+                                RichText::new("● recording — this window is hidden from the capture")
+                                    .size(11.0)
+                                    .color(theme::DANGER()),
+                            );
+                        }
+
+                        ui.add_space(theme::SP_4);
+
+                        // ── Capture source — quiet segmented row, clearly a
+                        //    setting rather than an action ──
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("From")
+                                    .size(11.0)
+                                    .strong()
+                                    .color(theme::TEXT_DIM()),
+                            );
+                            ui.add_space(theme::SP_1);
+                            egui::Frame::none()
+                                .fill(theme::SURFACE_2())
+                                .rounding(theme::rounding_md())
+                                .inner_margin(egui::Margin::same(3.0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        for (target, icon, label) in [
+                                            (
+                                                CaptureTarget::Fullscreen,
+                                                crate::ui::icons::Icon::Monitor,
+                                                "Full screen",
+                                            ),
+                                            (
+                                                CaptureTarget::Region,
+                                                crate::ui::icons::Icon::Region,
+                                                "Region",
+                                            ),
+                                            (
+                                                CaptureTarget::Window,
+                                                crate::ui::icons::Icon::Window,
+                                                "Window",
+                                            ),
+                                        ] {
+                                            let on = app.capture_target == target;
+                                            let resp = egui::Frame::none()
+                                                .fill(if on {
+                                                    theme::SURFACE_3()
+                                                } else {
+                                                    egui::Color32::TRANSPARENT
+                                                })
+                                                .rounding(theme::rounding_sm())
+                                                .inner_margin(egui::Margin::symmetric(12.0, 6.0))
+                                                .show(ui, |ui| {
+                                                    ui.horizontal(|ui| {
+                                                        let (r, _) = ui.allocate_exact_size(
+                                                            egui::Vec2::splat(14.0),
+                                                            egui::Sense::hover(),
+                                                        );
+                                                        crate::ui::icons::paint_icon(
+                                                            ui,
+                                                            r,
+                                                            icon,
+                                                            if on {
+                                                                theme::ACCENT()
+                                                            } else {
+                                                                theme::TEXT_MUTED()
+                                                            },
+                                                        );
+                                                        ui.add_space(2.0);
+                                                        let mut rt = RichText::new(label)
+                                                            .size(12.0)
+                                                            .color(if on {
+                                                                theme::TEXT()
+                                                            } else {
+                                                                theme::TEXT_MUTED()
+                                                            });
+                                                        if on {
+                                                            rt = rt.strong();
+                                                        }
+                                                        ui.label(rt);
+                                                    });
+                                                })
+                                                .response
+                                                .interact(egui::Sense::click());
+                                            if resp.clicked() {
+                                                app.capture_target = target;
+                                            }
+                                        }
+                                    });
+                                });
                         });
+                        ui.label(
+                            RichText::new(match app.capture_target {
+                                CaptureTarget::Fullscreen => "Everything on screen",
+                                CaptureTarget::Region => "You'll drag a box on the screen",
+                                CaptureTarget::Window => "Pick or choose an app window",
+                            })
+                            .size(10.0)
+                            .color(theme::TEXT_DIM()),
+                        );
+
+                        ui.add_space(theme::SP_2);
                         if app.capture_target == CaptureTarget::Window {
                             ui.add_space(theme::SP_2);
                             if !app.window_list_scanned
@@ -171,39 +226,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             );
                         }
 
-                        ui.add_space(theme::SP_4);
-
-                        // ── Step 2: the buttons ────────────────────
-                        let rec_label = if app.is_recording {
-                            let elapsed = app.recording_elapsed_secs();
-                            format!("Stop  [{:02}:{:02}]", elapsed / 60, elapsed % 60)
-                        } else if app.recording_arming {
-                            "Starting…".to_string()
-                        } else if app.recording_finalizing {
-                            "Saving…".to_string()
-                        } else {
-                            "Record  (R)".to_string()
-                        };
-                        if let Some(act) = shutter_strip(
-                            ui,
-                            app.is_recording,
-                            app.recording_arming || app.recording_finalizing,
-                            &rec_label,
-                        ) {
-                            match act {
-                                ShutterAction::Screenshot => app.trigger_capture(ctx, true),
-                                ShutterAction::RecordToggle => {
-                                    if app.is_recording {
-                                        app.stop_recording(ctx);
-                                    } else if app.recording_arming {
-                                        app.cancel_recording(ctx);
-                                    } else {
-                                        app.trigger_capture(ctx, false);
-                                    }
-                                }
-                                ShutterAction::Gif => app.trigger_gif_clip(ctx),
-                            }
-                        }
+                        ui.add_space(theme::SP_3);
 
                         // ── Options row: Snipping-Tool delay + clipboard-only ──
                         ui.horizontal(|ui| {
