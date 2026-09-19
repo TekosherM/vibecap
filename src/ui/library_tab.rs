@@ -257,10 +257,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         // thumbs fall back to an icon tile.
                         let thumb = crate::app::thumbs::thumb_file(&item.path);
                         let img_src: Option<PathBuf> = match item.category {
+                            // Prefer the small .vibecap thumb for every media
+                            // kind; fall back to the source file for images
+                            // when no thumb exists yet.
+                            _ if thumb.exists() => Some(thumb),
                             MediaCategory::Screenshot | MediaCategory::Gif => {
                                 Some(item.path.clone())
                             }
-                            MediaCategory::Video if thumb.exists() => Some(thumb),
                             _ => None,
                         };
                         let thumb_rect = Rect::from_min_size(
