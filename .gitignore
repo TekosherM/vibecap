@@ -30,3 +30,7 @@ test.png
 
 # Local macOS app bundle binary (rebuild with cargo)
 Vibecap.app/Contents/MacOS/
+
+# Dev screenshots + bash nul redirect artifact
+frames/
+nul
