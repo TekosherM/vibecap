@@ -164,7 +164,7 @@ pub fn show_capture_toast(
                             action = Some(CaptureToastAction::Discard);
                         }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.small_button("✕").on_hover_text("Dismiss").clicked() {
+                            if icon_btn(ui, "✕", "Dismiss") {
                                 action = Some(CaptureToastAction::Dismiss);
                             }
                         });
@@ -628,6 +628,57 @@ pub fn btn_small(ui: &mut Ui, label: &str) -> bool {
 /// Destructive action.
 pub fn btn_danger(ui: &mut Ui, label: &str) -> bool {
     paint_button(ui, label, BtnKind::Danger)
+}
+
+/// Ghost icon/text button — no chrome at rest, a `surface-2` wash and
+/// brighter glyph on hover (mono-ui topbar icon buttons). Vertically
+/// centered on its glyph so it sits flush in mixed icon+text rows.
+pub fn icon_btn(ui: &mut Ui, label: &str, hover: &str) -> bool {
+    let font = egui::FontId::new(13.5, egui::FontFamily::Proportional);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), theme::TEXT_MUTED());
+    let (rect, resp) = ui.allocate_exact_size(
+        egui::Vec2::new((galley.size().x + 14.0).max(26.0), 26.0),
+        Sense::click(),
+    );
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        ui.painter()
+            .rect_filled(rect, theme::rounding_sm(), theme::SURFACE_3());
+    }
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font,
+        if resp.hovered() {
+            theme::TEXT()
+        } else {
+            theme::TEXT_MUTED()
+        },
+    );
+    let resp = if hover.is_empty() {
+        resp
+    } else {
+        resp.on_hover_text(hover)
+    };
+    resp.clicked()
+}
+
+/// Ghost `⋯` overflow menu — same chrome-less look as `icon_btn`, keeping
+/// egui's popup machinery by stripping the button's rest-state visuals.
+pub fn icon_menu_button(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
+    let mut vis = (*ui.visuals()).clone();
+    vis.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+    vis.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+    vis.widgets.inactive.bg_stroke = Stroke::NONE;
+    vis.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, theme::TEXT_MUTED());
+    vis.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, theme::TEXT());
+    ui.scope(|ui| {
+        *ui.visuals_mut() = vis;
+        ui.menu_button(RichText::new(label).size(15.0), add);
+    });
 }
 
 /// Monospace count badge (mono-ui `.count`).

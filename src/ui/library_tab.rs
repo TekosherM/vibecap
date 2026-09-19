@@ -28,7 +28,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.add_space(4.0);
         crate::ui::count_chip(ui, &format!("{}", app.library_filtered().len()));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.menu_button(RichText::new("⋯").size(16.0), |ui| {
+            crate::ui::icon_menu_button(ui, "⋯", |ui| {
                 ui.set_min_width(180.0);
                 if ui.button("Refresh").clicked() {
                     app.refresh_library();

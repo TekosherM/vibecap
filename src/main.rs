@@ -4654,11 +4654,7 @@ impl eframe::App for VibecapApp {
 
             // ── Stage header ─────────────────────────────────────
             ui.horizontal(|ui| {
-                if ui
-                    .small_button("☰")
-                    .on_hover_text("Stage rail (Ctrl+B)")
-                    .clicked()
-                {
+                if ui::icon_btn(ui, "☰", "Stage rail (Ctrl+B)") {
                     self.rail_open = !self.rail_open;
                 }
                 // Ink logo mark — mono-ui topbar `.logo`.
@@ -4695,20 +4691,12 @@ impl eframe::App for VibecapApp {
                     }
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .small_button(RichText::new("⌘K").color(theme::TEXT_DIM()))
-                        .on_hover_text("Command palette (Ctrl+K / ⌘K)")
-                        .clicked()
-                    {
+                    if ui::icon_btn(ui, "⌘K", "Command palette (Ctrl+K / ⌘K)") {
                         self.palette_open = true;
                         self.palette_query.clear();
                         self.palette_selected = 0;
                     }
-                    if ui
-                        .small_button(RichText::new("⚙").color(theme::TEXT_DIM()))
-                        .on_hover_text("Settings (Ctrl+5)")
-                        .clicked()
-                    {
+                    if ui::icon_btn(ui, "⚙", "Settings (Ctrl+5)") {
                         self.current_tab = AppTab::Settings;
                     }
                     let inbox_label = if self.feedback_pending_count > 0 {
@@ -4716,11 +4704,7 @@ impl eframe::App for VibecapApp {
                     } else {
                         "🗳".to_string()
                     };
-                    if ui
-                        .small_button(RichText::new(inbox_label).color(theme::TEXT_DIM()))
-                        .on_hover_text("Inbox (Ctrl+I)")
-                        .clicked()
-                    {
+                    if ui::icon_btn(ui, &inbox_label, "Inbox (Ctrl+I)") {
                         self.current_tab = AppTab::Feedback;
                         self.scan_feedback_requests();
                     }

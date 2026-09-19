@@ -670,7 +670,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-            ui.menu_button(RichText::new("⋯").size(16.0), |ui| {
+            crate::ui::icon_menu_button(ui, "⋯", |ui| {
                 ui.set_min_width(180.0);
                 if ui.button("Select video…").clicked() {
                     if let Some(path) = FileDialog::new()
