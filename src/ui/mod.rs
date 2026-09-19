@@ -23,4 +23,6 @@ pub use components::{
     ShutterAction, StatusSnapshot, ToastLevel,
 };
 pub use palette::{show_palette, PaletteAction};
-pub use theme::{apply_current_theme, apply_graphite_theme, Density, ThemeMode};
+pub use theme::{
+    apply_celestial_theme, apply_current_theme, apply_graphite_theme, Density, ThemeMode,
+};

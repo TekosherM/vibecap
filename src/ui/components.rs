@@ -360,14 +360,15 @@ pub fn loop_rail(
                 // Accent tick on the active stage — reads as "you are here".
                 if is_active {
                     let r = resp.rect;
-                    ui.painter().rect_filled(
-                        Rect::from_min_size(
-                            Pos2::new(r.left() + 2.0, r.top() + 8.0),
-                            Vec2::new(3.0, r.height() - 16.0),
-                        ),
-                        Rounding::same(1.5),
-                        theme::ACCENT(),
+                    let tick = Rect::from_min_size(
+                        Pos2::new(r.left() + 2.0, r.top() + 8.0),
+                        Vec2::new(3.0, r.height() - 16.0),
                     );
+                    if theme::theme_mode() == theme::ThemeMode::Celestial {
+                        theme::paint_aurora_strip_v(ui.painter(), tick);
+                    } else {
+                        ui.painter().rect_filled(tick, Rounding::same(1.5), theme::ACCENT());
+                    }
                 }
 
                 resp

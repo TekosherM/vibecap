@@ -359,14 +359,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     }
                 });
                 setting_row(ui, "Theme", |ui| {
-                    let mut mode = theme::theme_mode();
-                    if segmented(
-                        ui,
-                        &mut mode,
-                        &[(theme::ThemeMode::Dark, "Dark"), (theme::ThemeMode::Light, "Light")],
-                    ) {
-                        app.set_theme(ctx, mode);
-                    }
+                    ui.horizontal(|ui| {
+                        for mode in [
+                            theme::ThemeMode::Dark,
+                            theme::ThemeMode::Light,
+                            theme::ThemeMode::Celestial,
+                        ] {
+                            if theme_swatch(ui, mode) {
+                                app.set_theme(ctx, mode);
+                            }
+                            ui.add_space(theme::SP_2);
+                        }
+                    });
                 });
                 if btn_secondary(ui, "Replay first-run wizard") {
                     app.wizard_open = true;
@@ -497,4 +501,54 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 );
             });
         });
+}
+
+/// Theme picker swatch — canvas preview + ink label, ink ring when active.
+/// Celestial shows the aurora gradient as its preview.
+fn theme_swatch(ui: &mut egui::Ui, mode: theme::ThemeMode) -> bool {
+    let active = theme::theme_mode() == mode;
+    let (canvas, surface, ink) = theme::preview_colors(mode);
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(84.0, 58.0), egui::Sense::click());
+    let p = ui.painter_at(rect);
+    let ring = if active {
+        theme::PRIMARY()
+    } else if resp.hovered() {
+        theme::BORDER_STRONG()
+    } else {
+        theme::BORDER()
+    };
+    p.rect_filled(rect, theme::rounding_sm(), theme::SURFACE());
+    let pv = egui::Rect::from_min_max(
+        rect.min + egui::Vec2::new(6.0, 6.0),
+        egui::pos2(rect.max.x - 6.0, rect.min.y + 32.0),
+    );
+    match mode {
+        theme::ThemeMode::Celestial => {
+            theme::paint_aurora_strip(&p, pv);
+        }
+        _ => {
+            p.rect_filled(pv, 3.0, canvas);
+            let chip = egui::Rect::from_min_size(
+                pv.min + egui::Vec2::new(4.0, 4.0),
+                egui::Vec2::new(pv.width() * 0.55, 10.0),
+            );
+            p.rect_filled(chip, 2.0, surface);
+            p.circle_filled(
+                egui::pos2(pv.max.x - 6.0, pv.min.y + 6.0),
+                3.0,
+                ink,
+            );
+        }
+    }
+    p.rect_stroke(pv, 3.0, egui::Stroke::new(1.0_f32, ring));
+    p.text(
+        egui::pos2(rect.center().x, rect.max.y - 11.0),
+        egui::Align2::CENTER_CENTER,
+        theme::theme_mode_label(mode),
+        egui::FontId::new(10.5, egui::FontFamily::Proportional),
+        if active { theme::TEXT() } else { theme::TEXT_MUTED() },
+    );
+    let clicked = resp.clicked();
+    resp.on_hover_text(format!("Switch to {}", theme::theme_mode_label(mode)));
+    clicked
 }

@@ -32,7 +32,8 @@ capture_screenshot, capture_screenshot_interactive,
 };
 use tray_ui::{TrayAction, TrayController, TrayLiveState};
 use ui::{
-    apply_current_theme, apply_graphite_theme, funnel_stripe, loop_rail, show_capture_toast,
+    apply_celestial_theme, apply_current_theme, apply_graphite_theme, funnel_stripe, loop_rail,
+    show_capture_toast,
     overlay_rect_to_pixels, show_countdown_bubble, show_palette, show_region_selector,
     show_toast_card, status_strip, CaptureToastAction, Density, LoopStage, PaletteAction,
     RegionHudResult, StatusSnapshot, ThemeMode, ToastLevel,
@@ -1275,6 +1276,7 @@ impl VibecapApp {
         match mode {
             ThemeMode::Dark => apply_graphite_theme(ctx),
             ThemeMode::Light => theme::apply_light_theme(ctx),
+            ThemeMode::Celestial => apply_celestial_theme(ctx),
         }
         self.persist_session();
     }
@@ -1546,13 +1548,11 @@ impl VibecapApp {
             PaletteAction::ToggleTheme => {
                 let next = match theme::theme_mode() {
                     ThemeMode::Dark => ThemeMode::Light,
-                    ThemeMode::Light => ThemeMode::Dark,
+                    ThemeMode::Light => ThemeMode::Celestial,
+                    ThemeMode::Celestial => ThemeMode::Dark,
                 };
                 self.set_theme(ctx, next);
-                self.show_toast(format!(
-                    "Theme: {}",
-                    theme::theme_mode_to_str(next)
-                ));
+                self.show_toast(format!("Theme: {}", theme::theme_mode_label(next)));
             }
             PaletteAction::ToggleRetro => {
                 let on = !self.retro.config().enabled;
@@ -4630,6 +4630,14 @@ impl eframe::App for VibecapApp {
         egui::CentralPanel::default()
             .frame(Frame::none().fill(theme::CANVAS()).inner_margin(theme::SP_4))
             .show(ctx, |ui| {
+            if theme::theme_mode() == ThemeMode::Celestial {
+                let clip = ui.clip_rect();
+                theme::paint_celestial_sky(ui.painter(), clip);
+                theme::paint_aurora_strip(
+                    ui.painter(),
+                    egui::Rect::from_min_size(clip.min, egui::Vec2::new(clip.width(), 2.0)),
+                );
+            }
             if self.is_annotating {
                 self.show_annotation(ui);
                 return;

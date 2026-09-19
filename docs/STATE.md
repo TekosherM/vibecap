@@ -18,6 +18,8 @@ Win32-native helpers (2026-09-06): the PowerShell helpers (`window_rect_on_scree
 
 Library tile polish (2026-09-19): removed the `loop_position_badge` pill from Library tiles — its colored fill + clipped label sat over the filename row. Stage is now plain text in the meta line (`type · size · stage`, only when non-Capture). Deleted the badge component, its `ui::` re-export, and the unused `LOOP_*` theme colors in `theme.rs`. Tile contract: click opens Review, Ctrl+click toggles, Shift+click range, right-click menu — no overlaid CTAs.
 
+Theme system (2026-09-19): ported the Browmie/Chromie **mono-ui** spec (`C:\Dev\Chromie\docs\mockups\mono-ui.html`) + its **Celestial** theme into `theme.rs`. `ThemeMode` is now Dark / Light / **Celestial**; a `tri!` macro gives tokens a third celestial arm while `dual!` falls back to dark values. Dark/Light retokenized to the Mono zinc palette (#0b0b0c/#f4f4f5 canvases, hairline solid borders, ink = primary). Celestial: void #0A0820 canvas, indigo surfaces, pink #EC4F8E accent, teal #26D6C0 secondary, starfield + aurora strip painted in CentralPanel, aurora rail tick. Radii now 12/9/6. Settings theme control is a 3-swatch picker with live previews (`theme_swatch` in settings_tab.rs); ToggleTheme palette cycles all three; persisted as "celestial" in session.
+
 ## Where we are
 
 | | |
