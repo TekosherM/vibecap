@@ -11,7 +11,7 @@ use crate::app::{
 use crate::platform::open_path;
 use crate::ui::icons::Icon;
 use crate::ui::theme;
-use crate::ui::empty_state;
+use crate::ui::{chip, empty_state};
 use crate::{AppTab, VibecapApp};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -20,7 +20,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     let live_n = stats.count;
 
     ui.horizontal(|ui| {
-        ui.heading(RichText::new("Library").color(theme::TEXT()).strong());
+        ui.heading(
+            RichText::new("Library")
+                .color(theme::TEXT())
+                .font(egui::FontId::new(20.0, theme::font_semibold())),
+        );
+        ui.add_space(4.0);
+        crate::ui::count_chip(ui, &format!("{}", app.library_filtered().len()));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.menu_button(RichText::new("⋯").size(16.0), |ui| {
                 ui.set_min_width(180.0);
@@ -91,8 +97,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             crate::app::library::format_size(vid_b),
             crate::app::library::format_size(live_bytes),
         ))
-        .small()
-        .color(theme::TEXT_MUTED()),
+        .font(egui::FontId::new(11.0, egui::FontFamily::Monospace))
+        .color(theme::TEXT_DIM()),
     );
     ui.add_space(4.0);
 
@@ -108,19 +114,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         for cat in cats {
             let selected = app.library_filter == cat;
             let label = if cat == "All" {
-                format!("All ({})", app.library_items.len())
+                format!("All  {}", app.library_items.len())
             } else {
                 let n = app
                     .library_items
                     .iter()
                     .filter(|i| i.category.label() == cat)
                     .count();
-                format!("{cat} ({n})")
+                format!("{cat}  {n}")
             };
-            if ui
-                .selectable_label(selected, RichText::new(label).small())
-                .clicked()
-            {
+            if chip(ui, &label, selected) {
                 app.library_filter = cat.to_string();
                 app.library_show_limit = LIBRARY_PAGE_SIZE;
                 app.library_confirm_clear = false;
@@ -217,12 +220,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
         for (glabel, idxs) in &groups {
             ui.add_space(6.0);
-            ui.label(
-                RichText::new(glabel)
-                    .small()
-                    .strong()
-                    .color(theme::TEXT_MUTED()),
-            );
+            theme::caps_label(ui, glabel);
             ui.add_space(2.0);
             for chunk in idxs.chunks(cols) {
                 ui.horizontal(|ui| {
@@ -346,7 +344,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             rect.min + Vec2::new(8.0, 6.0 + thumb_h + 4.0),
                             egui::Align2::LEFT_TOP,
                             name,
-                            egui::FontId::proportional(11.0),
+                            egui::FontId::new(11.5, theme::font_semibold()),
                             theme::TEXT(),
                         );
                         let pos = item.loop_position();
@@ -364,7 +362,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             rect.min + Vec2::new(8.0, 6.0 + thumb_h + 4.0 + 14.0),
                             egui::Align2::LEFT_TOP,
                             meta,
-                            egui::FontId::proportional(9.5),
+                            egui::FontId::new(9.5, egui::FontFamily::Monospace),
                             theme::TEXT_DIM(),
                         );
 

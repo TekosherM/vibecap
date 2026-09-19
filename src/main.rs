@@ -4652,12 +4652,25 @@ impl eframe::App for VibecapApp {
                 {
                     self.rail_open = !self.rail_open;
                 }
+                // Ink logo mark — mono-ui topbar `.logo`.
+                let (logo, _) = ui.allocate_exact_size(
+                    egui::Vec2::splat(24.0),
+                    egui::Sense::hover(),
+                );
+                let lp = ui.painter_at(logo);
+                lp.rect_filled(logo, 6.0, theme::PRIMARY());
+                lp.text(
+                    logo.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "V",
+                    egui::FontId::new(13.0, theme::font_bold()),
+                    theme::PRIMARY_INK(),
+                );
                 ui.vertical(|ui| {
-                    ui.heading(
+                    ui.label(
                         RichText::new(self.current_tab.title())
-                            .size(24.0)
-                            .color(theme::TEXT())
-                            .strong(),
+                            .font(egui::FontId::new(22.0, theme::font_semibold()))
+                            .color(theme::TEXT()),
                     );
                     let sub = self.current_tab.subtitle();
                     if !sub.is_empty() {

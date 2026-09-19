@@ -58,16 +58,12 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         // ── Capture source — quiet segmented row, clearly a
                         //    setting rather than an action ──
                         ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new("From")
-                                    .size(11.0)
-                                    .strong()
-                                    .color(theme::TEXT_DIM()),
-                            );
+                            theme::caps_label(ui, "From");
                             ui.add_space(theme::SP_1);
                             egui::Frame::none()
                                 .fill(theme::SURFACE_2())
-                                .rounding(theme::rounding_md())
+                                .stroke(egui::Stroke::new(1.0_f32, theme::BORDER()))
+                                .rounding(egui::Rounding::same(8.0))
                                 .inner_margin(egui::Margin::same(3.0))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
@@ -91,7 +87,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             let on = app.capture_target == target;
                                             let resp = egui::Frame::none()
                                                 .fill(if on {
-                                                    theme::SURFACE_3()
+                                                    theme::SURFACE()
                                                 } else {
                                                     egui::Color32::TRANSPARENT
                                                 })

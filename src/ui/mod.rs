@@ -17,7 +17,8 @@ pub use capture_hud::{
     overlay_rect_to_pixels, show_countdown_bubble, show_region_selector, RegionHudResult,
 };
 pub use components::{
-    agent_dot_color, btn_danger, btn_primary, btn_secondary, btn_small, empty_state, group, kbd,
+    agent_dot_color, btn_danger, btn_primary, btn_secondary, btn_small, chip, count_chip,
+    empty_state, group, kbd,
     funnel_stripe, loop_rail, section_card, segmented, setting_row, show_capture_toast,
     show_toast_card, shutter_strip, status_strip, switch, CaptureToastAction, LoopStage,
     ShutterAction, StatusSnapshot, ToastLevel,

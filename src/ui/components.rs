@@ -128,9 +128,8 @@ pub fn show_capture_toast(
                                 } else {
                                     "Captured"
                                 })
-                                .strong()
-                                .color(theme::TEXT())
-                                .size(14.0),
+                                .font(egui::FontId::new(14.0, theme::font_semibold()))
+                                .color(theme::TEXT()),
                             );
                             ui.label(
                                 RichText::new(&name)
@@ -500,68 +499,167 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
 // SURFACE cards + BORDER strokes, segmented choices, switch toggles, and
 // primary/secondary buttons with the 8pt grid.
 
-/// Section card: SURFACE fill, 1px BORDER, md rounding, small strong title.
+/// Section card: SURFACE fill, 1px BORDER hairline, lg (12px) rounding,
+/// 14px padding, letterspaced caps title — mono-ui `.card` + `.section-title`.
 pub fn section_card(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
     Frame::none()
         .fill(theme::SURFACE())
         .stroke(Stroke::new(1.0_f32, theme::BORDER()))
-        .rounding(theme::rounding_md())
-        .inner_margin(Margin::symmetric(theme::SP_4, theme::SP_3))
+        .rounding(theme::rounding_lg())
+        .inner_margin(Margin::same(14.0))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.label(
-                RichText::new(title)
-                    .size(11.0)
-                    .strong()
-                    .color(theme::TEXT_MUTED()),
-            );
+            theme::caps_label(ui, title);
             ui.add_space(theme::SP_2);
             add(ui);
         });
     ui.add_space(theme::SP_3);
 }
 
-fn button_frame(
-    ui: &mut Ui,
-    label: &str,
-    fill: Color32,
-    stroke: Color32,
-    text: Color32,
-    small: bool,
-) -> bool {
-    let size = if small { 12.0 } else { 13.0 };
-    let mut rt = RichText::new(label).color(text).size(size);
-    if !small {
-        rt = rt.strong();
+#[derive(Clone, Copy)]
+enum BtnKind {
+    Primary,
+    Secondary,
+    Small,
+    Danger,
+}
+
+/// Hand-painted button — egui's `Button` can't express the mockup's state
+/// model (ink fill → opacity fade on hover, surface→surface-3 on outline).
+fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
+    let (size_px, pad) = match kind {
+        BtnKind::Primary | BtnKind::Danger => (13.0, Vec2::new(14.0, 9.0)),
+        BtnKind::Secondary => (12.5, Vec2::new(12.0, 7.0)),
+        BtnKind::Small => (11.5, Vec2::new(11.0, 5.0)),
+    };
+    let font = egui::FontId::new(size_px, theme::font_semibold());
+    let galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        font.clone(),
+        theme::TEXT(),
+    );
+    let (rect, resp) =
+        ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let b = egui::Button::new(rt)
-        .fill(fill)
-        .stroke(Stroke::new(1.0_f32, stroke))
-        .rounding(theme::rounding_md());
-    ui.add(b).clicked()
+
+    let (fill, stroke, text) = match kind {
+        BtnKind::Primary => (theme::PRIMARY(), theme::PRIMARY(), theme::PRIMARY_INK()),
+        BtnKind::Secondary => (theme::SURFACE(), theme::BORDER_STRONG(), theme::TEXT()),
+        BtnKind::Small => (theme::SURFACE(), theme::BORDER_STRONG(), theme::TEXT_MUTED()),
+        BtnKind::Danger => (theme::DANGER_SOFT(), theme::DANGER_SOFT(), theme::ON_SOLID()),
+    };
+    let down = resp.is_pointer_button_down_on();
+    let fill = if down {
+        match kind {
+            BtnKind::Primary => theme::PRIMARY_DOWN(),
+            BtnKind::Danger => theme::DANGER(),
+            _ => theme::SURFACE_3(),
+        }
+    } else if resp.hovered() {
+        match kind {
+            BtnKind::Primary => theme::PRIMARY_HOVER(),
+            BtnKind::Secondary | BtnKind::Small => theme::SURFACE_3(),
+            BtnKind::Danger => theme::DANGER(),
+        }
+    } else {
+        fill
+    };
+    let text = if matches!(kind, BtnKind::Small) && resp.hovered() {
+        theme::TEXT()
+    } else {
+        text
+    };
+
+    let p = ui.painter();
+    p.rect_filled(rect, theme::rounding_md(), fill);
+    p.rect_stroke(rect, theme::rounding_md(), Stroke::new(1.0_f32, stroke));
+    p.galley(
+        egui::pos2(
+            rect.center().x - galley.size().x / 2.0,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        ui.painter().layout_no_wrap(label.to_string(), font, text),
+        text,
+    );
+    resp.clicked()
 }
 
-/// Paper-on-graphite primary action (Save, Apply). Not the live accent.
+/// Ink primary action (mono-ui `.btn-primary` — near-black fill, fades on hover).
 pub fn btn_primary(ui: &mut Ui, label: &str) -> bool {
-    button_frame(ui, label, theme::PRIMARY(), theme::PRIMARY(), theme::PRIMARY_INK(), false)
+    paint_button(ui, label, BtnKind::Primary)
 }
 
-/// Quiet surface action (Select, Open, Reveal…).
+/// Outline surface action (mono-ui `.btn-outline` — border-2, surface-3 hover).
 pub fn btn_secondary(ui: &mut Ui, label: &str) -> bool {
-    button_frame(ui, label, theme::SURFACE_2(), theme::BORDER(), theme::TEXT(), false)
+    paint_button(ui, label, BtnKind::Secondary)
 }
 
-/// Compact toolbar action.
+/// Compact outline action (mono-ui `.wake-btn`).
 pub fn btn_small(ui: &mut Ui, label: &str) -> bool {
-    button_frame(ui, label, theme::SURFACE_2(), theme::BORDER(), theme::TEXT_MUTED(), true)
+    paint_button(ui, label, BtnKind::Small)
 }
 
 /// Destructive action.
 pub fn btn_danger(ui: &mut Ui, label: &str) -> bool {
-    button_frame(ui, label, theme::DANGER_SOFT(), theme::DANGER(), theme::ON_SOLID(), false)
+    paint_button(ui, label, BtnKind::Danger)
 }
 
-/// Segmented control for exclusive choices (replaces radio / selectable rows).
+/// Monospace count badge (mono-ui `.count`).
+pub fn count_chip(ui: &mut Ui, label: &str) {
+    Frame::none()
+        .fill(theme::SURFACE_2())
+        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+        .rounding(Rounding::same(5.0))
+        .inner_margin(Margin::symmetric(6.0, 1.0))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(label)
+                    .font(egui::FontId::new(11.0, egui::FontFamily::Monospace))
+                    .color(theme::TEXT_DIM()),
+            );
+        });
+}
+
+/// Pill filter chip (mono-ui `.chip` — radius 999, ink fill when active).
+pub fn chip(ui: &mut Ui, label: &str, active: bool) -> bool {
+    let font = egui::FontId::new(11.5, theme::font_semibold());
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_string(), font.clone(), theme::TEXT_MUTED());
+    let (rect, resp) = ui.allocate_exact_size(
+        galley.size() + Vec2::new(22.0, 10.0),
+        Sense::click(),
+    );
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let (fill, stroke, text) = if active {
+        (theme::PRIMARY(), theme::PRIMARY(), theme::PRIMARY_INK())
+    } else {
+        (
+            if resp.hovered() { theme::SURFACE_3() } else { theme::SURFACE() },
+            theme::BORDER(),
+            theme::TEXT_MUTED(),
+        )
+    };
+    let p = ui.painter();
+    p.rect_filled(rect, Rounding::same(rect.height() / 2.0), fill);
+    p.rect_stroke(rect, Rounding::same(rect.height() / 2.0), Stroke::new(1.0_f32, stroke));
+    p.galley(
+        egui::pos2(
+            rect.center().x - galley.size().x / 2.0,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        ui.painter().layout_no_wrap(label.to_string(), font, text),
+        text,
+    );
+    resp.clicked()
+}
+
+/// Segmented control for exclusive choices (mono-ui `.seg` — bordered
+/// surface-2 track, active segment pops to `surface` with semibold text).
 /// Returns true when the value changed.
 pub fn segmented<T: PartialEq + Copy>(
     ui: &mut Ui,
@@ -571,28 +669,51 @@ pub fn segmented<T: PartialEq + Copy>(
     let mut changed = false;
     Frame::none()
         .fill(theme::SURFACE_2())
-        .rounding(theme::rounding_md())
-        .inner_margin(Margin::same(2.0))
+        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+        .rounding(Rounding::same(8.0))
+        .inner_margin(Margin::same(3.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 for (val, label) in options {
                     let active = current == val;
-                    let resp = Frame::none()
-                        .fill(if active { theme::SURFACE_3() } else { Color32::TRANSPARENT })
-                        .rounding(theme::rounding_sm())
-                        .inner_margin(Margin::symmetric(10.0, 5.0))
-                        .show(ui, |ui| {
-                            let mut rt = RichText::new(*label)
-                                .size(12.0)
-                                .color(if active { theme::TEXT() } else { theme::TEXT_MUTED() });
-                            if active {
-                                rt = rt.strong();
-                            }
-                            ui.label(rt);
-                        })
-                        .response
-                        .on_hover_text(*label)
-                        .interact(Sense::click());
+                    let font = egui::FontId::new(
+                        12.0,
+                        if active {
+                            theme::font_semibold()
+                        } else {
+                            egui::FontFamily::Proportional
+                        },
+                    );
+                    let galley = ui.painter().layout_no_wrap(
+                        (*label).to_string(),
+                        font.clone(),
+                        theme::TEXT(),
+                    );
+                    let (rect, resp) = ui.allocate_exact_size(
+                        galley.size() + Vec2::new(24.0, 10.0),
+                        Sense::click(),
+                    );
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    let p = ui.painter();
+                    if active {
+                        p.rect_filled(rect, theme::rounding_sm(), theme::SURFACE());
+                    }
+                    let color = if active || resp.hovered() {
+                        theme::TEXT()
+                    } else {
+                        theme::TEXT_MUTED()
+                    };
+                    p.galley(
+                        egui::pos2(
+                            rect.center().x - galley.size().x / 2.0,
+                            rect.center().y - galley.size().y / 2.0,
+                        ),
+                        ui.painter()
+                            .layout_no_wrap((*label).to_string(), font, color),
+                        color,
+                    );
                     if resp.clicked() {
                         *current = *val;
                         changed = true;

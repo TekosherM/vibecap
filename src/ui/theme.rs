@@ -74,6 +74,18 @@ fn install_ui_fonts(ctx: &egui::Context) {
         } else {
             &[]
         };
+        // Real weight faces — egui's `.strong()` only brightens color, so a
+        // named family is the only way to get the mockup's 550/650 weights.
+        let semibold: &[&str] = if cfg!(windows) {
+            &[r"C:\Windows\Fonts\seguisb.ttf", r"C:\Windows\Fonts\segoeuib.ttf"]
+        } else {
+            &[]
+        };
+        let bold: &[&str] = if cfg!(windows) {
+            &[r"C:\Windows\Fonts\segoeuib.ttf", r"C:\Windows\Fonts\segoeui.ttf"]
+        } else {
+            &[]
+        };
 
         let mut fonts = egui::FontDefinitions::default();
         let mut installed = false;
@@ -100,10 +112,50 @@ fn install_ui_fonts(ctx: &egui::Context) {
                     .insert(i, name);
             }
         }
+        for (family_name, paths) in [("semibold", semibold), ("bold", bold)] {
+            for path in paths {
+                if let Ok(bytes) = std::fs::read(path) {
+                    let data = format!("ui-{family_name}");
+                    fonts.font_data.insert(data.clone(), egui::FontData::from_owned(bytes));
+                    fonts
+                        .families
+                        .insert(egui::FontFamily::Name(family_name.into()), vec![data]);
+                    break;
+                }
+            }
+        }
         if installed {
             ctx.set_fonts(fonts);
         }
     });
+}
+
+/// Semibold weight face — button labels, card names, section titles
+/// (the mockup's 550–650 weight range). Falls back to proportional.
+pub fn font_semibold() -> egui::FontFamily {
+    egui::FontFamily::Name("semibold".into())
+}
+
+/// Bold weight face — wordmarks and stat numerals.
+pub fn font_bold() -> egui::FontFamily {
+    egui::FontFamily::Name("bold".into())
+}
+
+/// Letterspaced uppercase section label (mono-ui `.section-title`).
+/// Paints through a LayoutJob because RichText can't letter-space.
+pub fn caps_label(ui: &mut egui::Ui, text: &str) {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        &text.to_uppercase(),
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::new(10.5, font_semibold()),
+            color: TEXT_DIM(),
+            extra_letter_spacing: 1.0,
+            ..Default::default()
+        },
+    );
+    ui.label(job);
 }
 
 /// Roomier chrome — bigger hit targets and breathing room read as "app",
@@ -115,6 +167,17 @@ fn install_chrome_style(ctx: &egui::Context) {
         s.spacing.indent = 20.0;
         s.spacing.slider_width = 140.0;
         s.spacing.text_edit_width = 240.0;
+        // mono-ui scrollbar: thin floating 8px bar.
+        s.spacing.scroll = egui::style::ScrollStyle {
+            bar_width: 8.0,
+            ..egui::style::ScrollStyle::thin()
+        };
+        // Headings get the real semibold face — `.strong()` alone only
+        // brightens color in egui, which is why the type felt flat.
+        s.text_styles.insert(
+            egui::TextStyle::Heading,
+            egui::FontId::new(20.0, font_semibold()),
+        );
     });
 }
 
@@ -223,6 +286,20 @@ tri!(
     Color32::from_rgb(0x0b, 0x0b, 0x0c),
     Color32::from_rgb(0xff, 0xff, 0xff),
     Color32::from_rgb(0x0f, 0x0d, 0x29)
+);
+// Ink button hover / pressed — the mockup's `opacity: .88` / `.76`
+// pre-blended over each canvas (egui fills are opaque).
+tri!(
+    PRIMARY_HOVER,
+    Color32::from_rgb(0xd8, 0xd8, 0xda),
+    Color32::from_rgb(0x33, 0x33, 0x38),
+    Color32::from_rgb(0xd8, 0xd5, 0xe4)
+);
+tri!(
+    PRIMARY_DOWN,
+    Color32::from_rgb(0xbc, 0xbc, 0xbf),
+    Color32::from_rgb(0x48, 0x48, 0x4e),
+    Color32::from_rgb(0xbc, 0xb9, 0xca)
 );
 tri!(
     BORDER,
@@ -447,6 +524,16 @@ pub fn apply_graphite_theme(ctx: &egui::Context) {
     visuals.warn_fg_color = WARN();
     visuals.error_fg_color = DANGER();
 
+    // mono-ui --shadow-pop (dark): soft deep lift under popups/windows.
+    let shadow = egui::epaint::Shadow {
+        offset: egui::vec2(0.0, 12.0),
+        blur: 32.0,
+        spread: 0.0,
+        color: Color32::from_black_alpha(128),
+    };
+    visuals.popup_shadow = shadow;
+    visuals.window_shadow = shadow;
+
     ctx.set_visuals(visuals);
 }
 
@@ -484,6 +571,16 @@ pub fn apply_light_theme(ctx: &egui::Context) {
     visuals.hyperlink_color = INFO();
     visuals.warn_fg_color = WARN();
     visuals.error_fg_color = DANGER();
+
+    // mono-ui --shadow-pop (light): faint, close lift.
+    let shadow = egui::epaint::Shadow {
+        offset: egui::vec2(0.0, 8.0),
+        blur: 24.0,
+        spread: 0.0,
+        color: Color32::from_black_alpha(15),
+    };
+    visuals.popup_shadow = shadow;
+    visuals.window_shadow = shadow;
 
     ctx.set_visuals(visuals);
 }
@@ -523,6 +620,16 @@ pub fn apply_celestial_theme(ctx: &egui::Context) {
     visuals.hyperlink_color = INFO();
     visuals.warn_fg_color = WARN();
     visuals.error_fg_color = DANGER();
+
+    // Celestial shadow — deep, faintly violet.
+    let shadow = egui::epaint::Shadow {
+        offset: egui::vec2(0.0, 12.0),
+        blur: 36.0,
+        spread: 0.0,
+        color: Color32::from_rgba_premultiplied(5, 3, 26, 150),
+    };
+    visuals.popup_shadow = shadow;
+    visuals.window_shadow = shadow;
 
     ctx.set_visuals(visuals);
 }
