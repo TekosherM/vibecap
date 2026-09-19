@@ -85,6 +85,9 @@ pub fn pixels_to_overlay_rect(
 /// rect instead of a drag.
 /// `aspect_lock` — `Some(w/h)` pins the drag to a ratio (toolbar chips);
 /// Shift/Alt remain momentary overrides.
+/// `backdrop_stale` — the shown backdrop is last pick's snap; stamps
+/// "refreshing…" until the fresh one lands (caller blocks confirms).
+/// `window_pick_cycle` — scroll-wheel index into overlapping windows.
 #[allow(clippy::too_many_arguments)]
 pub fn show_region_selector(
     ctx: &egui::Context,
@@ -94,9 +97,11 @@ pub fn show_region_selector(
     last_region: Option<Rect>,
     backdrop: Option<&egui::TextureHandle>,
     backdrop_rgba: Option<&(u32, u32, Vec<u8>)>,
+    backdrop_stale: bool,
     was_dragging: &mut bool,
     window_pick: Option<&(String, i32, i32, i32, i32)>,
     aspect_lock: &mut Option<f32>,
+    window_pick_cycle: &mut usize,
 ) -> RegionHudResult {
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
@@ -148,6 +153,17 @@ pub fn show_region_selector(
                         Color32::WHITE,
                     );
                 }
+                // Pre-warm stamp: the shown backdrop is the previous pick's
+                // snap — the fresh one is in flight behind it.
+                if backdrop_stale {
+                    painter.text(
+                        Pos2::new(screen.center().x, screen.min.y + 76.0),
+                        Align2::CENTER_CENTER,
+                        "⟳ refreshing…",
+                        FontId::proportional(14.0),
+                        theme::TEXT_MUTED(),
+                    );
+                }
 
                 // Window-pick mode: the hover rect arrives in OS pixels — map it
                 // into overlay points. Click confirms that rect; drag is off.
@@ -163,10 +179,18 @@ pub fn show_region_selector(
                     )
                 });
                 if pick_mode {
+                    // Scroll wheel cycles through overlapping windows under
+                    // the cursor (Z-order); a cursor move resets to topmost.
+                    let scroll = ctx.input(|i| i.raw_scroll_delta.y);
+                    if scroll < -1.0 {
+                        *window_pick_cycle = window_pick_cycle.saturating_add(1);
+                    } else if scroll > 1.0 {
+                        *window_pick_cycle = window_pick_cycle.saturating_sub(1);
+                    }
                     painter.text(
                         Pos2::new(screen.center().x, screen.min.y + 48.0),
                         Align2::CENTER_CENTER,
-                        "Click a window to capture · Esc / right-click cancel",
+                        "Click a window to capture · scroll cycles overlaps · dead space = monitor · Esc cancel",
                         FontId::proportional(18.0),
                         theme::TEXT(),
                     );
@@ -258,7 +282,7 @@ pub fn show_region_selector(
 
                 if let (Some(start), Some(end)) = (*region_start, *region_end) {
                     let rect = Rect::from_two_pos(start, end);
-                    paint_selection_hud(&painter, rect);
+                    paint_selection_hud(&painter, rect, ctx.pixels_per_point());
                 }
 
                 // Cursor loupe (samples backdrop pixels when frozen)
@@ -456,7 +480,7 @@ fn aspect_clamped(rect: Rect, ratio: f32) -> Rect {
     Rect::from_min_size(rect.min, Vec2::new(w, w / ratio.max(f32::EPSILON)))
 }
 
-fn paint_selection_hud(painter: &egui::Painter, rect: Rect) {
+fn paint_selection_hud(painter: &egui::Painter, rect: Rect, ppp: f32) {
     painter.rect_filled(rect, 0.0, Color32::TRANSPARENT);
     painter.rect_stroke(rect, 0.0, Stroke::new(2.0_f32, theme::ACCENT()));
 
@@ -503,8 +527,18 @@ fn paint_selection_hud(painter: &egui::Painter, rect: Rect) {
         painter.rect_filled(hr, 2.0, handle_fill);
     }
 
-    // W×H plate
-    let wh = format!("{}×{}", rect.width() as i32, rect.height() as i32);
+    // W×H plate — physical pixels alongside points when DPI ≠ 100 %.
+    let wh = if ppp > 1.0 + f32::EPSILON {
+        format!(
+            "{}×{} pt · {}×{} px",
+            rect.width() as i32,
+            rect.height() as i32,
+            (rect.width() * ppp) as i32,
+            (rect.height() * ppp) as i32
+        )
+    } else {
+        format!("{}×{}", rect.width() as i32, rect.height() as i32)
+    };
     let label_pos = rect.left_top() + Vec2::new(6.0, -26.0);
     let galley = painter.layout_no_wrap(wh, FontId::proportional(13.0), theme::ON_SOLID());
     let pad = Vec2::new(8.0, 4.0);

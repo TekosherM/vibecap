@@ -190,7 +190,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 1. **Capture delay timer** (0/3/5/10 s) — Snipping Tool parity; lets you open a menu or hover a tooltip before the shot. ✓
 2. **Repeat last capture** — `R` in the overlay, palette verb, tray item: re-fires the exact same region/window/fullscreen without re-picking. ✓
 3. **Window-pick for recording** — click a window, record its rect (crop record, no focus juggling). ✓
-4. **Monitor pick** — in pick mode, hover dead space → highlight the whole monitor; click = capture that display.
+4. **Monitor pick** — in pick mode, hover dead space → highlight the whole monitor; click = capture that display. ✓
 5. **Aspect-lock toolbar chips** (Free/1:1/16:9/9:16) in the region HUD, keeping Shift/Alt modifiers. ✓
 6. **Move selection** — Space+drag or middle-drag inside the box repositions it.
 7. **Post-drag edit handles** — resize from corners until Enter/click-outside; release no longer hard-commits.
@@ -200,16 +200,16 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 11. **Clipboard-only stills** — copy and discard the file; never touches the library. ✓
 12. **Clipboard format pref** — PNG vs JPEG for copy (PNG preserves sharp text edges).
 13. **Shutter sound** — subtle click on capture; off by default.
-14. **Pre-warm backdrop** — reuse the previous snap as the overlay's backdrop instantly, stamped "refreshing…" until the new snap lands.
+14. **Pre-warm backdrop** — reuse the previous snap as the overlay's backdrop instantly, stamped "refreshing…" until the new snap lands. ✓
 15. **PrtScn capture** — optional single-key still via a dedicated hotkey slot.
-16. **Z-cycle in window-pick** — scroll wheel steps through overlapping windows under the cursor.
+16. **Z-cycle in window-pick** — scroll wheel steps through overlapping windows under the cursor. ✓
 17. **Pick card shows process + monitor** under the window title.
 18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test).
 19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu.
-20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %.
+20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %. ✓
 21. **Named size presets** — 1920×1080 / 1280×720 centered-box buttons in the HUD.
 22. **Saved regions** — persist named rects to session; pick from palette.
-23. **Loupe hex readout** — show the sampled pixel's #RRGGBB in the cursor loupe.
+23. **Loupe hex readout** — show the sampled pixel's #RRGGBB in the cursor loupe. ✓ (was already shipped)
 24. **Dim-intensity setting** for the region overlay.
 25. **Capture without cursor flash** — per-shot toggle in the HUD.
 
@@ -262,13 +262,13 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 ## D · Clipboard & destinations
 
 66. **Clipboard history** — last 10 captures in a tray submenu + palette.
-67. **Copy as Markdown image** — `![](path)` for docs.
-68. **Copy file URI / data URI** for devs.
+67. **Copy as Markdown image** — `![](path)` for docs. ✓
+68. **Copy file URI / data URI** for devs. (path copy shipped via Ctrl+C, toast, palette; URI variant open)
 69. **Copy + reveal combo** action on the toast card.
 70. **Auto-open editor** toggle (some flows never want Review).
 71. **OS drag-out** of the capture card thumbnail into Explorer/Slack (open item).
 72. **Size guard hint** — warn + auto-shrink offer when a still exceeds Discord's 8 MB.
-73. **Post-capture actions menu** — copy path / reveal / open / delete right on the card.
+73. **Post-capture actions menu** — copy path / reveal / open / delete right on the card. ✓ (was already shipped: Annotate · Copy Image · Copy Path · Reveal · Discard)
 
 ## E · Library
 
@@ -296,10 +296,10 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 92. **Watch-folder import** — drop shots into the library dir.
 93. **Portable mode** — config beside the exe.
 94. **Profile export/import** — settings as a file.
-95. **Silent mode** — suppress toasts + flash.
+95. **Silent mode** — suppress toasts + flash. ✓
 96. **Update toast with changelog** link.
 97. **First-run health check** — ffmpeg, DPI awareness, write-perms, tray.
-98. **`?` cheat sheet** — in-app shortcut overlay.
+98. **`?` cheat sheet** — in-app shortcut overlay. ✓
 99. **Stats card** — captures this week, bytes, streak.
 100. **Crash-recovery** — restore unsaved annotations on next launch.
 
@@ -308,6 +308,13 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 Delay timer (1), repeat-last via R / palette / tray (2, 89), window-pick→record
 (3, 46), aspect chips (5), WASD nudge (8), ghost double-click (9),
 clipboard-only stills (11).
+
+### Round-2 second cut (built this pass)
+
+Monitor pick on dead space (4), pre-warm backdrop (14), Z-cycle scroll (16),
+physical-px readout (20), Markdown + path palette verbs (67, 68), silent mode
+(95), `?` cheat sheet (98). Loupe hex (23) and post-capture actions (73) were
+already shipped — marked, not re-built.
 
 ### Round-2 deliberate skips (for now)
 

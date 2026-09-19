@@ -583,14 +583,28 @@ pub(crate) struct VibecapApp {
     capture_delay_secs: u64,
     /// Copy the still and discard the file — never touches the library.
     clipboard_only: bool,
+    /// Suppress non-error toasts + the shutter flash.
+    silent_mode: bool,
+    /// `?` / F1 shortcut cheat sheet.
+    cheatsheet_open: bool,
     /// Window-pick mode: topmost window under the cursor (title + OS-px rect).
     window_pick_hover: Option<(String, i32, i32, i32, i32)>,
+    /// Hover is dead space → the pick target is the whole monitor, not a window.
+    window_pick_hover_monitor: bool,
+    /// Scroll-wheel Z-cycle index into the overlapping windows under the cursor.
+    window_pick_cycle: usize,
+    /// Last cursor point — a move resets the cycle to the topmost hit.
+    window_pick_last_pos: Option<(i32, i32)>,
     window_pick_poll_at: Option<Instant>,
     /// Pixel crop (w,h,x,y) mapped from the region overlay / snapshot.
     selected_screen_rect: Option<(i32, i32, i32, i32)>,
     region_backdrop: Option<egui::TextureHandle>,
     region_backdrop_px: (u32, u32),
     region_backdrop_rgba: Option<(u32, u32, Vec<u8>)>,
+    /// The shown backdrop is the *previous* pick's snap — instant feedback
+    /// while the fresh one lands. Confirms are blocked until it swaps in
+    /// (crop pixels must map to the snap that will be cropped).
+    region_backdrop_stale: bool,
     still_crop_mode: bool,
     still_pan: Vec2,
     text_edit_at: Option<Pos2>,
@@ -1465,6 +1479,37 @@ impl VibecapApp {
             PaletteAction::GoSettings => self.current_tab = AppTab::Settings,
             PaletteAction::Screenshot => self.trigger_capture(ctx, true),
             PaletteAction::RepeatLast => self.repeat_last_capture(ctx),
+            PaletteAction::CopyLastMarkdown => {
+                match self.last_capture.clone() {
+                    Some(LastCapture::Still(p) | LastCapture::Clip(p)) => {
+                        let md = format!("![]({})", p.display());
+                        if arboard::Clipboard::new()
+                            .and_then(|mut b| b.set_text(md))
+                            .is_ok()
+                        {
+                            self.show_toast("📋 Markdown copied");
+                        } else {
+                            self.show_toast("❌ Could not copy");
+                        }
+                    }
+                    None => self.show_toast("Nothing captured yet"),
+                }
+            }
+            PaletteAction::CopyLastPath => {
+                match self.last_capture.clone() {
+                    Some(LastCapture::Still(p) | LastCapture::Clip(p)) => {
+                        if arboard::Clipboard::new()
+                            .and_then(|mut b| b.set_text(p.display().to_string()))
+                            .is_ok()
+                        {
+                            self.show_toast("📋 Path copied");
+                        } else {
+                            self.show_toast("❌ Could not copy");
+                        }
+                    }
+                    None => self.show_toast("Nothing captured yet"),
+                }
+            }
             PaletteAction::ToggleRecord => {
                 if self.is_recording {
                     self.stop_recording(ctx);
@@ -1729,6 +1774,10 @@ impl VibecapApp {
     fn show_toast(&mut self, message: impl Into<String>) {
         let message = message.into();
         let level = ToastLevel::from_message(&message);
+        // Silent mode suppresses feedback noise — errors still surface.
+        if self.silent_mode && !matches!(level, ToastLevel::Error) {
+            return;
+        }
         self.toast_message = Some((message, Instant::now(), level));
     }
 
@@ -3125,9 +3174,15 @@ impl VibecapApp {
         // Keep `selected_screen_rect` so the overlay can ghost last pixels.
         self.region_start = None;
         self.region_end = None;
-        self.region_backdrop = None;
+        // Pre-warm: keep the previous snap as an instant backdrop (stamped
+        // "refreshing…") until this pick's snap swaps in — Snagit shows the
+        // last freeze immediately rather than a blank dim.
+        self.region_backdrop_stale = self.region_backdrop.is_some();
         self.is_selecting_region = false;
         self.window_pick_hover = None;
+        self.window_pick_hover_monitor = false;
+        self.window_pick_cycle = 0;
+        self.window_pick_last_pos = None;
         self.window_pick_poll_at = None;
 
         // macOS: live transparent overlay. Windows/Linux: freeze a still first
@@ -3258,6 +3313,7 @@ impl VibecapApp {
                 self.region_backdrop = Some(tex);
                 self.region_backdrop_px = (w, h);
                 self.region_backdrop_rgba = Some((w, h, pixels));
+                self.region_backdrop_stale = false;
                 self.region_snap_path = Some(path);
                 self.is_selecting_region = true;
                 // Restore the owner so the child overlay can take the mouse —
@@ -3293,18 +3349,38 @@ impl VibecapApp {
         }
     }
 
-    /// Topmost pickable window under the cursor for window-pick mode.
+    /// Pickable window under the cursor for window-pick mode: the Z-cycle
+    /// index scrolls deeper through overlapping windows (a moved cursor
+    /// resets to topmost), and dead space offers the whole monitor.
     /// Off-Windows the pick UI is unreachable — always None.
     #[cfg(windows)]
-    fn poll_window_pick() -> Option<(String, i32, i32, i32, i32)> {
+    fn poll_window_pick(&mut self) -> Option<(String, i32, i32, i32, i32)> {
         let (x, y) = crate::platform::cursor_pos()?;
-        crate::platform::window_at_point(x, y).map(|w| {
-            let label = if w.title.is_empty() { w.process } else { w.title };
-            (label, w.x, w.y, w.w, w.h)
-        })
+        if self
+            .window_pick_last_pos
+            .map(|(lx, ly)| (lx - x).abs() + (ly - y).abs() > 6)
+            .unwrap_or(true)
+        {
+            self.window_pick_cycle = 0;
+        }
+        self.window_pick_last_pos = Some((x, y));
+        let hits = crate::platform::windows_at_point(x, y);
+        if !hits.is_empty() {
+            let w = &hits[self.window_pick_cycle % hits.len()];
+            let label = if w.title.is_empty() {
+                w.process.clone()
+            } else {
+                w.title.clone()
+            };
+            self.window_pick_hover_monitor = false;
+            return Some((label, w.x, w.y, w.w, w.h));
+        }
+        self.window_pick_hover_monitor = true;
+        crate::platform::monitor_at_point(x, y)
+            .map(|m| ("Display".to_string(), m.x, m.y, m.w, m.h))
     }
     #[cfg(not(windows))]
-    fn poll_window_pick() -> Option<(String, i32, i32, i32, i32)> {
+    fn poll_window_pick(&mut self) -> Option<(String, i32, i32, i32, i32)> {
         None
     }
 
@@ -3317,7 +3393,11 @@ impl VibecapApp {
         self.region_end = None;
         self.region_backdrop = None;
         self.region_backdrop_rgba = None;
+        self.region_backdrop_stale = false;
         self.window_pick_hover = None;
+        self.window_pick_hover_monitor = false;
+        self.window_pick_cycle = 0;
+        self.window_pick_last_pos = None;
         self.window_pick_poll_at = None;
         self.show_window(ctx);
     }
@@ -3345,10 +3425,12 @@ impl VibecapApp {
         let kind = self.pending_region_kind.take();
         // Window pick: remember the chosen window so CaptureTarget::Window
         // aims at it next run (exit_region_overlay clears the hover state).
+        // A dead-space monitor pick has no window to aim at — skip adoption.
         if matches!(
             kind,
             Some(RegionPickKind::WindowPick) | Some(RegionPickKind::WindowRecord)
-        ) {
+        ) && !self.window_pick_hover_monitor
+        {
             if let Some((name, ..)) = self.window_pick_hover.take() {
                 self.window_app = name;
             }
@@ -3834,6 +3916,9 @@ impl eframe::App for VibecapApp {
             }
         }
 
+        if self.silent_mode {
+            self.shutter_flash_until = None;
+        }
         if let Some(until) = self.shutter_flash_until {
             if Instant::now() < until {
                 let rect = ctx.screen_rect();
@@ -3985,7 +4070,7 @@ impl eframe::App for VibecapApp {
                     .unwrap_or(true);
                 if due {
                     self.window_pick_poll_at = Some(Instant::now());
-                    self.window_pick_hover = Self::poll_window_pick();
+                    self.window_pick_hover = self.poll_window_pick();
                 }
                 ctx.request_repaint_after(Duration::from_millis(60));
             }
@@ -3997,6 +4082,7 @@ impl eframe::App for VibecapApp {
                 self.last_region,
                 self.region_backdrop.as_ref(),
                 self.region_backdrop_rgba.as_ref(),
+                self.region_backdrop_stale,
                 &mut self.region_was_dragging,
                 if picking_window {
                     self.window_pick_hover.as_ref()
@@ -4004,10 +4090,19 @@ impl eframe::App for VibecapApp {
                     None
                 },
                 &mut self.region_aspect_lock,
+                &mut self.window_pick_cycle,
             ) {
                 RegionHudResult::Continue => {}
                 RegionHudResult::Confirmed { selected, overlay } => {
-                    self.confirm_region_pick(ctx, selected, overlay);
+                    // A stale (pre-warm) backdrop is display-only — the crop
+                    // must map to the snap that will actually be cropped.
+                    // The selection stays up; the fresh backdrop lands in
+                    // ~150 ms and the same rect still confirms.
+                    if self.region_backdrop_stale {
+                        self.show_toast("Refreshing…");
+                    } else {
+                        self.confirm_region_pick(ctx, selected, overlay);
+                    }
                 }
                 RegionHudResult::Cancelled => {
                     if let Some(snap) = self.region_snap_path.take() {
@@ -4280,7 +4375,8 @@ impl eframe::App for VibecapApp {
         // S = screenshot · R = record · Z = undo delete · ⌘K/Ctrl+K = palette · ⌘I = inbox
         // Alt+←/→ = stage back/forward · Ctrl+1..5 = jump to a Loop stage.
         if !self.is_annotating && !self.palette_open && !self.wizard_open && !self.screen_perm_modal {
-            let (press_s, press_r, press_z, press_palette, press_inbox, press_back, press_fwd, press_rail, stage_jump) =
+            let wants_text = ctx.wants_keyboard_input();
+            let (press_s, press_r, press_z, press_palette, press_inbox, press_back, press_fwd, press_rail, press_help, stage_jump) =
                 ctx.input(|i| {
                     let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
                     let jump = if mod_cmd {
@@ -4306,6 +4402,9 @@ impl eframe::App for VibecapApp {
                         i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft),
                         i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight),
                         mod_cmd && i.key_pressed(egui::Key::B),
+                        !wants_text
+                            && (i.key_pressed(egui::Key::F1)
+                                || (i.modifiers.shift && i.key_pressed(egui::Key::Slash))),
                         jump,
                     )
                 });
@@ -4335,6 +4434,8 @@ impl eframe::App for VibecapApp {
                 self.scan_feedback_requests();
             } else if press_rail {
                 self.rail_open = !self.rail_open;
+            } else if press_help {
+                self.cheatsheet_open = !self.cheatsheet_open;
             } else if press_s {
                 self.trigger_capture(ctx, true);
             } else if press_r {
@@ -4413,6 +4514,9 @@ impl eframe::App for VibecapApp {
         ) {
             self.run_palette_action(ctx, action);
         }
+
+        // ? / F1 shortcut cheat sheet
+        ui::palette::show_cheatsheet(ctx, &mut self.cheatsheet_open);
 
         // ── Stage rail — hidden by default; the funnel column is the home UX.
         //    ☰ in the header or Ctrl+B toggles it back on.

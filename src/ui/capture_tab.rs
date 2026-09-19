@@ -242,6 +242,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     .size(10.0)
                                     .color(theme::TEXT_DIM()),
                             );
+                            ui.add_space(theme::SP_3);
+                            let mut silent = app.silent_mode;
+                            if switch(ui, "Silent", &mut silent) {
+                                app.silent_mode = silent;
+                            }
+                            ui.label(
+                                RichText::new("no toasts/flash")
+                                    .size(10.0)
+                                    .color(theme::TEXT_DIM()),
+                            );
                         });
 
                         ui.add_space(theme::SP_4);

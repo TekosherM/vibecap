@@ -655,32 +655,58 @@ pub fn cursor_pos() -> Option<(i32, i32)> {
     }
 }
 
-/// Topmost pickable window at a screen point: first in Z-order that isn't
-/// ours, isn't minimized, and isn't a shell surface (desktop / taskbar have
-/// the `explorer` process and no title). Pure so the rules stay testable.
+/// Pickable windows at a screen point in Z-order: not ours, not minimized,
+/// not a shell surface (desktop / taskbar have the `explorer` process and
+/// no title). Pure so the rules stay testable.
+pub fn pickable_at<'a>(
+    wins: &'a [EnumWindow],
+    x: i32,
+    y: i32,
+    self_proc: &str,
+) -> Vec<&'a EnumWindow> {
+    wins.iter()
+        .filter(|w| {
+            !w.minimized
+                && !w.process.eq_ignore_ascii_case(self_proc)
+                && !(w.process.eq_ignore_ascii_case("explorer") && w.title.is_empty())
+                && x >= w.x
+                && x < w.x + w.w
+                && y >= w.y
+                && y < w.y + w.h
+        })
+        .collect()
+}
+
+/// Topmost pickable window at a screen point — the first `pickable_at` hit.
+/// Live picks use `windows_at_point` (the whole stack, for scroll-cycling);
+/// this stays for the pick-rules tests.
+#[cfg(test)]
 pub fn top_window_at<'a>(
     wins: &'a [EnumWindow],
     x: i32,
     y: i32,
     self_proc: &str,
 ) -> Option<&'a EnumWindow> {
-    wins.iter().find(|w| {
-        !w.minimized
-            && !w.process.eq_ignore_ascii_case(self_proc)
-            && !(w.process.eq_ignore_ascii_case("explorer") && w.title.is_empty())
-            && x >= w.x
-            && x < w.x + w.w
-            && y >= w.y
-            && y < w.y + w.h
-    })
+    pickable_at(wins, x, y, self_proc).into_iter().next()
 }
 
-/// Hit-test helper for the window-pick overlay — enumerates live windows so
-/// the highlight tracks reality even if the freeze backdrop has gone stale.
-pub fn window_at_point(x: i32, y: i32) -> Option<EnumWindow> {
+/// Every pickable window at a point, topmost first — powers scroll-cycling
+/// through overlapping windows in pick mode.
+pub fn windows_at_point(x: i32, y: i32) -> Vec<EnumWindow> {
     let self_proc = process_name(std::process::id());
     let wins = enum_windows();
-    top_window_at(&wins, x, y, &self_proc).cloned()
+    pickable_at(&wins, x, y, &self_proc)
+        .into_iter()
+        .cloned()
+        .collect()
+}
+
+/// Monitor containing a virtual-screen point — the dead-space pick target:
+/// hover past every window edge and the whole display is the capture.
+pub fn monitor_at_point(x: i32, y: i32) -> Option<Monitor> {
+    enum_monitors()
+        .into_iter()
+        .find(|m| x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + m.h)
 }
 
 /// Case-insensitive `needle` vs window title / process stem. Exact first,
@@ -976,7 +1002,7 @@ pub fn set_run_at_login_native(enable: bool, cmdline: &str) -> Result<(), String
 
 #[cfg(test)]
 mod tests {
-    use super::{top_window_at, EnumWindow};
+    use super::{pickable_at, top_window_at, EnumWindow};
 
     #[test]
     fn studio_title_prefix_is_stable() {
@@ -1014,5 +1040,27 @@ mod tests {
         assert!(top_window_at(&wins, 1200, 300, "vibecap").is_none());
         // Taskbar strip → explorer shell surface is filtered out.
         assert!(top_window_at(&wins, 10, 1060, "vibecap").is_none());
+    }
+
+    #[test]
+    fn pickable_at_returns_whole_stack_for_scroll_cycling() {
+        // Three overlapping pickable windows under the point, plus noise.
+        let wins = vec![
+            win("Vibecap Region", "vibecap", 0, 0, 1920, 1080, false), // self
+            win("Editor — main.rs", "code", 100, 100, 300, 300, false),
+            win("Browser", "chrome", 200, 200, 700, 500, false),
+            win("Chat", "slack", 150, 150, 400, 300, false),
+            win("", "explorer", 0, 1040, 1920, 40, false), // taskbar
+        ];
+        let hits = pickable_at(&wins, 300, 300, "vibecap");
+        // Z-order preserved, self + shell filtered → code, chrome, slack.
+        let procs: Vec<&str> = hits.iter().map(|w| w.process.as_str()).collect();
+        assert_eq!(procs, ["code", "chrome", "slack"]);
+        // Point inside only chrome+slack → two hits, topmost first.
+        let hits = pickable_at(&wins, 250, 400, "vibecap");
+        let procs: Vec<&str> = hits.iter().map(|w| w.process.as_str()).collect();
+        assert_eq!(procs, ["chrome", "slack"]);
+        // Empty corner → nothing (monitor-pick handles it upstream).
+        assert!(pickable_at(&wins, 1900, 20, "vibecap").is_empty());
     }
 }

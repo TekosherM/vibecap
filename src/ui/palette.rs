@@ -13,6 +13,8 @@ pub enum PaletteAction {
     GoSettings,
     Screenshot,
     RepeatLast,
+    CopyLastMarkdown,
+    CopyLastPath,
     ToggleRecord,
     RefreshLibrary,
     ToggleDensity,
@@ -32,6 +34,16 @@ impl PaletteAction {
                 Self::RepeatLast,
                 "Repeat last capture",
                 "Re-fire the same region/window/fullscreen",
+            ),
+            (
+                Self::CopyLastMarkdown,
+                "Copy last capture as Markdown",
+                "![](path) — paste-ready for docs",
+            ),
+            (
+                Self::CopyLastPath,
+                "Copy last capture path",
+                "File path for still or clip",
             ),
             (Self::ToggleRecord, "Start / stop recording", "R · Ctrl+Shift+2"),
             (Self::GoShutter, "Go to Capture", "Take a screenshot or record"),
@@ -225,4 +237,127 @@ pub fn show_palette(
 
     let _ = Vec2::ZERO; // keep import useful if layout changes
     chosen
+}
+
+/// `?` / F1 modal — every shortcut, grouped. Esc / click-outside closes.
+pub fn show_cheatsheet(ctx: &egui::Context, open: &mut bool) {
+    if !*open {
+        return;
+    }
+
+    egui::Area::new(egui::Id::new("cheatsheet_backdrop"))
+        .fixed_pos(egui::pos2(0.0, 0.0))
+        .order(egui::Order::Foreground)
+        .interactable(true)
+        .show(ctx, |ui| {
+            let screen = ctx.screen_rect();
+            let resp = ui.allocate_rect(screen, Sense::click());
+            ui.painter()
+                .rect_filled(screen, 0.0, theme::OVERLAY_DIM());
+            if resp.clicked() {
+                *open = false;
+            }
+        });
+
+    const GROUPS: &[(&str, &[(&str, &str)])] = &[
+        (
+            "In the app",
+            &[
+                ("S", "Screenshot"),
+                ("R", "Start / stop record"),
+                ("Ctrl+C", "Copy last capture"),
+                ("Z", "Undo delete"),
+                ("Ctrl+1–5", "Jump to a stage"),
+                ("Alt+←/→", "Stage back / forward"),
+            ],
+        ),
+        (
+            "Go",
+            &[
+                ("Ctrl+K", "Command palette"),
+                ("Ctrl+I", "Inbox"),
+                ("Ctrl+B", "Toggle rail"),
+                ("?  ·  F1", "This sheet"),
+            ],
+        ),
+        (
+            "Region overlay",
+            &[
+                ("drag / release", "Select · capture"),
+                ("Shift · Alt", "Square · 16:9 while dragging"),
+                ("WASD · arrows", "Nudge (Shift = 10 px)"),
+                ("Enter · R", "Confirm · repeat last region"),
+                ("scroll", "Cycle overlapping windows (pick)"),
+                ("Esc · right-click", "Cancel"),
+            ],
+        ),
+        (
+            "Global",
+            &[
+                ("Ctrl+Shift+3", "Screenshot"),
+                ("Ctrl+Shift+2", "Record toggle"),
+                ("Ctrl+Alt+V", "Show / hide window"),
+            ],
+        ),
+    ];
+
+    egui::Area::new(egui::Id::new("cheatsheet_panel"))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::none()
+                .fill(theme::SURFACE())
+                .stroke(egui::Stroke::new(1.0_f32, theme::BORDER()))
+                .rounding(theme::rounding_lg())
+                .inner_margin(egui::Margin::same(16.0))
+                .show(ui, |ui| {
+                    ui.set_min_width(520.0);
+                    ui.label(
+                        RichText::new("Shortcuts")
+                            .size(16.0)
+                            .color(theme::TEXT())
+                            .strong(),
+                    );
+                    ui.add_space(theme::SP_3);
+                    ui.columns(2, |cols| {
+                        for (i, (title, rows)) in GROUPS.iter().enumerate() {
+                            let ui = &mut cols[i % 2];
+                            ui.label(
+                                RichText::new(*title)
+                                    .size(11.0)
+                                    .color(theme::TEXT_DIM())
+                                    .strong(),
+                            );
+                            ui.add_space(theme::SP_1);
+                            for (key, action) in *rows {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(*key)
+                                            .size(11.0)
+                                            .color(theme::ACCENT())
+                                            .monospace(),
+                                    );
+                                    ui.label(
+                                        RichText::new(*action)
+                                            .size(12.0)
+                                            .color(theme::TEXT_MUTED()),
+                                    );
+                                });
+                            }
+                            ui.add_space(theme::SP_3);
+                        }
+                    });
+                    ui.label(
+                        RichText::new("Esc or click outside to close")
+                            .size(11.0)
+                            .color(theme::TEXT_DIM()),
+                    );
+                });
+        });
+
+    ctx.input(|i| {
+        if i.key_pressed(Key::Escape) {
+            *open = false;
+        }
+    });
 }
