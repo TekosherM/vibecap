@@ -278,6 +278,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         .sense(egui::Sense::hover()),
                                 );
                             });
+                            // Hairline so white/near-white thumbs still read
+                            // as tiles on the dark canvas.
+                            paint.rect_stroke(
+                                thumb_rect,
+                                theme::rounding_sm(),
+                                egui::Stroke::new(1.0_f32, theme::BORDER()),
+                            );
                             if matches!(item.category, MediaCategory::Video | MediaCategory::Gif)
                             {
                                 // ▶ badge on playable media

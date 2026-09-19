@@ -10,7 +10,16 @@ use crate::ui::{btn_small, switch};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
-                    ui.vertical_centered(|ui| {
+                    // Centered content column — the column centers, rows inside
+                    // it left-align (Chromie popup column). vertical_centered
+                    // centered every row independently, orphaning short labels.
+                    let col_w = ui.available_width().min(720.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(((ui.available_width() - col_w) / 2.0).max(0.0));
+                        ui.allocate_ui_with_layout(
+                            egui::Vec2::new(col_w, ui.available_height()),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
                         // ── Primary actions first: Screenshot / Record / GIF ──
                         // The user decides WHAT to do before WHERE — the target
                         // selector below is a secondary setting, not a step.
@@ -253,24 +262,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 });
                             ui.add_space(theme::SP_3);
                             let mut clip_only = app.clipboard_only;
-                            if switch(ui, "Clipboard only", &mut clip_only) {
+                            if switch(ui, "Clipboard only — copy, don't save", &mut clip_only) {
                                 app.clipboard_only = clip_only;
                             }
-                            ui.label(
-                                RichText::new("copy, don't save")
-                                    .size(10.0)
-                                    .color(theme::TEXT_DIM()),
-                            );
                             ui.add_space(theme::SP_3);
                             let mut silent = app.silent_mode;
-                            if switch(ui, "Silent", &mut silent) {
+                            if switch(ui, "Silent — no toasts/flash", &mut silent) {
                                 app.silent_mode = silent;
                             }
-                            ui.label(
-                                RichText::new("no toasts/flash")
-                                    .size(10.0)
-                                    .color(theme::TEXT_DIM()),
-                            );
                         });
 
                         ui.add_space(theme::SP_4);
@@ -654,6 +653,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 .color(theme::TEXT_DIM()),
                             );
                         });
+                            },
+                        );
                     });
-                
+
 }

@@ -364,24 +364,24 @@ pent!(
     Color32::from_rgb(0x37, 0x41, 0x51),
     Color32::from_rgb(0x23, 0x23, 0x27),
     Color32::from_rgb(0xe5, 0xe5, 0xe7),
-    Color32::from_rgba_premultiplied(173, 195, 255, 31),
-    Color32::from_rgba_premultiplied(236, 140, 190, 31)
+    Color32::from_rgba_unmultiplied(173, 195, 255, 31),
+    Color32::from_rgba_unmultiplied(236, 140, 190, 31)
 );
 pent!(
     BORDER_STRONG,
     Color32::from_rgb(0x4b, 0x55, 0x63),
     Color32::from_rgb(0x30, 0x30, 0x34),
     Color32::from_rgb(0xd7, 0xd7, 0xda),
-    Color32::from_rgba_premultiplied(173, 195, 255, 56),
-    Color32::from_rgba_premultiplied(236, 140, 190, 58)
+    Color32::from_rgba_unmultiplied(173, 195, 255, 56),
+    Color32::from_rgba_unmultiplied(236, 140, 190, 58)
 );
 pent!(
     SELECTION_FILL,
-    Color32::from_rgba_premultiplied(249, 250, 251, 38),
-    Color32::from_rgba_premultiplied(244, 244, 245, 38),
-    Color32::from_rgba_premultiplied(24, 24, 27, 26),
-    Color32::from_rgba_premultiplied(236, 79, 142, 60),
-    Color32::from_rgba_premultiplied(242, 111, 164, 60)
+    Color32::from_rgba_unmultiplied(249, 250, 251, 38),
+    Color32::from_rgba_unmultiplied(244, 244, 245, 38),
+    Color32::from_rgba_unmultiplied(24, 24, 27, 26),
+    Color32::from_rgba_unmultiplied(236, 79, 142, 60),
+    Color32::from_rgba_unmultiplied(242, 111, 164, 60)
 );
 tri!(
     OVERLAY_DIM,
@@ -391,19 +391,19 @@ tri!(
 );
 pent!(
     OVERLAY_LABEL,
-    Color32::from_rgba_premultiplied(17, 24, 39, 210),
+    Color32::from_rgba_unmultiplied(17, 24, 39, 210),
     Color32::from_black_alpha(180),
-    Color32::from_rgba_premultiplied(28, 30, 36, 200),
-    Color32::from_rgba_premultiplied(15, 13, 41, 210),
-    Color32::from_rgba_premultiplied(18, 8, 30, 215)
+    Color32::from_rgba_unmultiplied(28, 30, 36, 200),
+    Color32::from_rgba_unmultiplied(15, 13, 41, 210),
+    Color32::from_rgba_unmultiplied(18, 8, 30, 215)
 );
 pent!(
     OVERLAY_BLUR,
-    Color32::from_rgba_premultiplied(17, 24, 39, 220),
+    Color32::from_rgba_unmultiplied(17, 24, 39, 220),
     Color32::from_black_alpha(220),
-    Color32::from_rgba_premultiplied(28, 30, 36, 220),
-    Color32::from_rgba_premultiplied(10, 8, 32, 230),
-    Color32::from_rgba_premultiplied(18, 8, 30, 230)
+    Color32::from_rgba_unmultiplied(28, 30, 36, 220),
+    Color32::from_rgba_unmultiplied(10, 8, 32, 230),
+    Color32::from_rgba_unmultiplied(18, 8, 30, 230)
 );
 pent!(
     NEUTRAL_STROKE,
@@ -469,31 +469,31 @@ dual!(
 );
 tri!(
     PRI_HIGH_FILL,
-    Color32::from_rgba_premultiplied(0xf8, 0x71, 0x71, 40),
-    Color32::from_rgba_premultiplied(0xdc, 0x26, 0x26, 36),
-    Color32::from_rgba_premultiplied(0xf8, 0x71, 0x71, 44)
+    Color32::from_rgba_unmultiplied(0xf8, 0x71, 0x71, 40),
+    Color32::from_rgba_unmultiplied(0xdc, 0x26, 0x26, 36),
+    Color32::from_rgba_unmultiplied(0xf8, 0x71, 0x71, 44)
 );
 tri!(
     PRI_NORMAL_FILL,
-    Color32::from_rgba_premultiplied(0xa1, 0xa1, 0xaa, 40),
-    Color32::from_rgba_premultiplied(0x52, 0x52, 0x5b, 36),
-    Color32::from_rgba_premultiplied(0xc7, 0xc2, 0xe6, 40)
+    Color32::from_rgba_unmultiplied(0xa1, 0xa1, 0xaa, 40),
+    Color32::from_rgba_unmultiplied(0x52, 0x52, 0x5b, 36),
+    Color32::from_rgba_unmultiplied(0xc7, 0xc2, 0xe6, 40)
 );
 pent!(
     SURFACE_GLASS,
-    Color32::from_rgba_premultiplied(0x1f, 0x29, 0x37, 217),
-    Color32::from_rgba_premultiplied(0x14, 0x14, 0x16, 230),
-    Color32::from_rgba_premultiplied(0xff, 0xff, 0xff, 235),
-    Color32::from_rgba_premultiplied(0x16, 0x14, 0x3b, 235),
-    Color32::from_rgba_premultiplied(0x1c, 0x0f, 0x30, 232)
+    Color32::from_rgba_unmultiplied(0x1f, 0x29, 0x37, 217),
+    Color32::from_rgba_unmultiplied(0x14, 0x14, 0x16, 230),
+    Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 235),
+    Color32::from_rgba_unmultiplied(0x16, 0x14, 0x3b, 235),
+    Color32::from_rgba_unmultiplied(0x1c, 0x0f, 0x30, 232)
 );
 pent!(
     SURFACE_GLASS_DIM,
-    Color32::from_rgba_premultiplied(0x1f, 0x29, 0x37, 212),
-    Color32::from_rgba_premultiplied(0x14, 0x14, 0x16, 220),
-    Color32::from_rgba_premultiplied(0xff, 0xff, 0xff, 220),
-    Color32::from_rgba_premultiplied(0x16, 0x14, 0x3b, 225),
-    Color32::from_rgba_premultiplied(0x1c, 0x0f, 0x30, 222)
+    Color32::from_rgba_unmultiplied(0x1f, 0x29, 0x37, 212),
+    Color32::from_rgba_unmultiplied(0x14, 0x14, 0x16, 220),
+    Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 220),
+    Color32::from_rgba_unmultiplied(0x16, 0x14, 0x3b, 225),
+    Color32::from_rgba_unmultiplied(0x1c, 0x0f, 0x30, 222)
 );
 
 // ── Celestial aurora stops (signature teal→pink gradient) ───────────
@@ -537,7 +537,7 @@ pub fn danger_pulse(t: f32) -> Color32 {
 /// Soft white for third-lines / faint HUD guides.
 #[allow(non_snake_case)]
 pub fn HUD_GUIDE() -> Color32 {
-    Color32::from_rgba_premultiplied(70, 70, 70, 70)
+    Color32::from_rgba_unmultiplied(70, 70, 70, 70)
 }
 
 // ── Density ─────────────────────────────────────────────────────────
@@ -664,7 +664,7 @@ pub fn apply_celestial_theme(ctx: &egui::Context) {
             offset: egui::vec2(0.0, 12.0),
             blur: 36.0,
             spread: 0.0,
-            color: Color32::from_rgba_premultiplied(5, 3, 26, 150),
+            color: Color32::from_rgba_unmultiplied(5, 3, 26, 150),
         },
     );
 }
@@ -678,7 +678,7 @@ pub fn apply_celestial_pink_theme(ctx: &egui::Context) {
             offset: egui::vec2(0.0, 12.0),
             blur: 36.0,
             spread: 0.0,
-            color: Color32::from_rgba_premultiplied(40, 5, 25, 150),
+            color: Color32::from_rgba_unmultiplied(40, 5, 25, 150),
         },
     );
 }
@@ -713,13 +713,13 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
     // CelestialPink swaps teal for rose so the sky reads pink-forward.
     let (g_teal, g_ambient) = if pink {
         (
-            Color32::from_rgba_premultiplied(244, 114, 182, 34),
-            Color32::from_rgba_premultiplied(251, 113, 133, 22),
+            Color32::from_rgba_unmultiplied(244, 114, 182, 34),
+            Color32::from_rgba_unmultiplied(251, 113, 133, 22),
         )
     } else {
         (
-            Color32::from_rgba_premultiplied(38, 214, 192, 40),
-            Color32::from_rgba_premultiplied(103, 76, 209, 26),
+            Color32::from_rgba_unmultiplied(38, 214, 192, 40),
+            Color32::from_rgba_unmultiplied(103, 76, 209, 26),
         )
     };
     radial_glow(
@@ -732,7 +732,7 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
         painter,
         egui::pos2(rect.left() + w * 0.82, rect.top() + h * 0.06),
         dim * 0.52,
-        Color32::from_rgba_premultiplied(236, 79, 142, 34),
+        Color32::from_rgba_unmultiplied(236, 79, 142, 34),
     );
     radial_glow(
         painter,
@@ -742,30 +742,31 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
     );
 
     // Stars — positions from Chromie's body starfield (normalized here).
-    const STARS: &[(f32, f32, f32, Color32)] = &[
-        (0.04, 0.07, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 178)),
-        (0.15, 0.19, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 128)),
+    // `let` not `const`: from_rgba_unmultiplied isn't a const fn.
+    let stars: &[(f32, f32, f32, Color32)] = &[
+        (0.04, 0.07, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 178)),
+        (0.15, 0.19, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 128)),
         (0.28, 0.11, 1.5, CELESTIAL_STAR),
-        (0.39, 0.30, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 153)),
-        (0.52, 0.07, 1.0, Color32::from_rgba_premultiplied(38, 214, 192, 217)),
-        (0.67, 0.27, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 140)),
-        (0.80, 0.42, 1.5, Color32::from_rgba_premultiplied(236, 79, 142, 217)),
-        (0.92, 0.17, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 128)),
-        (0.07, 0.36, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 102)),
-        (0.23, 0.51, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 140)),
-        (0.44, 0.61, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 115)),
-        (0.62, 0.72, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 128)),
-        (0.14, 0.77, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 153)),
-        (0.85, 0.87, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 102)),
-        (0.36, 0.86, 1.0, Color32::from_rgba_premultiplied(38, 214, 192, 140)),
-        (0.74, 0.58, 1.0, Color32::from_rgba_premultiplied(236, 79, 142, 140)),
-        (0.57, 0.92, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 120)),
-        (0.95, 0.62, 1.0, Color32::from_rgba_premultiplied(255, 255, 255, 100)),
+        (0.39, 0.30, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 153)),
+        (0.52, 0.07, 1.0, Color32::from_rgba_unmultiplied(38, 214, 192, 217)),
+        (0.67, 0.27, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 140)),
+        (0.80, 0.42, 1.5, Color32::from_rgba_unmultiplied(236, 79, 142, 217)),
+        (0.92, 0.17, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 128)),
+        (0.07, 0.36, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 102)),
+        (0.23, 0.51, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 140)),
+        (0.44, 0.61, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 115)),
+        (0.62, 0.72, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 128)),
+        (0.14, 0.77, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 153)),
+        (0.85, 0.87, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 102)),
+        (0.36, 0.86, 1.0, Color32::from_rgba_unmultiplied(38, 214, 192, 140)),
+        (0.74, 0.58, 1.0, Color32::from_rgba_unmultiplied(236, 79, 142, 140)),
+        (0.57, 0.92, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 120)),
+        (0.95, 0.62, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 100)),
     ];
-    for &(fx, fy, r, color) in STARS {
+    for &(fx, fy, r, color) in stars {
         // Teal-tinted stars become rose under CelestialPink.
         let color = if pink && (color.r(), color.g(), color.b()) == (38, 214, 192) {
-            Color32::from_rgba_premultiplied(244, 114, 182, color.a())
+            Color32::from_rgba_unmultiplied(244, 114, 182, color.a())
         } else {
             color
         };
@@ -778,7 +779,7 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
 fn radial_glow(painter: &egui::Painter, c: egui::Pos2, r: f32, color: Color32) {
     const SEG: usize = 32;
     let mut mesh = egui::epaint::Mesh::default();
-    let mid = Color32::from_rgba_premultiplied(color.r(), color.g(), color.b(), color.a() / 3);
+    let mid = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), color.a() / 3);
     mesh.colored_vertex(c, color);
     for i in 0..SEG {
         let a = i as f32 / SEG as f32 * std::f32::consts::TAU;
@@ -843,7 +844,7 @@ pub fn paint_aurora_strip_v(painter: &egui::Painter, rect: egui::Rect) {
 
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
-    Color32::from_rgba_premultiplied(
+    Color32::from_rgba_unmultiplied(
         l(a.r(), b.r()),
         l(a.g(), b.g()),
         l(a.b(), b.b()),

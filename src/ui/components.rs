@@ -513,7 +513,7 @@ pub fn section_card(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
             offset: egui::vec2(0.0, 4.0),
             blur: 14.0,
             spread: 0.0,
-            color: egui::Color32::from_rgba_premultiplied(7, 6, 26, 102),
+            color: egui::Color32::from_rgba_unmultiplied(7, 6, 26, 102),
         })
     } else {
         frame
