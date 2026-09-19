@@ -132,6 +132,9 @@ pub(crate) enum RegionPickKind {
     /// Click-to-pick a window inside the region overlay (Windows) — crops the
     /// same freeze snap, so no focus juggling is needed at all.
     WindowPick,
+    /// Same overlay, but the picked rect becomes the recording crop — capture
+    /// a window on video without naming it or focusing it.
+    WindowRecord,
 }
 
 /// Events raised outside the GUI loop — global hotkeys and tray menu clicks.
@@ -160,6 +163,8 @@ struct CaptureCfg {
     target: CaptureTarget,
     /// Last observed front app — used only for the file-name token.
     front_app: Option<String>,
+    /// Snipping-Tool delay — mirrored so a hidden fast-path still honors it.
+    delay_secs: u64,
 }
 
 #[derive(Default)]
@@ -198,6 +203,9 @@ fn spawn_pump_still(cfg: CaptureCfg, shared: Arc<WakeShared>, ctx: egui::Context
         let seq = app::naming::next_seq(&cfg.save_dir, "");
         let stem = app::format_capture_stem(&cfg.name_pattern, cfg.front_app.as_deref(), seq);
         let shot = cfg.save_dir.join(format!("{stem}.jpg"));
+        if cfg.delay_secs > 0 {
+            std::thread::sleep(Duration::from_secs(cfg.delay_secs));
+        }
         let result = capture_screenshot_opts(
             &shot,
             &CaptureOpts::default()
@@ -567,6 +575,14 @@ pub(crate) struct VibecapApp {
     /// Frames spent waiting for the region overlay's own capture-exclusion
     /// before degrading to the delayed-overlay path.
     region_excl_attempts: u8,
+    /// Aspect-ratio lock for the region drag (None = free). Persisted across
+    /// picks so the HUD chip stays where the user left it.
+    region_aspect_lock: Option<f32>,
+    /// Seconds to wait after the hide before grabbing (menu/tooltip shots,
+    /// Snipping-Tool parity). Applies to non-interactive stills only.
+    capture_delay_secs: u64,
+    /// Copy the still and discard the file — never touches the library.
+    clipboard_only: bool,
     /// Window-pick mode: topmost window under the cursor (title + OS-px rect).
     window_pick_hover: Option<(String, i32, i32, i32, i32)>,
     window_pick_poll_at: Option<Instant>,
@@ -1448,6 +1464,7 @@ impl VibecapApp {
             PaletteAction::GoInbox => self.current_tab = AppTab::Feedback,
             PaletteAction::GoSettings => self.current_tab = AppTab::Settings,
             PaletteAction::Screenshot => self.trigger_capture(ctx, true),
+            PaletteAction::RepeatLast => self.repeat_last_capture(ctx),
             PaletteAction::ToggleRecord => {
                 if self.is_recording {
                     self.stop_recording(ctx);
@@ -1658,6 +1675,7 @@ impl VibecapApp {
                         self.trigger_capture(ctx, false);
                     }
                 }
+                TrayAction::RepeatLast => self.repeat_last_capture(ctx),
                 TrayAction::GoShutter => {
                     self.current_tab = AppTab::Capture;
                     self.show_window(ctx);
@@ -2864,6 +2882,7 @@ impl VibecapApp {
         let monitor = self.capture_monitor;
         let pattern = self.name_pattern.clone();
         let app_token = focus_target.clone();
+        let delay_ms = self.capture_delay_secs.saturating_mul(1000);
 
         std::thread::spawn(move || {
             // Resolve the output name while the compositor is still hiding our
@@ -2873,9 +2892,11 @@ impl VibecapApp {
             let shot_file = save_dir.join(format!("{stem}.jpg"));
             // SW_HIDE removes the window from the compositor synchronously —
             // a couple of frames of propagation is plenty. The old 450 ms
-            // covered the minimize ANIMATION, which no longer happens.
+            // covered the minimize ANIMATION, which no longer happens. Any
+            // configured delay rides on top (menu/tooltip shots: the window is
+            // already gone, the wait just lets the user open things first).
             let hide_ms = if cfg!(target_os = "windows") { 100 } else { 450 };
-            std::thread::sleep(Duration::from_millis(hide_ms));
+            std::thread::sleep(Duration::from_millis(hide_ms + delay_ms));
             if is_window {
                 // Window path focuses + crops inside capture_screenshot_opts;
                 // do not pre-focus here (double focus races the grab).
@@ -3025,6 +3046,74 @@ impl VibecapApp {
             ctx_clone.request_repaint();
         });
         ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
+    /// Repeat the last capture without re-picking: re-arm the same recording
+    /// (region crops persist in `selected_screen_rect`), re-grab the
+    /// remembered rect as a still, or fall back to a plain fullscreen still.
+    /// Palette/tray verb — inside the overlay `R` / ghost double-click covers
+    /// the same idea by confirming the ghost rect.
+    fn repeat_last_capture(&mut self, ctx: &egui::Context) {
+        if self.screenshot_in_flight
+            || self.is_selecting_region
+            || self.region_snap_rx.is_some()
+            || self.is_recording
+            || self.recording_arming
+            || self.recording_finalizing
+        {
+            return;
+        }
+        if matches!(self.last_capture, Some(LastCapture::Clip(_))) {
+            self.trigger_capture(ctx, false);
+            return;
+        }
+        let Some((w, h, x, y)) = self.selected_screen_rect else {
+            self.trigger_capture(ctx, true);
+            return;
+        };
+        self.screenshot_in_flight = true;
+        self.wake_shared.still_busy.store(true, Ordering::SeqCst);
+        self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
+        // Same trick as region pick — exclude rather than hide on Windows,
+        // so a repeat is as close to instant as the snap allows.
+        #[cfg(windows)]
+        let excluded = crate::platform::set_studio_capture_excluded(true);
+        #[cfg(not(windows))]
+        self.hide_for_capture(ctx);
+
+        let ctx_clone = ctx.clone();
+        let save_dir = self.save_dir.clone();
+        let draw_mouse = self.draw_mouse;
+        let pattern = self.name_pattern.clone();
+        std::thread::spawn(move || {
+            let seq = app::naming::next_seq(&save_dir, "");
+            let stem = app::format_capture_stem(&pattern, None, seq);
+            let dest = save_dir.join(format!("{stem}.jpg"));
+            let snap = std::env::temp_dir().join(format!("vibecap_repeat_{stem}.jpg"));
+            // A beat for DWM to drop us from the composed frame.
+            let settle_ms = if cfg!(target_os = "windows") { 100 } else { 450 };
+            std::thread::sleep(Duration::from_millis(settle_ms));
+            let region = ScreenRect { x, y, w, h };
+            let result = capture_screenshot_opts(
+                &snap,
+                &CaptureOpts::default().with_draw_mouse(draw_mouse),
+            )
+            .and_then(|_| crop_image_file(&snap, &dest, region))
+            .map(|_| dest);
+            let _ = std::fs::remove_file(&snap);
+            match &result {
+                Ok(p) => write_pending_still(p),
+                Err(e) => write_pending_still_error(e),
+            }
+            #[cfg(windows)]
+            {
+                if excluded {
+                    crate::platform::set_studio_capture_excluded(false);
+                }
+                crate::platform::restore_studio_to_taskbar();
+            }
+            ctx_clone.request_repaint();
+        });
     }
 
     fn start_region_pick(&mut self, ctx: &egui::Context, kind: RegionPickKind) {
@@ -3256,7 +3345,10 @@ impl VibecapApp {
         let kind = self.pending_region_kind.take();
         // Window pick: remember the chosen window so CaptureTarget::Window
         // aims at it next run (exit_region_overlay clears the hover state).
-        if kind == Some(RegionPickKind::WindowPick) {
+        if matches!(
+            kind,
+            Some(RegionPickKind::WindowPick) | Some(RegionPickKind::WindowRecord)
+        ) {
             if let Some((name, ..)) = self.window_pick_hover.take() {
                 self.window_app = name;
             }
@@ -3287,7 +3379,12 @@ impl VibecapApp {
                     self.show_toast("❌ Region snap missing");
                 }
             }
-            Some(RegionPickKind::Record) => {
+            Some(RegionPickKind::Record) | Some(RegionPickKind::WindowRecord) => {
+                if kind == Some(RegionPickKind::WindowRecord) {
+                    // The pick already resolved to exact pixels — record the
+                    // rect, not the window name (it may move mid-record).
+                    self.capture_target = CaptureTarget::Region;
+                }
                 if let Some(snap) = self.region_snap_path.take() {
                     let _ = std::fs::remove_file(snap);
                 }
@@ -3305,15 +3402,30 @@ impl VibecapApp {
         match result {
             Ok(shot_file) => {
                 self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
+                // Snipping-Tool rule: a fresh capture is immediately pasteable —
+                // no need to open the app and press Ctrl+C first. The card
+                // reports the copy result honestly ("Copied" vs "Captured").
+                let copied = self.copy_image_to_clipboard(&shot_file);
+                if self.clipboard_only {
+                    // Clipboard-only stills never touch the library — copy,
+                    // discard the file, skip Review.
+                    let _ = std::fs::remove_file(&shot_file);
+                    self.last_capture = None;
+                    self.refresh_library();
+                    self.show_window(ctx);
+                    self.persist_session();
+                    self.show_toast(if copied {
+                        "📋 Copied — file not saved"
+                    } else {
+                        "❌ Copy to clipboard failed"
+                    });
+                    return;
+                }
                 if !self.is_annotating {
                     self.open_still_from_path(shot_file.clone());
                 }
                 self.refresh_library();
                 self.toast_message = None;
-                // Snipping-Tool rule: a fresh capture is immediately pasteable —
-                // no need to open the app and press Ctrl+C first. The card
-                // reports the copy result honestly ("Copied" vs "Captured").
-                let copied = self.copy_image_to_clipboard(&shot_file);
                 self.capture_toast = Some((shot_file.clone(), Instant::now(), copied));
                 self.last_capture = Some(LastCapture::Still(shot_file.clone()));
                 self.show_window(ctx);
@@ -3612,6 +3724,7 @@ impl eframe::App for VibecapApp {
                 draw_mouse: self.draw_mouse,
                 target: self.capture_target,
                 front_app: self.last_front_app.clone(),
+                delay_secs: self.capture_delay_secs,
             });
         }
         // Remember which Review editor was last used (rail Review returns here).
@@ -3861,8 +3974,10 @@ impl eframe::App for VibecapApp {
             // Window-pick mode: hit-test the top-level window under the cursor
             // (throttled — EnumWindows costs a few ms) so the HUD highlights
             // the pick target live.
-            let picking_window =
-                matches!(self.pending_region_kind, Some(RegionPickKind::WindowPick));
+            let picking_window = matches!(
+                self.pending_region_kind,
+                Some(RegionPickKind::WindowPick) | Some(RegionPickKind::WindowRecord)
+            );
             if picking_window {
                 let due = self
                     .window_pick_poll_at
@@ -3888,6 +4003,7 @@ impl eframe::App for VibecapApp {
                 } else {
                     None
                 },
+                &mut self.region_aspect_lock,
             ) {
                 RegionHudResult::Continue => {}
                 RegionHudResult::Confirmed { selected, overlay } => {

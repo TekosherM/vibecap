@@ -17,6 +17,8 @@ pub enum TrayAction {
     Show,
     Hide,
     Screenshot,
+    /// Re-fire the last capture — same rect/window/fullscreen, same kind.
+    RepeatLast,
     /// Idle → start; arming → cancel; recording → stop.
     ToggleRecord,
     GoShutter,
@@ -59,6 +61,7 @@ pub struct TrayController {
     show_id: tray_icon::menu::MenuId,
     hide_id: tray_icon::menu::MenuId,
     screenshot_id: tray_icon::menu::MenuId,
+    repeat_id: tray_icon::menu::MenuId,
     record_id: tray_icon::menu::MenuId,
     shutter_id: tray_icon::menu::MenuId,
     media_id: tray_icon::menu::MenuId,
@@ -93,6 +96,7 @@ impl TrayController {
 
         // ── Capture ─────────────────────────────────────────────
         let screenshot_item = MenuItem::new("Screenshot\t⌃⇧3", true, None);
+        let repeat_item = MenuItem::new("Repeat last capture", true, None);
         let record_item = MenuItem::new("Record\t⌃⇧2", true, None);
 
         // ── Loop stages ─────────────────────────────────────────
@@ -113,6 +117,7 @@ impl TrayController {
         let show_id = show_item.id().clone();
         let hide_id = hide_item.id().clone();
         let screenshot_id = screenshot_item.id().clone();
+        let repeat_id = repeat_item.id().clone();
         let record_id = record_item.id().clone();
         let shutter_id = shutter_item.id().clone();
         let media_id = media_item.id().clone();
@@ -132,6 +137,7 @@ impl TrayController {
             &hide_item,
             &PredefinedMenuItem::separator(),
             &screenshot_item,
+            &repeat_item,
             &record_item,
             &PredefinedMenuItem::separator(),
             &shutter_item,
@@ -168,6 +174,7 @@ impl TrayController {
             show_id,
             hide_id,
             screenshot_id,
+            repeat_id,
             record_id,
             shutter_id,
             media_id,
@@ -294,6 +301,7 @@ impl TrayController {
             (self.show_id.clone(), TrayAction::Show),
             (self.hide_id.clone(), TrayAction::Hide),
             (self.screenshot_id.clone(), TrayAction::Screenshot),
+            (self.repeat_id.clone(), TrayAction::RepeatLast),
             (self.record_id.clone(), TrayAction::ToggleRecord),
             (self.shutter_id.clone(), TrayAction::GoShutter),
             (self.media_id.clone(), TrayAction::GoMedia),
@@ -330,6 +338,8 @@ impl TrayController {
                 actions.push(TrayAction::Hide);
             } else if id == self.screenshot_id {
                 actions.push(TrayAction::Screenshot);
+            } else if id == self.repeat_id {
+                actions.push(TrayAction::RepeatLast);
             } else if id == self.record_id {
                 actions.push(TrayAction::ToggleRecord);
             } else if id == self.shutter_id {

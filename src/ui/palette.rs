@@ -12,6 +12,7 @@ pub enum PaletteAction {
     GoInbox,
     GoSettings,
     Screenshot,
+    RepeatLast,
     ToggleRecord,
     RefreshLibrary,
     ToggleDensity,
@@ -27,6 +28,11 @@ impl PaletteAction {
     pub fn all() -> &'static [(Self, &'static str, &'static str)] {
         &[
             (Self::Screenshot, "Screenshot", "Capture full screen (S)"),
+            (
+                Self::RepeatLast,
+                "Repeat last capture",
+                "Re-fire the same region/window/fullscreen",
+            ),
             (Self::ToggleRecord, "Start / stop recording", "R · Ctrl+Shift+2"),
             (Self::GoShutter, "Go to Capture", "Take a screenshot or record"),
             (Self::GoMedia, "Go to Library", "All your captures"),

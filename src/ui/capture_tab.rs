@@ -154,6 +154,15 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         crate::RegionPickKind::WindowPick,
                                     );
                                 }
+                                // Same pick, but the rect becomes a recording
+                                // crop — capture a window on video by click.
+                                #[cfg(windows)]
+                                if btn_small(ui, "🎯 Rec") {
+                                    app.start_region_pick(
+                                        ctx,
+                                        crate::RegionPickKind::WindowRecord,
+                                    );
+                                }
                             });
                             ui.add(
                                 egui::TextEdit::singleline(&mut app.window_app)
@@ -195,6 +204,45 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 ShutterAction::Gif => app.trigger_gif_clip(ctx),
                             }
                         }
+
+                        // ── Options row: Snipping-Tool delay + clipboard-only ──
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Delay")
+                                    .size(11.0)
+                                    .color(theme::TEXT_DIM()),
+                            );
+                            egui::ComboBox::from_id_source("capture_delay_secs")
+                                .selected_text(if app.capture_delay_secs == 0 {
+                                    "None".to_string()
+                                } else {
+                                    format!("{}s", app.capture_delay_secs)
+                                })
+                                .width(72.0)
+                                .show_ui(ui, |ui| {
+                                    for secs in [0u64, 3, 5, 10] {
+                                        ui.selectable_value(
+                                            &mut app.capture_delay_secs,
+                                            secs,
+                                            if secs == 0 {
+                                                "None".to_string()
+                                            } else {
+                                                format!("{secs}s")
+                                            },
+                                        );
+                                    }
+                                });
+                            ui.add_space(theme::SP_3);
+                            let mut clip_only = app.clipboard_only;
+                            if switch(ui, "Clipboard only", &mut clip_only) {
+                                app.clipboard_only = clip_only;
+                            }
+                            ui.label(
+                                RichText::new("copy, don't save")
+                                    .size(10.0)
+                                    .color(theme::TEXT_DIM()),
+                            );
+                        });
 
                         ui.add_space(theme::SP_4);
 

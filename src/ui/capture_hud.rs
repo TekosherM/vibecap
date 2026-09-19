@@ -83,6 +83,8 @@ pub fn pixels_to_overlay_rect(
 /// `window_pick` — when `Some`, the overlay is a click-to-pick target: it
 /// highlights `(title, x, y, w, h)` in OS pixels and a click confirms that
 /// rect instead of a drag.
+/// `aspect_lock` — `Some(w/h)` pins the drag to a ratio (toolbar chips);
+/// Shift/Alt remain momentary overrides.
 #[allow(clippy::too_many_arguments)]
 pub fn show_region_selector(
     ctx: &egui::Context,
@@ -94,6 +96,7 @@ pub fn show_region_selector(
     backdrop_rgba: Option<&(u32, u32, Vec<u8>)>,
     was_dragging: &mut bool,
     window_pick: Option<&(String, i32, i32, i32, i32)>,
+    aspect_lock: &mut Option<f32>,
 ) -> RegionHudResult {
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
@@ -196,11 +199,11 @@ pub fn show_region_selector(
                 }
 
                 // Ghost of last region in pixel space (falls back to overlay points).
-                if !pick_mode && region_start.is_none() {
+                let ghost = if region_start.is_none() {
                     let (img_w, img_h) = backdrop_rgba
                         .map(|(w, h, _)| (*w, *h))
                         .unwrap_or((0, 0));
-                    let ghost = if let Some(crop) = last_pixels {
+                    let g = if let Some(crop) = last_pixels {
                         if img_w > 0 && img_h > 0 {
                             Some(pixels_to_overlay_rect(crop, screen, img_w, img_h))
                         } else {
@@ -209,21 +212,24 @@ pub fn show_region_selector(
                     } else {
                         last_region
                     };
+                    g.filter(|r| r.width() >= 8.0 && r.height() >= 8.0)
+                } else {
+                    None
+                };
+                if !pick_mode && region_start.is_none() {
                     if let Some(ghost) = ghost {
-                        if ghost.width() >= 8.0 && ghost.height() >= 8.0 {
-                            painter.rect_stroke(
-                                ghost,
-                                0.0,
-                                Stroke::new(1.5_f32, theme::TEXT_MUTED()),
-                            );
-                            painter.text(
-                                ghost.center(),
-                                Align2::CENTER_CENTER,
-                                "Last region · drag to replace · Enter captures · ←↑↓→ nudge",
-                                FontId::proportional(13.0),
-                                theme::TEXT_MUTED(),
-                            );
-                        }
+                        painter.rect_stroke(
+                            ghost,
+                            0.0,
+                            Stroke::new(1.5_f32, theme::TEXT_MUTED()),
+                        );
+                        painter.text(
+                            ghost.center(),
+                            Align2::CENTER_CENTER,
+                            "Last region · R / double-click captures · ←↑↓→ nudge · drag replaces",
+                            FontId::proportional(13.0),
+                            theme::TEXT_MUTED(),
+                        );
                     }
                     painter.text(
                         Pos2::new(screen.center().x, screen.min.y + 48.0),
@@ -232,6 +238,22 @@ pub fn show_region_selector(
                         FontId::proportional(18.0),
                         theme::TEXT(),
                     );
+                }
+                // Repeat-last gestures: `R` or a double-click inside the ghost
+                // confirms it without re-dragging.
+                if !pick_mode {
+                    if let Some(ghost) = ghost {
+                        let repeat = ctx.input(|i| i.key_pressed(egui::Key::R));
+                        let ghost_dbl = response.double_clicked()
+                            && response
+                                .interact_pointer_pos()
+                                .map(|p| ghost.contains(p))
+                                .unwrap_or(false);
+                        if repeat || ghost_dbl {
+                            result =
+                                RegionHudResult::Confirmed { selected: ghost, overlay: screen };
+                        }
+                    }
                 }
 
                 if let (Some(start), Some(end)) = (*region_start, *region_end) {
@@ -254,16 +276,16 @@ pub fn show_region_selector(
                         let step = if i.modifiers.shift { 10.0 } else { 1.0 };
                         let mut dx = 0.0_f32;
                         let mut dy = 0.0_f32;
-                        if i.key_pressed(egui::Key::ArrowLeft) {
+                        if i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::A) {
                             dx -= step;
                         }
-                        if i.key_pressed(egui::Key::ArrowRight) {
+                        if i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::D) {
                             dx += step;
                         }
-                        if i.key_pressed(egui::Key::ArrowUp) {
+                        if i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::W) {
                             dy -= step;
                         }
-                        if i.key_pressed(egui::Key::ArrowDown) {
+                        if i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::S) {
                             dy += step;
                         }
                         (dx, dy, step)
@@ -312,6 +334,11 @@ pub fn show_region_selector(
                             } else if i.modifiers.alt {
                                 let w = rect.width().abs();
                                 rect = Rect::from_min_size(rect.min, Vec2::new(w, w * 9.0 / 16.0));
+                                *region_end = Some(rect.max);
+                            } else if let Some(ratio) = *aspect_lock {
+                                // Toolbar chip lock: keep the drag width,
+                                // pin the height to the ratio.
+                                rect = aspect_clamped(rect, ratio);
                                 *region_end = Some(rect.max);
                             }
                         });
@@ -375,6 +402,24 @@ pub fn show_region_selector(
                                             .strong()
                                             .color(theme::TEXT()),
                                     );
+                                    if !pick_mode {
+                                        for (label, ratio) in [
+                                            ("Free", None),
+                                            ("1:1", Some(1.0_f32)),
+                                            ("16:9", Some(16.0 / 9.0)),
+                                            ("9:16", Some(9.0 / 16.0)),
+                                        ] {
+                                            if ui
+                                                .selectable_label(
+                                                    *aspect_lock == ratio,
+                                                    RichText::new(label).size(11.0),
+                                                )
+                                                .clicked()
+                                            {
+                                                *aspect_lock = ratio;
+                                            }
+                                        }
+                                    }
                                     if !pick_mode
                                         && ui.button(RichText::new("Capture").strong()).clicked()
                                     {
@@ -402,6 +447,13 @@ pub fn show_region_selector(
     );
 
     result
+}
+
+/// Aspect-lock clamp: keep the drag's width, pin height to `width / ratio`.
+/// Anchored at `rect.min` like the Shift/Alt modifier clamps.
+fn aspect_clamped(rect: Rect, ratio: f32) -> Rect {
+    let w = rect.width().abs();
+    Rect::from_min_size(rect.min, Vec2::new(w, w / ratio.max(f32::EPSILON)))
 }
 
 fn paint_selection_hud(painter: &egui::Painter, rect: Rect) {
@@ -691,5 +743,22 @@ mod tests {
         let back = pixels_to_overlay_rect(crop, overlay, 1920, 1080);
         assert!((back.width() - overlay.width()).abs() < 2.0);
         assert!((back.height() - overlay.height()).abs() < 2.0);
+    }
+
+    #[test]
+    fn aspect_lock_pins_height_to_width_ratio() {
+        let drag = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(160.0, 55.0));
+        let locked = aspect_clamped(drag, 16.0 / 9.0);
+        assert_eq!(locked.min, drag.min);
+        assert!((locked.width() - 160.0).abs() < 0.01);
+        assert!((locked.height() - 90.0).abs() < 0.01);
+        // 9:16 portrait flips the same width into a tall box.
+        let tall = aspect_clamped(drag, 9.0 / 16.0);
+        assert!((tall.height() - 160.0 * 16.0 / 9.0).abs() < 0.01);
+        // 1:1 and a zero-ratio guard.
+        let square = aspect_clamped(drag, 1.0);
+        assert!((square.height() - 160.0).abs() < 0.01);
+        let safe = aspect_clamped(drag, 0.0);
+        assert!(safe.height().is_finite());
     }
 }

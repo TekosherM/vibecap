@@ -176,3 +176,142 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 4. Agent: `vibecap doctor`, smoke.ps1, GIF async, log cleanup (#92–#95).
 
 Do **not** start a non-destructive NLE, OCR, or i18n until the Windows capture loop is boring.
+
+---
+
+# Round 2 — beat Snagit / Snipping Tool (2026-09)
+
+Second hundred. Assumes the round-1 contract + the Snagit-class latency work
+(SW_HIDE, WDA_EXCLUDEFROMCAPTURE, instant overlay, window click-pick, wake
+pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
+
+## A · Capture interaction (feel & power)
+
+1. **Capture delay timer** (0/3/5/10 s) — Snipping Tool parity; lets you open a menu or hover a tooltip before the shot. ✓
+2. **Repeat last capture** — `R` in the overlay, palette verb, tray item: re-fires the exact same region/window/fullscreen without re-picking. ✓
+3. **Window-pick for recording** — click a window, record its rect (crop record, no focus juggling). ✓
+4. **Monitor pick** — in pick mode, hover dead space → highlight the whole monitor; click = capture that display.
+5. **Aspect-lock toolbar chips** (Free/1:1/16:9/9:16) in the region HUD, keeping Shift/Alt modifiers. ✓
+6. **Move selection** — Space+drag or middle-drag inside the box repositions it.
+7. **Post-drag edit handles** — resize from corners until Enter/click-outside; release no longer hard-commits.
+8. **WASD nudge** alongside arrows (Shift = 10 px). ✓
+9. **Double-click the last-region ghost** to instantly re-capture it. ✓
+10. **Global Esc during pick** — a focus-loss can't orphan the overlay (listen on the pump).
+11. **Clipboard-only stills** — copy and discard the file; never touches the library. ✓
+12. **Clipboard format pref** — PNG vs JPEG for copy (PNG preserves sharp text edges).
+13. **Shutter sound** — subtle click on capture; off by default.
+14. **Pre-warm backdrop** — reuse the previous snap as the overlay's backdrop instantly, stamped "refreshing…" until the new snap lands.
+15. **PrtScn capture** — optional single-key still via a dedicated hotkey slot.
+16. **Z-cycle in window-pick** — scroll wheel steps through overlapping windows under the cursor.
+17. **Pick card shows process + monitor** under the window title.
+18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test).
+19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu.
+20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %.
+21. **Named size presets** — 1920×1080 / 1280×720 centered-box buttons in the HUD.
+22. **Saved regions** — persist named rects to session; pick from palette.
+23. **Loupe hex readout** — show the sampled pixel's #RRGGBB in the cursor loupe.
+24. **Dim-intensity setting** for the region overlay.
+25. **Capture without cursor flash** — per-shot toggle in the HUD.
+
+## B · Still editor (Snagit-editor territory)
+
+26. **Arrow tool** — line with head, stroke/color-aware.
+27. **Rectangle / ellipse outline** tools.
+28. **Blur / pixelate region** — the Inbox "Blur the token" snippet wants this to exist.
+29. **Spotlight** — dim everything outside a rect.
+30. **Badge style presets** — Snagit step-tool look variants (circle/square, filled/outline).
+31. **Highlighter pen** — ~50 % alpha stroke mode.
+32. **Stroke straighten** — near-straight freehand becomes a line.
+33. **Text background box** — label look with fill + padding.
+34. **Canvas padding + fill color** on crop.
+35. **Edge effects** — border, torn edge, drop shadow presets.
+36. **Watermark preset** — text or logo at corner with opacity.
+37. **Annotation undo/redo** — Ctrl+Z / Ctrl+Y stack (per-stroke).
+38. **Resize-for-export** — % or max-width field in the Still inspector (img_resize_pct exists).
+39. **Export format per save** — PNG/JPEG/WebP choice.
+40. **Copy original vs annotated** choice (today annotated wins).
+41. **Paste image onto canvas** — combine shots, Snagit-style.
+42. **Hold-Space before/after** preview of annotations.
+43. **Measure tool** — px distance readout between two clicks.
+44. **Ruler / grid overlay** toggle in Still canvas.
+45. **Zoom-to-fit / 100 % quick keys** (Ctrl+0 / Ctrl+1).
+
+## C · Video & GIF
+
+46. **Window-record via pick** — same WindowPick overlay → record rect (crop record, no focus juggle). ✓
+47. **Follow-cursor recording** — crop rect pans with the pointer (for zoomed tutorials).
+48. **Webcam bubble** — second gdigrab/dshow source composited corner-overlay (big).
+49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters.
+50. **Pause/resume hotkey** — dedicated digit.
+51. **REC bar source line** — shows target rect/monitor + audio state.
+52. **REC bar position memory** — draggable, persists.
+53. **Marker hotkey during record** — drops a chapter at press.
+54. **Auto-trim dead air** — drop frames <N fps-change at head/tail on finalize.
+55. **Output presets** — CRF, fps, codec (H264/H265/VP9) in Settings.
+56. **GIF ping-pong loop** toggle.
+57. **GIF frame delete** in the filmstrip.
+58. **GIF per-frame delay** editor.
+59. **Re-export GIF** from an existing MP4 at new fps/width (no re-record).
+60. **WebM / AV1 output** option.
+61. **Stream-copy trim** — no re-encode when only cutting ends.
+62. **Clip audio in preview** — today's player is silent.
+63. **Frame → still** — grab the current preview frame as a new screenshot.
+64. **Batch re-export** selection from Library.
+65. **Recording countdown styles** — 3 / 5 / none setting.
+
+## D · Clipboard & destinations
+
+66. **Clipboard history** — last 10 captures in a tray submenu + palette.
+67. **Copy as Markdown image** — `![](path)` for docs.
+68. **Copy file URI / data URI** for devs.
+69. **Copy + reveal combo** action on the toast card.
+70. **Auto-open editor** toggle (some flows never want Review).
+71. **OS drag-out** of the capture card thumbnail into Explorer/Slack (open item).
+72. **Size guard hint** — warn + auto-shrink offer when a still exceeds Discord's 8 MB.
+73. **Post-capture actions menu** — copy path / reveal / open / delete right on the card.
+
+## E · Library
+
+74. **Filename search** (beyond date-group browsing).
+75. **Favorites / pins** — float to top.
+76. **Tags** with filter chips.
+77. **Export selection as ZIP**.
+78. **Sort** — date/size/duration/name.
+79. **Retention rules** — keep N days or N files.
+80. **Duplicate detection** — content-hash same-shot warnings.
+81. **Thumbnail repair** — regenerate missing thumbs.
+82. **Open-with…** menu per item.
+83. **Review-queue flag** — "needs attention" marker.
+84. **Recently-deleted view** — surface `undo_trash` as a shelf.
+
+## F · Hotkeys, tray, system
+
+85. **Hotkey rebind UI** — Settings editor, applies without restart (open #81).
+86. **Per-mode hotkeys** — region-still / window-still / GIF / pause.
+87. **Tray recent-captures** submenu.
+88. **Tray pause/resume** item during record.
+89. **Tray "repeat last capture"** item. ✓
+90. **Tray double-click = screenshot** option.
+91. **CLI poke running GUI** — `vibecap --capture` forwards to the single instance.
+92. **Watch-folder import** — drop shots into the library dir.
+93. **Portable mode** — config beside the exe.
+94. **Profile export/import** — settings as a file.
+95. **Silent mode** — suppress toasts + flash.
+96. **Update toast with changelog** link.
+97. **First-run health check** — ffmpeg, DPI awareness, write-perms, tray.
+98. **`?` cheat sheet** — in-app shortcut overlay.
+99. **Stats card** — captures this week, bytes, streak.
+100. **Crash-recovery** — restore unsaved annotations on next launch.
+
+### Round-2 first cut (built this pass)
+
+Delay timer (1), repeat-last via R / palette / tray (2, 89), window-pick→record
+(3, 46), aspect chips (5), WASD nudge (8), ghost double-click (9),
+clipboard-only stills (11).
+
+### Round-2 deliberate skips (for now)
+
+Scrolling capture + OCR/grab-text (need a real engine, not a feature flag);
+transparent live overlay (egui child viewports can't composite transparency
+on Windows — a native layered HWND is a separate project); PrintScreen
+*takeover* of the OS key (registry-level, revisit).
