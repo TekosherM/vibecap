@@ -1,7 +1,7 @@
 //! Library tab UI (extracted from main for Phase 1a).
 
 use eframe::egui;
-use egui::{RichText, Vec2};
+use egui::{Pos2, Rect, RichText, Vec2};
 use std::path::PathBuf;
 
 use crate::app::{
@@ -230,214 +230,243 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         let item = &visible[i];
                         let selected = app.library_selected.contains(&item.path);
 
-                        let inner = egui::Frame::none()
-                            .fill(if selected {
-                                theme::SURFACE_3()
-                            } else {
-                                theme::SURFACE()
-                            })
-                            .rounding(theme::rounding_md())
-                            .stroke(egui::Stroke::new(
-                                if selected { 1.5_f32 } else { 1.0_f32 },
-                                if selected { theme::ACCENT() } else { theme::BORDER() },
-                            ))
-                            .inner_margin(egui::Margin::same(6.0))
-                            .show(ui, |ui| {
-                                ui.set_width(card_w - 20.0);
-                                // Thumbnail — only feed the loader a decodable
-                                // image (mp4 → ⚠). Videos use their .jpg thumb;
-                                // missing thumbs fall back to an icon tile.
-                                let thumb = crate::app::thumbs::thumb_file(&item.path);
-                                let img_src: Option<PathBuf> = match item.category {
-                                    MediaCategory::Screenshot | MediaCategory::Gif => {
-                                        Some(item.path.clone())
-                                    }
-                                    MediaCategory::Video if thumb.exists() => Some(thumb),
-                                    _ => None,
-                                };
-                                let thumb_size = Vec2::new(card_w - 20.0, 88.0);
-                                let resp = if let Some(src) = img_src {
-                                    let uri = format!(
-                                        "file://{}",
-                                        src.display().to_string()
-                                    );
-                                    let r = ui.add(
-                                        egui::Image::new(uri)
-                                        .fit_to_exact_size(thumb_size)
-                                        .rounding(theme::rounding_sm())
-                                        .sense(egui::Sense::click()),
-                                    );
-                                    if matches!(item.category, MediaCategory::Video | MediaCategory::Gif) {
-                                        // ▶ badge on playable media
-                                        let c = r.rect.center();
-                                        ui.painter().circle_filled(
-                                            c,
-                                            13.0,
-                                            egui::Color32::from_black_alpha(150),
-                                        );
-                                        ui.painter().text(
-                                            c,
-                                            egui::Align2::CENTER_CENTER,
-                                            "▶",
-                                            egui::FontId::proportional(14.0),
-                                            egui::Color32::WHITE,
-                                        );
-                                    }
-                                    r
-                                } else {
-                                    // Icon tile for audio/note/etc.
-                                    let (r, resp) = ui.allocate_exact_size(
-                                        thumb_size,
-                                        egui::Sense::click(),
-                                    );
-                                    ui.painter().rect_filled(
-                                        r,
-                                        theme::rounding_sm(),
-                                        theme::SURFACE_2(),
-                                    );
-                                    ui.painter().text(
-                                        r.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        match item.category {
-                                            MediaCategory::Audio => "🎙",
-                                            MediaCategory::Note => "📝",
-                                            _ => "📄",
-                                        },
-                                        egui::FontId::proportional(26.0),
-                                        theme::TEXT_DIM(),
-                                    );
-                                    resp
-                                };
+                        // Borderless tile: hover wash / accent ring when
+                        // selected, thumbnail flush to the top edge.
+                        let thumb_w = card_w - 12.0;
+                        let thumb_h = thumb_w * 9.0 / 16.0;
+                        let card_h = 6.0 + thumb_h + 4.0 + 14.0 + 12.0 + 6.0;
+                        let (rect, resp) = ui.allocate_exact_size(
+                            Vec2::new(card_w, card_h),
+                            egui::Sense::click(),
+                        );
+                        let hovered = resp.hovered();
+                        let paint = ui.painter_at(rect);
+                        if selected {
+                            paint.rect_filled(rect, theme::rounding_md(), theme::SURFACE_3());
+                            paint.rect_stroke(
+                                rect,
+                                theme::rounding_md(),
+                                egui::Stroke::new(1.5_f32, theme::ACCENT()),
+                            );
+                        } else if hovered {
+                            paint.rect_filled(rect, theme::rounding_md(), theme::SURFACE_2());
+                        }
 
-                                // Click → open in Review; right-click → actions menu.
-                                let primary = match item.category {
-                                    MediaCategory::Screenshot | MediaCategory::Gif => {
-                                        "Open in Review"
-                                    }
-                                    MediaCategory::Video => "Trim in Review",
-                                    _ => "Open",
-                                };
-                                if resp.clicked() {
-                                    match item.category {
-                                        MediaCategory::Screenshot => {
-                                            open_still = Some(item.path.clone())
+                        // Thumbnail — only feed the loader a decodable image
+                        // (mp4 → ⚠). Videos use their .jpg thumb; missing
+                        // thumbs fall back to an icon tile.
+                        let thumb = crate::app::thumbs::thumb_file(&item.path);
+                        let img_src: Option<PathBuf> = match item.category {
+                            MediaCategory::Screenshot | MediaCategory::Gif => {
+                                Some(item.path.clone())
+                            }
+                            MediaCategory::Video if thumb.exists() => Some(thumb),
+                            _ => None,
+                        };
+                        let thumb_rect = Rect::from_min_size(
+                            rect.min + Vec2::new(6.0, 6.0),
+                            Vec2::new(thumb_w, thumb_h),
+                        );
+                        if let Some(src) = img_src {
+                            let uri = format!("file://{}", src.display().to_string());
+                            ui.allocate_ui_at_rect(thumb_rect, |ui| {
+                                ui.add(
+                                    egui::Image::new(uri)
+                                        .fit_to_exact_size(thumb_rect.size())
+                                        .rounding(theme::rounding_sm())
+                                        .sense(egui::Sense::hover()),
+                                );
+                            });
+                            if matches!(item.category, MediaCategory::Video | MediaCategory::Gif)
+                            {
+                                // ▶ badge on playable media
+                                let c = thumb_rect.center();
+                                paint.circle_filled(
+                                    c,
+                                    13.0,
+                                    egui::Color32::from_black_alpha(150),
+                                );
+                                paint.text(
+                                    c,
+                                    egui::Align2::CENTER_CENTER,
+                                    "▶",
+                                    egui::FontId::proportional(14.0),
+                                    egui::Color32::WHITE,
+                                );
+                            }
+                        } else {
+                            // Icon tile for audio/note/etc.
+                            paint.rect_filled(thumb_rect, theme::rounding_sm(), theme::SURFACE_2());
+                            paint.text(
+                                thumb_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                match item.category {
+                                    MediaCategory::Audio => "🎙",
+                                    MediaCategory::Note => "📝",
+                                    _ => "📄",
+                                },
+                                egui::FontId::proportional(26.0),
+                                theme::TEXT_DIM(),
+                            );
+                        }
+
+                        // Selection badge: accent check when selected, a faint
+                        // ring hint on hover (Ctrl+click toggles).
+                        let badge = Rect::from_center_size(
+                            thumb_rect.left_top() + Vec2::new(11.0, 11.0),
+                            Vec2::splat(16.0),
+                        );
+                        if selected {
+                            paint.circle_filled(badge.center(), 8.0, theme::ACCENT());
+                            paint.text(
+                                badge.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "✓",
+                                egui::FontId::proportional(11.0),
+                                theme::ACCENT_INK(),
+                            );
+                        } else if hovered {
+                            paint.circle_stroke(
+                                badge.center(),
+                                7.0,
+                                egui::Stroke::new(1.5_f32, theme::TEXT_DIM()),
+                            );
+                        }
+
+                        // Name + meta painted directly — no nested rows.
+                        let name = if item.name.chars().count() > 26 {
+                            format!("{}…", item.name.chars().take(25).collect::<String>())
+                        } else {
+                            item.name.clone()
+                        };
+                        paint.text(
+                            rect.min + Vec2::new(8.0, 6.0 + thumb_h + 4.0),
+                            egui::Align2::LEFT_TOP,
+                            name,
+                            egui::FontId::proportional(11.0),
+                            theme::TEXT(),
+                        );
+                        paint.text(
+                            rect.min + Vec2::new(8.0, 6.0 + thumb_h + 4.0 + 14.0),
+                            egui::Align2::LEFT_TOP,
+                            format!("{} · {}", item.category.label(), item.size_str),
+                            egui::FontId::proportional(9.5),
+                            theme::TEXT_DIM(),
+                        );
+                        if !matches!(item.loop_position(), crate::app::LoopPosition::Capture) {
+                            ui.allocate_ui_at_rect(
+                                Rect::from_min_size(
+                                    Pos2::new(
+                                        rect.right() - 56.0,
+                                        rect.min.y + 6.0 + thumb_h + 4.0 + 12.0,
+                                    ),
+                                    Vec2::new(52.0, 14.0),
+                                ),
+                                |ui| {
+                                    loop_position_badge(ui, item.loop_position());
+                                },
+                            );
+                        }
+
+                        // Click → open in Review; Ctrl+click toggles selection,
+                        // Shift+click range-selects (Explorer semantics);
+                        // right-click → actions menu.
+                        if resp.clicked() {
+                            let (multi, range) = ui.input(|i| {
+                                (
+                                    i.modifiers.ctrl || i.modifiers.command,
+                                    i.modifiers.shift,
+                                )
+                            });
+                            if range {
+                                if let Some(prev) = &app.library_last_click {
+                                    let paths: Vec<PathBuf> =
+                                        visible.iter().map(|i| i.path.clone()).collect();
+                                    if let (Some(a), Some(b)) = (
+                                        paths.iter().position(|p| p == prev),
+                                        paths.iter().position(|p| p == &item.path),
+                                    ) {
+                                        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                                        for p in &paths[lo..=hi] {
+                                            app.library_selected.insert(p.clone());
                                         }
-                                        MediaCategory::Video => {
-                                            open_edit = Some(item.path.clone())
-                                        }
-                                        MediaCategory::Gif => {
-                                            open_still = Some(item.path.clone())
-                                        }
-                                        _ => do_open = Some(item.path.clone()),
                                     }
                                 }
-                                resp.context_menu(|ui| {
-                                    ui.set_min_width(160.0);
-                                    if ui.button(primary).clicked() {
-                                        match item.category {
-                                            MediaCategory::Screenshot | MediaCategory::Gif => {
-                                                open_still = Some(item.path.clone())
-                                            }
-                                            MediaCategory::Video => {
-                                                open_edit = Some(item.path.clone())
-                                            }
-                                            _ => do_open = Some(item.path.clone()),
-                                        }
-                                        ui.close_menu();
-                                    }
-                                    if matches!(
-                                        item.category,
-                                        MediaCategory::Screenshot | MediaCategory::Gif
-                                    ) && ui.button("Copy image").clicked()
-                                    {
-                                        do_copy = Some(item.path.clone());
-                                        ui.close_menu();
-                                    }
-                                    if ui.button("Open with default app").clicked() {
-                                        do_open = Some(item.path.clone());
-                                        ui.close_menu();
-                                    }
-                                    if ui.button("Reveal in Explorer").clicked() {
-                                        do_reveal = Some(item.path.clone());
-                                        ui.close_menu();
-                                    }
-                                    ui.separator();
-                                    if ui
-                                        .button(if selected { "Deselect" } else { "Select" })
-                                        .clicked()
-                                    {
-                                        do_toggle_sel = Some(item.path.clone());
-                                        ui.close_menu();
-                                    }
-                                    if ui
-                                        .button(
-                                            RichText::new("Delete").color(theme::DANGER_SOFT()),
-                                        )
-                                        .clicked()
-                                    {
-                                        do_delete = Some(item.path.clone());
-                                        ui.close_menu();
-                                    }
-                                });
-
-                                ui.add_space(4.0);
-                                // Name gets the full card width — no nested
-                                // horizontal to squeeze it into char-wrapping.
-                                let name = if item.name.chars().count() > 26 {
-                                    format!(
-                                        "{}…",
-                                        item.name.chars().take(25).collect::<String>()
-                                    )
+                                app.library_last_click = Some(item.path.clone());
+                            } else if multi {
+                                if selected {
+                                    app.library_selected.remove(&item.path);
                                 } else {
-                                    item.name.clone()
-                                };
-                                ui.add(egui::Label::new(
-                                    RichText::new(name)
-                                        .size(11.0)
-                                        .strong()
-                                        .color(theme::TEXT()),
-                                ));
-                                ui.horizontal(|ui| {
-                                    let mut checked = selected;
-                                    if ui.checkbox(&mut checked, "").changed() {
-                                        let shift = ui.input(|i| i.modifiers.shift);
-                                        if shift {
-                                            if let Some(prev) = &app.library_last_click {
-                                                let paths: Vec<PathBuf> = visible
-                                                    .iter()
-                                                    .map(|i| i.path.clone())
-                                                    .collect();
-                                                if let (Some(a), Some(b)) = (
-                                                    paths.iter().position(|p| p == prev),
-                                                    paths.iter().position(|p| p == &item.path),
-                                                ) {
-                                                    let (lo, hi) =
-                                                        if a <= b { (a, b) } else { (b, a) };
-                                                    for p in &paths[lo..=hi] {
-                                                        app.library_selected.insert(p.clone());
-                                                    }
-                                                }
-                                            }
-                                        } else if checked {
-                                            app.library_selected.insert(item.path.clone());
-                                        } else {
-                                            app.library_selected.remove(&item.path);
-                                        }
-                                        app.library_last_click = Some(item.path.clone());
+                                    app.library_selected.insert(item.path.clone());
+                                }
+                                app.library_last_click = Some(item.path.clone());
+                            } else {
+                                match item.category {
+                                    MediaCategory::Screenshot | MediaCategory::Gif => {
+                                        open_still = Some(item.path.clone())
                                     }
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{} · {}",
-                                            item.category.label(),
-                                            item.size_str
-                                        ))
-                                        .size(9.5)
-                                        .color(theme::TEXT_DIM()),
-                                    );
-                                    loop_position_badge(ui, item.loop_position());
-                                });
-                            });
-                        let _ = inner;
+                                    MediaCategory::Video => {
+                                        open_edit = Some(item.path.clone())
+                                    }
+                                    _ => do_open = Some(item.path.clone()),
+                                }
+                            }
+                        }
+                        let primary = match item.category {
+                            MediaCategory::Screenshot | MediaCategory::Gif => "Open in Review",
+                            MediaCategory::Video => "Trim in Review",
+                            _ => "Open",
+                        };
+                        resp.context_menu(|ui| {
+                            ui.set_min_width(160.0);
+                            if ui.button(primary).clicked() {
+                                match item.category {
+                                    MediaCategory::Screenshot | MediaCategory::Gif => {
+                                        open_still = Some(item.path.clone())
+                                    }
+                                    MediaCategory::Video => {
+                                        open_edit = Some(item.path.clone())
+                                    }
+                                    _ => do_open = Some(item.path.clone()),
+                                }
+                                ui.close_menu();
+                            }
+                            if matches!(
+                                item.category,
+                                MediaCategory::Screenshot | MediaCategory::Gif
+                            ) && ui.button("Copy image").clicked()
+                            {
+                                do_copy = Some(item.path.clone());
+                                ui.close_menu();
+                            }
+                            if ui.button("Open with default app").clicked() {
+                                do_open = Some(item.path.clone());
+                                ui.close_menu();
+                            }
+                            if ui.button("Reveal in Explorer").clicked() {
+                                do_reveal = Some(item.path.clone());
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui
+                                .button(if selected { "Deselect" } else { "Select" })
+                                .clicked()
+                            {
+                                do_toggle_sel = Some(item.path.clone());
+                                ui.close_menu();
+                            }
+                            if ui
+                                .button(RichText::new("Delete").color(theme::DANGER_SOFT()))
+                                .clicked()
+                            {
+                                do_delete = Some(item.path.clone());
+                                ui.close_menu();
+                            }
+                        });
+                        resp.on_hover_text(format!(
+                            "{}\nClick to open · Ctrl+click select · right-click actions",
+                            item.name
+                        ));
                         ui.add_space(8.0);
                     }
                 });
