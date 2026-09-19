@@ -269,31 +269,6 @@ dual!(
     Color32::from_rgb(0x7c, 0x4d, 0xbf)
 );
 dual!(
-    LOOP_ANNOTATE_TEXT,
-    Color32::from_rgb(0xd0, 0xb8, 0xee),
-    Color32::from_rgb(0x5f, 0x3d, 0x9b)
-);
-dual!(
-    LOOP_ANNOTATE_FILL,
-    Color32::from_rgba_premultiplied(180, 140, 220, 40),
-    Color32::from_rgba_premultiplied(124, 77, 191, 36)
-);
-dual!(
-    LOOP_REVIEW_FILL,
-    Color32::from_rgba_premultiplied(107, 163, 232, 40),
-    Color32::from_rgba_premultiplied(59, 125, 216, 36)
-);
-dual!(
-    LOOP_ASK_FILL,
-    Color32::from_rgba_premultiplied(245, 158, 75, 40),
-    Color32::from_rgba_premultiplied(212, 122, 32, 36)
-);
-dual!(
-    LOOP_ANSWERED_FILL,
-    Color32::from_rgba_premultiplied(94, 194, 106, 40),
-    Color32::from_rgba_premultiplied(47, 158, 68, 36)
-);
-dual!(
     PRI_HIGH_FILL,
     Color32::from_rgba_premultiplied(0xe0, 0x55, 0x55, 40),
     Color32::from_rgba_premultiplied(0xc9, 0x2a, 0x2a, 36)

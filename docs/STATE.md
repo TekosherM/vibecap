@@ -16,6 +16,8 @@ Review-stage merge (2026-09-06): the Loop rail is now five stages — Shutter ·
 
 Win32-native helpers (2026-09-06): the PowerShell helpers (`window_rect_on_screen`, `windows_enum_windows`, `windows_list_monitors`, `windows_foreground_process_name`, `windows_focus_app`) each spawned powershell + Add-Type (~300-800ms, three chained per windowed shot). Now direct FFI in `src/platform/win32.rs` (`find_window_rect`, `enum_windows`, `enum_monitors`, `foreground_process_name`, `focus_window`). Matching is exact→fuzzy on title/process — same window picked by focus and rect. `focus_window` clears SPI_SETFOREGROUNDLOCKTIMEOUT + AttachThreadInput; PS AppActivate remains only as a focus fallback. Focus settle sleep 600→350ms on Windows (focus is verified before returning). Old PS bodies removed — parse fns are `#[cfg(test)]`.
 
+Library tile polish (2026-09-19): removed the `loop_position_badge` pill from Library tiles — its colored fill + clipped label sat over the filename row. Stage is now plain text in the meta line (`type · size · stage`, only when non-Capture). Deleted the badge component, its `ui::` re-export, and the unused `LOOP_*` theme colors in `theme.rs`. Tile contract: click opens Review, Ctrl+click toggles, Shift+click range, right-click menu — no overlaid CTAs.
+
 ## Where we are
 
 | | |

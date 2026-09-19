@@ -18,7 +18,7 @@ pub use capture_hud::{
 };
 pub use components::{
     agent_dot_color, btn_danger, btn_primary, btn_secondary, btn_small, empty_state, group, kbd,
-    funnel_stripe, loop_position_badge, loop_rail, section_card, segmented, setting_row, show_capture_toast,
+    funnel_stripe, loop_rail, section_card, segmented, setting_row, show_capture_toast,
     show_toast_card, shutter_strip, status_strip, switch, CaptureToastAction, LoopStage,
     ShutterAction, StatusSnapshot, ToastLevel,
 };

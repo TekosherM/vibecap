@@ -1,7 +1,7 @@
 //! Library tab UI (extracted from main for Phase 1a).
 
 use eframe::egui;
-use egui::{Pos2, Rect, RichText, Vec2};
+use egui::{Rect, RichText, Vec2};
 use std::path::PathBuf;
 
 use crate::app::{
@@ -11,7 +11,7 @@ use crate::app::{
 use crate::platform::open_path;
 use crate::ui::icons::Icon;
 use crate::ui::theme;
-use crate::ui::{empty_state, loop_position_badge};
+use crate::ui::empty_state;
 use crate::{AppTab, VibecapApp};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -349,27 +349,24 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             egui::FontId::proportional(11.0),
                             theme::TEXT(),
                         );
+                        let pos = item.loop_position();
+                        let meta = if matches!(pos, crate::app::LoopPosition::Capture) {
+                            format!("{} · {}", item.category.label(), item.size_str)
+                        } else {
+                            format!(
+                                "{} · {} · {}",
+                                item.category.label(),
+                                item.size_str,
+                                pos.label()
+                            )
+                        };
                         paint.text(
                             rect.min + Vec2::new(8.0, 6.0 + thumb_h + 4.0 + 14.0),
                             egui::Align2::LEFT_TOP,
-                            format!("{} · {}", item.category.label(), item.size_str),
+                            meta,
                             egui::FontId::proportional(9.5),
                             theme::TEXT_DIM(),
                         );
-                        if !matches!(item.loop_position(), crate::app::LoopPosition::Capture) {
-                            ui.allocate_ui_at_rect(
-                                Rect::from_min_size(
-                                    Pos2::new(
-                                        rect.right() - 56.0,
-                                        rect.min.y + 6.0 + thumb_h + 4.0 + 12.0,
-                                    ),
-                                    Vec2::new(52.0, 14.0),
-                                ),
-                                |ui| {
-                                    loop_position_badge(ui, item.loop_position());
-                                },
-                            );
-                        }
 
                         // Click → open in Review; Ctrl+click toggles selection,
                         // Shift+click range-selects (Explorer semantics);

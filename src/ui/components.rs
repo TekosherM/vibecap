@@ -406,38 +406,6 @@ pub fn loop_rail(
     picked
 }
 
-// ── Loop-position badge ─────────────────────────────────────────────
-
-/// Small chip showing loop stage (Capture / Review / Annotate / Ask / Answered).
-pub fn loop_position_badge(ui: &mut Ui, pos: crate::app::LoopPosition) {
-    let (fill, stroke, text_c) = match pos {
-        crate::app::LoopPosition::Capture => (theme::SURFACE_2(), theme::TEXT_DIM(), theme::TEXT_MUTED()),
-        crate::app::LoopPosition::Review => (theme::LOOP_REVIEW_FILL(), theme::INFO(), theme::INFO()),
-        crate::app::LoopPosition::Annotate => (
-            theme::LOOP_ANNOTATE_FILL(),
-            theme::LOOP_ANNOTATE(),
-            theme::LOOP_ANNOTATE_TEXT(),
-        ),
-        crate::app::LoopPosition::Ask => (theme::LOOP_ASK_FILL(), theme::ACCENT(), theme::ACCENT()),
-        crate::app::LoopPosition::Answered => {
-            (theme::LOOP_ANSWERED_FILL(), theme::SUCCESS(), theme::SUCCESS())
-        }
-    };
-    Frame::none()
-        .fill(fill)
-        .stroke(Stroke::new(1.0_f32, stroke))
-        .rounding(Rounding::same(theme::R_SM))
-        .inner_margin(Margin::symmetric(6.0, 2.0))
-        .show(ui, |ui| {
-            ui.label(
-                RichText::new(pos.label())
-                    .size(10.0)
-                    .strong()
-                    .color(text_c),
-            );
-        });
-}
-
 // ── Status strip ────────────────────────────────────────────────────
 
 /// Read-only chrome for storage / budget / ffmpeg / inbox / live.
