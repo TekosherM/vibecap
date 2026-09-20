@@ -61,6 +61,13 @@ pub struct SessionState {
     /// Left stage rail — hidden by default; the funnel column is the home UX.
     #[serde(default)]
     pub rail_open: bool,
+    /// Inbox quiet mode — new agent questions update the badge/tray but skip
+    /// the OS notify, toast, attention bounce, and auto-open.
+    #[serde(default)]
+    pub inbox_quiet: bool,
+    /// Auto-play the clip preview when filmstrip frames land.
+    #[serde(default = "default_clip_autoplay")]
+    pub clip_autoplay: bool,
 }
 
 fn default_theme_dark() -> String {
@@ -81,6 +88,10 @@ fn default_hotkey_shot() -> u8 {
 
 fn default_hotkey_rec() -> u8 {
     2
+}
+
+fn default_clip_autoplay() -> bool {
+    true
 }
 
 /// Existing installs without the field skip the wizard.
@@ -117,6 +128,8 @@ impl Default for SessionState {
             screen_permission_prompted: false,
             screen_permission_ok: false,
             rail_open: false,
+            inbox_quiet: false,
+            clip_autoplay: true,
         }
     }
 }

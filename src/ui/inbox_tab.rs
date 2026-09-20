@@ -81,6 +81,21 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             if ui.button("Refresh").clicked() {
                 app.scan_feedback_requests();
             }
+            let quiet_label = if app.inbox_quiet {
+                RichText::new("Quiet ●").color(theme::ACCENT())
+            } else {
+                RichText::new("Quiet ○").color(theme::TEXT_MUTED())
+            };
+            if ui
+                .button(quiet_label)
+                .on_hover_text(
+                    "Suppress notify/toast/auto-open on new questions — badge still counts",
+                )
+                .clicked()
+            {
+                app.inbox_quiet = !app.inbox_quiet;
+                app.persist_session();
+            }
         });
     });
     let poll_note = crate::app::feedback_last_poll_secs()

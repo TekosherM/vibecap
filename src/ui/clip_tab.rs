@@ -47,10 +47,18 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
             egui::Color32::WHITE,
         );
     } else if app.filmstrip_loading {
+        let label = if app.filmstrip_progress.1 > 0 {
+            format!(
+                "Extracting preview… {}/{}",
+                app.filmstrip_progress.0, app.filmstrip_progress.1
+            )
+        } else {
+            "Extracting preview…".to_string()
+        };
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "Extracting preview…",
+            label,
             egui::FontId::proportional(13.0),
             theme::TEXT_MUTED(),
         );

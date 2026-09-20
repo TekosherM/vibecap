@@ -83,6 +83,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                if switch(ui, "Auto-play clip preview", &mut app.clip_autoplay) {
+                    app.persist_session();
+                }
+                ui.label(
+                    RichText::new("Review · Clip starts playing when the preview frames land.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
+                if switch(ui, "Inbox quiet mode", &mut app.inbox_quiet) {
+                    app.persist_session();
+                }
+                ui.label(
+                    RichText::new("New agent questions still badge + tray — no notify, toast, or auto-open.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
                 ui.add_space(theme::SP_2);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("ffmpeg").size(12.0).color(theme::TEXT_MUTED()));

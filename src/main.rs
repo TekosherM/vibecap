@@ -430,6 +430,9 @@ pub(crate) struct VibecapApp {
     capture_monitor: Option<u32>,
     name_pattern: String,
     inbox_snippets: Vec<String>,
+    /// Inbox quiet mode — badge/tray still count, but no OS notify / toast /
+    /// attention bounce / auto-open on new agent questions.
+    inbox_quiet: bool,
     library_search: String,
     library_last_click: Option<PathBuf>,
     annotation_undo: Vec<Vec<AnnotationAction>>,
@@ -542,6 +545,11 @@ pub(crate) struct VibecapApp {
     player_playing: bool,
     player_pos: f64,
     player_last_time: Option<f64>,
+    /// Auto-play the preview when filmstrip frames land (Settings toggle).
+    clip_autoplay: bool,
+    /// Filmstrip decode progress `(done, total)` for the determinate label.
+    filmstrip_progress: (usize, usize),
+    filmstrip_progress_rx: Option<Receiver<(usize, usize)>>,
 
     // Annotation & Developer Feedback Note
     is_annotating: bool,
@@ -818,6 +826,7 @@ impl VibecapApp {
                 "Blur the token".into(),
                 "Re-record 16:9".into(),
             ],
+            inbox_quiet: false,
             still_zoom: 1.0,
             still_zoom_to_100: false,
             gif_fps: 15,
@@ -1088,6 +1097,8 @@ impl VibecapApp {
         self.screen_permission_prompted = s.screen_permission_prompted;
         self.screen_permission_ok = s.screen_permission_ok;
         self.rail_open = s.rail_open;
+        self.inbox_quiet = s.inbox_quiet;
+        self.clip_autoplay = s.clip_autoplay;
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
         // never unconditionally, so granted users are not re-asked on cold start.
@@ -1140,6 +1151,8 @@ impl VibecapApp {
             screen_permission_prompted: self.screen_permission_prompted,
             screen_permission_ok: self.screen_permission_ok,
             rail_open: self.rail_open,
+            inbox_quiet: self.inbox_quiet,
+            clip_autoplay: self.clip_autoplay,
         });
     }
 
@@ -2281,10 +2294,20 @@ impl VibecapApp {
     /// Detect newly pending agent questions and make them unmissable:
     /// OS notification · Dock bounce · tray title · toast · open Inbox.
     fn surface_new_feedback(&mut self, ctx: &egui::Context) {
+        // Snoozed threads aren't "pending" for surfacing — dropping them from
+        // notified_ids means the snooze expiry re-fires the notification,
+        // which is the whole point of snoozing.
+        let now = std::time::Instant::now();
         let pending: Vec<FeedbackRequest> = self
             .feedback_requests
             .iter()
             .filter(|r| r.status == "pending")
+            .filter(|r| {
+                self.feedback_snooze_until
+                    .get(&r.id)
+                    .map(|t| *t <= now)
+                    .unwrap_or(true)
+            })
             .cloned()
             .collect();
         let pending_ids: std::collections::HashSet<String> =
@@ -2299,6 +2322,16 @@ impl VibecapApp {
             .filter(|r| !self.feedback_notified_ids.contains(&r.id))
             .collect();
         if new_ones.is_empty() {
+            self.feedback_pending_count = pending_ids.len();
+            return;
+        }
+
+        // Quiet mode: mark the ids notified (so un-quieting doesn't re-fire
+        // everything) and update badge/tray — but skip the loud channel.
+        if self.inbox_quiet {
+            for r in &new_ones {
+                self.feedback_notified_ids.insert(r.id.clone());
+            }
             self.feedback_pending_count = pending_ids.len();
             return;
         }
@@ -2908,14 +2941,22 @@ impl VibecapApp {
         self.player_pos = 0.0;
         self.player_last_time = None;
         self.record_markers = load_marker_sidecar(&file);
+        self.filmstrip_progress = (0, 0);
 
         let (tx, rx) = crossbeam_channel::bounded(1);
+        let (ptx, prx) = crossbeam_channel::unbounded();
         self.filmstrip_rx = Some(rx);
+        self.filmstrip_progress_rx = Some(prx);
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             // Let ffmpeg finish the moov atom before probing / extracting.
             std::thread::sleep(Duration::from_millis(200));
-            let result = extract_filmstrip_rgba(&file);
+            let result = extract_filmstrip_rgba(
+                &file,
+                Some(&|i, n| {
+                    let _ = ptx.send((i, n));
+                }),
+            );
             let _ = tx.send(result);
             ctx_clone.request_repaint();
         });
@@ -2923,6 +2964,12 @@ impl VibecapApp {
     }
 
     fn drain_filmstrip(&mut self, ctx: &egui::Context) {
+        // Decode progress is fire-and-forget — drain whatever arrived.
+        if let Some(prx) = self.filmstrip_progress_rx.as_ref() {
+            while let Ok(p) = prx.try_recv() {
+                self.filmstrip_progress = p;
+            }
+        }
         let Some(rx) = self.filmstrip_rx.as_ref() else {
             return;
         };
@@ -2930,6 +2977,7 @@ impl VibecapApp {
             return;
         };
         self.filmstrip_rx = None;
+        self.filmstrip_progress_rx = None;
         match result {
             Ok((frames, fps, duration)) => {
                 self.filmstrip_fps = fps;
@@ -2952,8 +3000,9 @@ impl VibecapApp {
                     self.filmstrip_error =
                         Some("No frames extracted — video may be corrupt or too short.".into());
                 } else {
-                    // Land playing: a still first frame reads as "won't start".
-                    self.player_playing = true;
+                    // Land playing: a still first frame reads as "won't start"
+                    // (unless the user turned autoplay off in Settings).
+                    self.player_playing = self.clip_autoplay;
                     self.player_last_time = None;
                 }
             }

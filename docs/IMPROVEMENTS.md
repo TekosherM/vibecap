@@ -485,7 +485,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 ## F · Clip review, video & GIF (126–150)
 
 126. **Preview audio** — extract audio track alongside filmstrip; play in sync.
-127. **Determinate extract progress** — "frame i/n" bar instead of indeterminate label.
+127. **Determinate extract progress** — "frame i/n" bar instead of indeterminate label. ✓ (progress channel streams decoded/total)
 128. **Scrub-bar seek** — click/drag the ruler moves the preview head. ✓ (transport slider + click canvas; Space/Home/End added)
 129. **Frame-step keys** — ←/→ one frame, J/K 10 frames. ✓ (←/→ existed; J/K ±10 + I/O trim-at-playhead added)
 130. **In/out loop** — preview loops the marked range. ✓ (was already shipped — `L` toggles)
@@ -507,7 +507,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 146. **Compare mode** — split-screen before/after trim preview.
 147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error. ✓ (transport bar)
 148. **Preview quality toggle** — half-res filmstrip for long clips.
-149. **Auto-play setting** — the autoplay we shipped becomes a Settings toggle.
+149. **Auto-play setting** — the autoplay we shipped becomes a Settings toggle. ✓ (session-persisted `clip_autoplay`)
 150. **Clip deletion guard** — deleting a recording with unsaved trims asks once.
 
 ## G · Library (151–175)
@@ -558,11 +558,11 @@ background chip (112), save-as-copy (116), Esc depth (125).
 191. **SLA colors** — threads age-tint (green→amber→red) as they wait. ✓ (timestamp goes amber >10m, red >30m; relative age shown)
 192. **Attachment preview** — media_path renders inline thumb in thread.
 193. **Reply templates per request type** — screenshot-needed vs approval prompts get different quick replies.
-194. **Notification dedupe** — repeat polls for same request don't re-toast.
-195. **Quiet hours** — inbox toasts suppressed, badge still counts.
-196. **Agent identity** — which harness/model filed the request, in the header.
+194. **Notification dedupe** — repeat polls for same request don't re-toast. ✓ (was already shipped — `feedback_notified_ids`; snoozed ids now drop out so expiry re-fires)
+195. **Quiet hours** — inbox toasts suppressed, badge still counts. ✓ (manual Quiet toggle in Inbox header + Settings, session-persisted; badge/tray still update)
+196. **Agent identity** — which harness/model filed the request, in the header. ✓ (was already shipped — `agent_label` in thread row + detail header)
 197. **Request cost** — budget spent by this thread's session so far.
-198. **One-click resolve** — mark done without a reply.
+198. **One-click resolve** — mark done without a reply. ✓ (was already shipped — "Dismiss" in the composer)
 199. **Inbox filter chips** — pending / answered / snoozed / expired.
 200. **Keyboard composer send** — Ctrl+Enter sends; documented hint in-field. ✓
 

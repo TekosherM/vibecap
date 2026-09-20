@@ -107,11 +107,17 @@ pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>, f
 /// Decode filmstrip JPEGs to RGBA on a worker thread (keeps the UI loop alive).
 ///
 /// Returns `(frames, fps, duration_secs)` where each frame is `(w, h, rgba)`.
-pub fn extract_filmstrip_rgba(file: &Path) -> Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String> {
+/// `progress` (when Some) receives `(decoded, total)` after each thumb so the
+/// UI can show a determinate "i/n" label instead of a spinner.
+pub fn extract_filmstrip_rgba(
+    file: &Path,
+    progress: Option<&dyn Fn(usize, usize)>,
+) -> Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String> {
     let duration = crate::platform::probe_duration(file).unwrap_or(0.0);
     let (_out_dir, thumbs, fps) = extract_filmstrip_thumbs(file)?;
-    let mut frames = Vec::with_capacity(thumbs.len());
-    for thumb_path in &thumbs {
+    let total = thumbs.len();
+    let mut frames = Vec::with_capacity(total);
+    for (i, thumb_path) in thumbs.iter().enumerate() {
         match image::open(thumb_path) {
             Ok(img) => {
                 let rgba = img.to_rgba8();
@@ -121,6 +127,9 @@ pub fn extract_filmstrip_rgba(file: &Path) -> Result<(Vec<(u32, u32, Vec<u8>)>, 
                 }
             }
             Err(_) => {}
+        }
+        if let Some(p) = progress {
+            p(i + 1, total);
         }
         let _ = std::fs::remove_file(thumb_path);
     }
