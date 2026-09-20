@@ -131,6 +131,72 @@ pub fn extract_filmstrip_rgba(file: &Path) -> Result<(Vec<(u32, u32, Vec<u8>)>, 
     Ok((frames, fps, duration))
 }
 
+/// Mean absolute difference between two same-sized RGBA frames on a
+/// subsampled grid (every 64th pixel) — 0.0 is identical, 255.0 opposite.
+/// Cheap enough to run over a 64-frame filmstrip without a worker.
+fn frame_diff(a: &[u8], b: &[u8]) -> f64 {
+    let n = a.len().min(b.len());
+    if n == 0 {
+        return 255.0;
+    }
+    let step_px = 64usize;
+    let step = step_px * 4;
+    let mut sum = 0u64;
+    let mut count = 0u64;
+    let mut i = 0usize;
+    while i + 3 < n {
+        let d0 = (a[i] as i32 - b[i] as i32).abs() as u64;
+        let d1 = (a[i + 1] as i32 - b[i + 1] as i32).abs() as u64;
+        let d2 = (a[i + 2] as i32 - b[i + 2] as i32).abs() as u64;
+        sum += d0 + d1 + d2;
+        count += 3;
+        i += step;
+    }
+    if count == 0 {
+        return 255.0;
+    }
+    sum as f64 / count as f64
+}
+
+/// Detect "dead air" — a frozen head and/or tail — over filmstrip frames.
+///
+/// A run of consecutive frames that barely differ from the previous one is
+/// treated as dead. Returns `Some((content_start_s, content_end_s))` when at
+/// least ~0.8 s of dead air exists at either end and trimming still leaves
+/// ~1 s of content. None when the clip is alive edge-to-edge (or analysis
+/// can't run — too few frames / zero fps).
+pub fn dead_air_bounds(frames: &[(u32, u32, Vec<u8>)], fps: f64) -> Option<(f64, f64)> {
+    const DEAD_DIFF: f64 = 2.0; // mean |Δ| per channel byte
+    let n = frames.len();
+    if n < 4 || fps <= 0.0 {
+        return None;
+    }
+    let dead = |i: usize, j: usize| frame_diff(&frames[i].2, &frames[j].2) < DEAD_DIFF;
+
+    // Head: leading run of frames ≈ the first frame.
+    let mut head_dead = 0usize;
+    while head_dead + 1 < n && dead(head_dead, head_dead + 1) {
+        head_dead += 1;
+    }
+    // Tail: trailing run of frames ≈ the last frame.
+    let mut tail_dead = 0usize;
+    while tail_dead + 1 < n && dead(n - 1 - tail_dead, n - 2 - tail_dead) {
+        tail_dead += 1;
+    }
+
+    let head_s = head_dead as f64 / fps;
+    let tail_s = tail_dead as f64 / fps;
+    let content_start = head_s;
+    let content_end = (n - tail_dead) as f64 / fps;
+
+    // Require meaningful dead air at at least one end and ≥1 s of content.
+    let dead_total = head_s + tail_s;
+    if dead_total < 0.8 || content_end - content_start < 1.0 {
+        return None;
+    }
+    Some((content_start, content_end))
+}
+
 /// Crop tuple for ffmpeg: (w, h, x, y) with even dimensions for yuv420p.
 ///
 /// Shared helper for recorder call sites.
@@ -148,5 +214,28 @@ mod tests {
         // Negative origin is valid (virtual desktop left of primary).
         assert_eq!(even_crop(801, 601, -4, 3), (800, 600, -4, 3));
         assert_eq!(even_crop(2, 2, 0, 0), (2, 2, 0, 0));
+    }
+
+    #[test]
+    fn dead_air_detects_frozen_ends() {
+        let frame = |v: u8| (64u32, 64u32, vec![v; 64 * 64 * 4]);
+        // 10 frozen head · 20 moving · 10 frozen tail @ 10 fps.
+        let mut frames = vec![frame(10); 10];
+        for i in 0..20u8 {
+            frames.push(frame(30 + i * 8));
+        }
+        frames.extend(vec![frame(220); 10]);
+        let b = dead_air_bounds(&frames, 10.0).expect("dead air expected");
+        assert!((b.0 - 0.9).abs() < 0.15, "content start {}", b.0);
+        assert!((b.1 - 3.1).abs() < 0.15, "content end {}", b.1);
+    }
+
+    #[test]
+    fn dead_air_none_when_alive() {
+        let mut frames = Vec::new();
+        for i in 0..40u8 {
+            frames.push((64u32, 64u32, vec![i.wrapping_mul(6); 64 * 64 * 4]));
+        }
+        assert!(dead_air_bounds(&frames, 10.0).is_none());
     }
 }

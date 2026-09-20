@@ -29,6 +29,8 @@ pub enum TrayAction {
     BugReport,
     ApproveFirst,
     DenyFirst,
+    /// Open the i-th most recent capture in the default app.
+    OpenRecent(u8),
     Quit,
 }
 
@@ -74,6 +76,9 @@ pub struct TrayController {
     approve_id: tray_icon::menu::MenuId,
     deny_id: tray_icon::menu::MenuId,
     quit_id: tray_icon::menu::MenuId,
+    /// Last-5 captures — fixed ids, labels update as the library scans.
+    recent_items: Vec<MenuItem>,
+    recent_ids: Vec<tray_icon::menu::MenuId>,
     last_progress_key: String,
 }
 
@@ -100,6 +105,13 @@ impl TrayController {
         let screenshot_item = MenuItem::new("Screenshot\t⌃⇧3", true, None);
         let repeat_item = MenuItem::new("Repeat last capture", true, None);
         let record_item = MenuItem::new("Record\t⌃⇧2", true, None);
+
+        // ── Recent captures — fixed slots whose labels follow the library ──
+        let recent_header = MenuItem::new("Recent captures", false, None);
+        let recent_items: Vec<MenuItem> = (0..5)
+            .map(|_| MenuItem::new("· (empty)", false, None))
+            .collect();
+        let recent_ids: Vec<_> = recent_items.iter().map(|i| i.id().clone()).collect();
 
         // ── Loop stages ─────────────────────────────────────────
         let shutter_item = MenuItem::new("Capture", true, None);
@@ -141,6 +153,13 @@ impl TrayController {
             &screenshot_item,
             &repeat_item,
             &record_item,
+            &PredefinedMenuItem::separator(),
+            &recent_header,
+            &recent_items[0],
+            &recent_items[1],
+            &recent_items[2],
+            &recent_items[3],
+            &recent_items[4],
             &PredefinedMenuItem::separator(),
             &shutter_item,
             &review_item,
@@ -187,8 +206,33 @@ impl TrayController {
             approve_id,
             deny_id,
             quit_id,
+            recent_items,
+            recent_ids,
             last_progress_key: String::new(),
         })
+    }
+
+    /// Fill the last-5 "Recent captures" slots from the library scan.
+    /// `names` should be display filenames, newest first.
+    pub fn set_recents(&mut self, names: &[String]) {
+        for (i, item) in self.recent_items.iter().enumerate() {
+            match names.get(i) {
+                Some(n) => {
+                    // Truncate long stems — tray menus shouldn't wrap.
+                    let label = if n.chars().count() > 44 {
+                        format!("{}…", n.chars().take(43).collect::<String>())
+                    } else {
+                        n.clone()
+                    };
+                    item.set_text(label);
+                    item.set_enabled(true);
+                }
+                None => {
+                    item.set_text("· (empty)");
+                    item.set_enabled(false);
+                }
+            }
+        }
     }
 
     /// Same as [`set_live_state`] but always refreshes (e.g. new Inbox item).
@@ -296,7 +340,7 @@ impl TrayController {
     /// `MenuId → action` pairs, for the wake pump that translates menu events
     /// off the GUI thread while the window is minimized (update() is asleep).
     pub fn menu_action_map(&self) -> Vec<(tray_icon::menu::MenuId, TrayAction)> {
-        vec![
+        let mut v = vec![
             (self.show_id.clone(), TrayAction::Show),
             (self.hide_id.clone(), TrayAction::Hide),
             (self.screenshot_id.clone(), TrayAction::Screenshot),
@@ -311,7 +355,11 @@ impl TrayController {
             (self.approve_id.clone(), TrayAction::ApproveFirst),
             (self.deny_id.clone(), TrayAction::DenyFirst),
             (self.quit_id.clone(), TrayAction::Quit),
-        ]
+        ];
+        for (i, id) in self.recent_ids.iter().enumerate() {
+            v.push((id.clone(), TrayAction::OpenRecent(i as u8)));
+        }
+        v
     }
 
     /// Drain pending tray / menu events (non-blocking).
@@ -359,6 +407,8 @@ impl TrayController {
                 actions.push(TrayAction::DenyFirst);
             } else if id == self.quit_id {
                 actions.push(TrayAction::Quit);
+            } else if let Some(i) = self.recent_ids.iter().position(|r| *r == id) {
+                actions.push(TrayAction::OpenRecent(i as u8));
             }
         }
 

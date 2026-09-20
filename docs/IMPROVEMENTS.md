@@ -501,7 +501,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 140. **Frame-grab** — current preview frame → new still in Library. ✓ (transport "Grab frame" → ffmpeg `-ss -vframes 1` JPG)
 141. **Chapter markers** — marker hotkey during record; ticks on the ruler. ✓ (was already shipped — sidecar + ruler ticks)
 142. **Marker list** — click a marker to jump the preview. ✓ (clickable timecode chips under the ruler)
-143. **Auto-trim dead air** — detect frozen head/tail, offer trim.
+143. **Auto-trim dead air** — detect frozen head/tail, offer trim. ✓ (`dead_air_bounds` on filmstrip RGBA; "Trim to content" banner)
 144. **Speed ramp** — 0.5×/2× segments (stretch goal, simple `-setpts`).
 145. **Clip notes** — text sidecar shown under the player.
 146. **Compare mode** — split-screen before/after trim preview.
@@ -571,12 +571,12 @@ background chip (112), save-as-copy (116), Esc depth (125).
 201. **Hotkey rebind UI** — Settings editor, applies live (round-1 open). ✓ (`rebind_global_hotkeys` unregisters/re-registers; conflict toast names the taken combo)
 202. **Per-mode hotkeys** — region-still, window-still, GIF, pause each rebindable.
 203. **Hotkey conflict detect** — warn when binding collides with OS/browser.
-204. **Tray recent-captures** — last 5 items submenu with copy/reveal.
+204. **Tray recent-captures** — last 5 items submenu with copy/reveal. ✓ (5 slots follow the library scan; click opens the file)
 205. **Tray pause/resume** — during record.
 206. **Tray double-click action** — configurable (screenshot / open / record).
-207. **Tray icon state** — REC blink baked into icon while recording.
-208. **Tray recording elapsed** — tooltip shows `REC 02:41`.
-209. **Single-instance GUI** — second launch focuses first unless `--mcp`/`--screenshot`.
+207. **Tray icon state** — REC blink baked into icon while recording. ✓ (was already shipped — IconPhase rec disc + arc)
+208. **Tray recording elapsed** — tooltip shows `REC 02:41`. ✓ (was already shipped — `Recording {clock}` tooltip)
+209. **Single-instance GUI** — second launch focuses first unless `--mcp`/`--screenshot`. ✓ (was already shipped — `gui.lock` pid file + `activate_own_app`)
 210. **CLI poke** — `vibecap --capture` forwards to the running instance.
 211. **Watch-folder import** — monitor a dir, auto-add shots.
 212. **Portable mode** — config/session beside the exe.

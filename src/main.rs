@@ -534,6 +534,10 @@ pub(crate) struct VibecapApp {
     filmstrip_fps: f64,
     filmstrip_loading: bool,
     filmstrip_error: Option<String>,
+    /// Dead-air detection on the loaded clip: `(content_start_s, content_end_s)`
+    /// when the head/tail is frozen — shown as a one-tap trim offer.
+    dead_air_hint: Option<(f64, f64)>,
+    dead_air_dismissed: bool,
     // In-app preview player state
     player_playing: bool,
     player_pos: f64,
@@ -873,6 +877,8 @@ impl VibecapApp {
             ui_ctx: None,
             pending_arm_record: false,
             filmstrip_error: None,
+            dead_air_hint: None,
+            dead_air_dismissed: false,
             palette_open: false,
             palette_query: String::new(),
             palette_selected: 0,
@@ -1915,6 +1921,15 @@ impl VibecapApp {
             }
             TrayAction::ApproveFirst => self.reply_first_pending("approve"),
             TrayAction::DenyFirst => self.reply_first_pending("deny"),
+            TrayAction::OpenRecent(i) => {
+                // Tray recents mirror library order (newest first).
+                if let Some(item) = self.library_items.get(i as usize) {
+                    let _ = platform::open_path(&item.path);
+                } else {
+                    self.refresh_library();
+                    self.show_toast("Library refreshed — try again");
+                }
+            }
             TrayAction::BugReport => {
                 self.show_window(ctx);
                 self.bug_report_pack(ctx);
@@ -2035,6 +2050,12 @@ impl VibecapApp {
         app::thumbs::cleanup_frames_temp(&self.save_dir);
         let warmup: Vec<PathBuf> = items.iter().take(40).map(|i| i.path.clone()).collect();
         app::thumbs::warmup_thumbs(warmup);
+        // Keep the tray's "Recent captures" slots in sync with the scan
+        // (newest-first order — the menu mirrors it verbatim).
+        if let Some(tray) = self.tray.as_mut() {
+            let names: Vec<String> = items.iter().take(5).map(|i| i.name.clone()).collect();
+            tray.set_recents(&names);
+        }
         self.library_items = items;
         if self.library_scan_pending {
             self.library_scan_pending = false;
@@ -2879,6 +2900,8 @@ impl VibecapApp {
     fn load_filmstrip(&mut self, ctx: &egui::Context, file: PathBuf) {
         self.filmstrip.clear();
         self.filmstrip_error = None;
+        self.dead_air_hint = None;
+        self.dead_air_dismissed = false;
         self.filmstrip_loading = true;
         self.clip_duration_secs = 0.0;
         self.player_playing = false;
@@ -2911,6 +2934,9 @@ impl VibecapApp {
             Ok((frames, fps, duration)) => {
                 self.filmstrip_fps = fps;
                 self.clip_duration_secs = duration;
+                // Dead-air scan on the raw RGBA before it goes to the GPU —
+                // once frames are textures the pixels are unreachable.
+                self.dead_air_hint = app::recording::dead_air_bounds(&frames, fps);
                 for (i, (w, h, pixels)) in frames.into_iter().enumerate() {
                     let expected = w as usize * h as usize * 4;
                     if w == 0 || h == 0 || pixels.len() != expected {

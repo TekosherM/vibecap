@@ -904,6 +904,32 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             }
                         });
                     }
+                    // Dead-air offer — frozen head/tail detected at filmstrip
+                    // load; one tap trims the ruler to the live span.
+                    if let Some((cs, ce)) = app.dead_air_hint {
+                        if !app.dead_air_dismissed {
+                            ui.add_space(theme::SP_1);
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "Dead air — content runs {}–{}",
+                                        format_timecode(cs),
+                                        format_timecode(ce)
+                                    ))
+                                    .size(10.0)
+                                    .color(theme::WARN()),
+                                );
+                                if btn_small(ui, "Trim to content") {
+                                    app.trim_start = format_timecode(cs);
+                                    app.trim_end = format_timecode(ce);
+                                    app.dead_air_dismissed = true;
+                                }
+                                if btn_small(ui, "Dismiss") {
+                                    app.dead_air_dismissed = true;
+                                }
+                            });
+                        }
+                    }
                 });
             },
         ); // left column
