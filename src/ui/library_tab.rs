@@ -524,6 +524,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 do_copy = Some(item.path.clone());
                                 ui.close_menu();
                             }
+                            // GIFs are both a still and a clip — offer the
+                            // trim/export surface too, not just the editor.
+                            if matches!(item.category, MediaCategory::Gif)
+                                && ui.button("Trim as clip").clicked()
+                            {
+                                open_edit = Some(item.path.clone());
+                                ui.close_menu();
+                            }
                             if ui.button("Open with default app").clicked() {
                                 do_open = Some(item.path.clone());
                                 ui.close_menu();

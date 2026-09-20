@@ -360,6 +360,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             painter.rect_stroke(rect, 0.0, stroke);
                         }
                     }
+                    AnnotationTool::Ellipse => {
+                        if action.points.len() >= 2 {
+                            let start = action.points[0];
+                            let end = *action.points.last().unwrap();
+                            let rect = Rect::from_two_pos(start, end);
+                            painter.add(egui::Shape::Ellipse(egui::epaint::EllipseShape::stroke(
+                                rect.center(),
+                                Vec2::new(rect.width() / 2.0, rect.height() / 2.0),
+                                stroke,
+                            )));
+                        }
+                    }
                     AnnotationTool::Blur => {
                         if action.points.len() >= 2 {
                             let start = action.points[0];
@@ -548,6 +560,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             (AnnotationTool::Pen, "✏ Pen"),
                             (AnnotationTool::Arrow, "➡ Arrow"),
                             (AnnotationTool::Rectangle, "🔲 Rect"),
+                            (AnnotationTool::Ellipse, "⬭ Ellipse"),
                             (AnnotationTool::Highlight, "🖍 Highlight"),
                             (AnnotationTool::Text, "🔤 Text"),
                             (AnnotationTool::Blur, "💧 Blur"),

@@ -1,4 +1,4 @@
-//! Software annotation baker — rasterizes pen, arrow, rect, text, blur, and step badges
+//! Software annotation baker — rasterizes pen, arrow, rect, ellipse, text, blur, and step badges
 //! directly onto an `image::DynamicImage` RGBA pixel buffer.
 
 use eframe::egui::{Color32, Pos2, Rect, Vec2};
@@ -9,6 +9,7 @@ pub enum AnnotationTool {
     Pen,
     Arrow,
     Rectangle,
+    Ellipse,
     Highlight,
     Text,
     Blur,
@@ -105,6 +106,14 @@ pub fn bake_annotations(
                     draw_line_thick(&mut rgba, min_x, max_y, min_x, min_y, stroke_px, draw_color);
                 }
             }
+            AnnotationTool::Ellipse => {
+                let draw_color = image::Rgba([color.r(), color.g(), color.b(), color.a()]);
+                if action.points.len() >= 2 {
+                    let (x0, y0) = map_pos(action.points[0]);
+                    let (x1, y1) = map_pos(*action.points.last().unwrap());
+                    draw_ellipse_outline(&mut rgba, x0, y0, x1, y1, stroke_px, draw_color);
+                }
+            }
             AnnotationTool::Blur => {
                 if action.points.len() >= 2 {
                     let (x0, y0) = map_pos(action.points[0]);
@@ -148,7 +157,7 @@ pub fn snap_annotation_point(tool: AnnotationTool, start: Pos2, pos: Pos2) -> Po
             let ang = (d.y.atan2(d.x) / step).round() * step;
             start + Vec2::angled(ang) * len
         }
-        AnnotationTool::Rectangle | AnnotationTool::Blur => {
+        AnnotationTool::Rectangle | AnnotationTool::Blur | AnnotationTool::Ellipse => {
             let s = d.x.abs().max(d.y.abs());
             start + Vec2::new(d.x.signum() * s, d.y.signum() * s)
         }
@@ -188,6 +197,37 @@ fn draw_line_thick(
         let cx = (x0 as f32 + t * dx) as i32;
         let cy = (y0 as f32 + t * dy) as i32;
         fill_circle(rgba, cx, cy, radius, color);
+    }
+}
+
+/// Ellipse outline between two corner points, drawn as a thick polyline
+/// (64 segments — consistent with the other tools' rasterized look).
+fn draw_ellipse_outline(
+    rgba: &mut image::RgbaImage,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    thickness: f32,
+    color: image::Rgba<u8>,
+) {
+    let cx = (x0 + x1) as f32 / 2.0;
+    let cy = (y0 + y1) as f32 / 2.0;
+    let rx = ((x1 - x0).abs() as f32 / 2.0).max(1.0);
+    let ry = ((y1 - y0).abs() as f32 / 2.0).max(1.0);
+    const SEGMENTS: usize = 64;
+    for i in 0..SEGMENTS {
+        let t0 = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        let t1 = (i + 1) as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        draw_line_thick(
+            rgba,
+            (cx + rx * t0.cos()) as i32,
+            (cy + ry * t0.sin()) as i32,
+            (cx + rx * t1.cos()) as i32,
+            (cy + ry * t1.sin()) as i32,
+            thickness,
+            color,
+        );
     }
 }
 

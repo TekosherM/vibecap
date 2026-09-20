@@ -209,6 +209,9 @@ pub fn scan_media_dir(save_dir: &Path) -> Vec<MediaItem> {
                 || name.starts_with("vibecap_region_snap_")
                 || name.ends_with(".ffmpeg.log")
                 || name.ends_with(".clean.mp4")
+                // Vibecap's own metadata sidecars — never content.
+                || name.ends_with(".notes.txt")
+                || name.ends_with(".markers.txt")
                 || name.contains("frames_temp")
                 || ext == "log"
             {

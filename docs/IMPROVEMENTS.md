@@ -42,7 +42,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 15. **Click-through vs capture.** Overlay must eat clicks (so you can drag). Document that; add a “click-through preview” mode only if we freeze a snapshot first (Windows already does).
 16. **Countdown while hidden.** Bubble is painted on the main ctx; if the studio is parked, the user may never see 3/5. Paint countdown on the same always-on-top viewport family as the REC bar.
 17. **Shutter flash** (one-frame invert/white) on still capture so you know it fired when the window is hidden.
-18. **Cancel region with right-click** in addition to Esc (Windows muscle memory from Snipping Tool).
+18. **Cancel region with right-click** in addition to Esc (Windows muscle memory from Snipping Tool). ✓ (was already shipped — `secondary_clicked` → Cancelled in capture_hud)
 19. **Aspect-ratio lock** on region (Shift = square, Alt = 16:9) for README/demo clips.
 20. **Magnifier that samples pixels** (loupe is chrome-only today — `capture_hud.rs` says so). Optional; keep off by default (cost).
 
@@ -65,7 +65,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 
 ## 4 · Shutter UX & post-capture
 
-31. **Post-capture toast must not steal the still tab** if the user is mid-annotate. Today success always `open_still_from_path`.
+31. **Post-capture toast must not steal the still tab** if the user is mid-annotate. Today success always `open_still_from_path`. ✓ (was already shipped — `is_annotating` guard keeps the still you're editing; toast says 'finish this markup first')
 32. **Copy path / Copy image / Reveal / Annotate / Discard** on the toast (Discard = undo trash). Copy image exists on Still (⌘C); toast should offer it.
 33. **Naming tokens** `{app}-{date}-{seq}` with a live preview in Settings. Default `screenshot_YYYY-MM-DD_HH-MM-SS.jpg` is unreadable in a folder of 200.
 34. **Save-to last folder vs default media dir.** Agents pass `--output-dir`; GUI always uses `save_dir`. Add “set as agent default” so GUI and CLI agree (`VIBECAP_OUTPUT_DIR`).
@@ -73,29 +73,29 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies.
 37. **Disable or warn the audio switch** on Windows until a device is detected (`ffmpeg -list_devices`).
 38. **FPS 24/30/60 + custom.** Segmented 30/60 only (`settings_tab.rs`). 24 is enough for bug clips and half the disk.
-39. **Cursor draw toggle** for stills (`-draw_mouse 0` hardcoded). Demos want the pointer; bug stills often don’t.
+39. **Cursor draw toggle** for stills (`-draw_mouse 0` hardcoded). Demos want the pointer; bug stills often don’t. ✓ (was already shipped — 'Draw cursor on stills' switch → `draw_mouse` session field → `-draw_mouse`)
 40. **Self-capture guard.** If the only “window” match is Vibecap, refuse Window target (Fullscreen already tries `last_front_app`).
 
 ---
 
 ## 5 · Library / Media
 
-41. **Kill remaining emoji** in the library toolbar (`🔄 Refresh`, `🗑 Delete`, `📂 Open in Finder`) — `library_tab.rs` still uses them; rail icons do not.
+41. **Kill remaining emoji** in the library toolbar (`🔄 Refresh`, `🗑 Delete`, `📂 Open in Finder`) — `library_tab.rs` still uses them; rail icons do not. ✓ (verified — library toolbar is text-only; 🎙 remains only as a category glyph)
 42. **Grid of thumbnails**, not a checkbox list of names. Decode off-thread; cache beside the file (`.vibecap/thumbs/`).
 43. **Hover-scrub for videos** (reuse filmstrip extract at 1 fps).
 44. **Date groups:** Today / Yesterday / This week / Earlier. Flat newest-first page of 40 is a dump.
 45. **Search** filename + sidecar `.txt` notes.
 46. **Shift-click range select** in addition to checkbox + Select all shown.
 47. **Drag out to Explorer/Finder**; drag in to import (images/mp4).
-48. **Hide sidecar clutter** — `.txt`, `.m4a`, `.ffmpeg.log`, `frames_temp/`, `*.clean.mp4` leftovers. Library already skips `vibecap_region_snap_*` and dotfiles; extend the denylist.
-49. **Storage bar per category** (screenshots vs video) with one “free 80% by deleting live frames” action. Live-stats row exists on Capture; Library should show the same numbers.
-50. **Open in Clip vs Still is heuristic on extension.** GIFs should offer both “trim as clip” and “still frame”.
+48. **Hide sidecar clutter** — `.txt`, `.m4a`, `.ffmpeg.log`, `frames_temp/`, `*.clean.mp4` leftovers. Library already skips `vibecap_region_snap_*` and dotfiles; extend the denylist. ✓ (denylist now covers `.notes.txt`/`.markers.txt` sidecars alongside `.ffmpeg.log`/`.clean.mp4`/`frames_temp`)
+49. **Storage bar per category** (screenshots vs video) with one “free 80% by deleting live frames” action. Live-stats row exists on Capture; Library should show the same numbers. ✓ (was already shipped — 'Stills X · Video Y · Live frames Z (n)' line + Free-live-frames action)
+50. **Open in Clip vs Still is heuristic on extension.** GIFs should offer both “trim as clip” and “still frame”. ✓ (GIF context menu gains 'Trim as clip' alongside Still review)
 
 ---
 
 ## 6 · Clip editor
 
-51. **Preview is silent flipbook (~24 JPEGs).** Label it “preview (no audio)” in the player chrome, not only a hover. Offer **Open** more prominently for fidelity.
+51. **Preview is silent flipbook (~24 JPEGs).** Label it “preview (no audio)” in the player chrome, not only a hover. Offer **Open** more prominently for fidelity. ✓ (was already shipped — 'Preview (no audio)' label + flipbook hint in player chrome)
 52. **Don’t block the UI on extract** (async already). Show a determinate bar (`frame i/n`) instead of “Preparing preview frames…”.
 53. **Keep `frames_temp/` out of the library** and delete on Clip close / app exit (today thumbs are removed in `extract_filmstrip_rgba`, but a crash leaves the dir).
 54. **In/out handles must match export.** Verify GIF/trim ffmpeg `-ss/-to` uses the same seconds as the ruler (probed duration vs filmstrip fps drift).
@@ -452,7 +452,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 103. **Drag-crop on canvas** — visual crop handles replace the four numeric fields. ✓ (was already shipped — crop_drag on the Still canvas)
 104. **Zoom/pan canvas** — wheel zoom, space-drag pan, Ctrl+0 fit, Ctrl+1 100 %. ✓ (was mostly shipped; this pass: scroll zoom is hover-gated, `1` = true 100 %)
 105. **Arrow tool** — with head size + color from the stroke state. ✓ (was already shipped)
-106. **Shape tools** — rect/ellipse outline + filled modes. ✓ partial (rect shipped; ellipse open)
+106. **Shape tools** — rect/ellipse outline + filled modes. ✓ (Ellipse shipped: baker outline, EllipseShape preview, Shift → circle)
 107. **Highlighter** — 50 % alpha stroke. ✓ (was already shipped)
 108. **Step tool** — auto-numbered badges that renumber on delete. ✓ (was already shipped)
 109. **Spotlight** — dim outside a rect.

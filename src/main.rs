@@ -3994,6 +3994,7 @@ impl VibecapApp {
             ui.radio_value(&mut self.current_tool, AnnotationTool::Pen, "✏ Pen");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Arrow, "➡ Arrow");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Rectangle, "🔲 Rect");
+            ui.radio_value(&mut self.current_tool, AnnotationTool::Ellipse, "⬭ Ellipse");
             ui.radio_value(
                 &mut self.current_tool,
                 AnnotationTool::Highlight,
@@ -4179,6 +4180,18 @@ impl VibecapApp {
                             let end = *action.points.last().unwrap();
                             let rect = Rect::from_two_pos(start, end);
                             painter.rect_stroke(rect, 0.0, stroke);
+                        }
+                    }
+                    AnnotationTool::Ellipse => {
+                        if action.points.len() >= 2 {
+                            let start = action.points[0];
+                            let end = *action.points.last().unwrap();
+                            let rect = Rect::from_two_pos(start, end);
+                            painter.add(egui::Shape::Ellipse(egui::epaint::EllipseShape::stroke(
+                                rect.center(),
+                                Vec2::new(rect.width() / 2.0, rect.height() / 2.0),
+                                stroke,
+                            )));
                         }
                     }
                     AnnotationTool::Blur => {
