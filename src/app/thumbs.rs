@@ -86,6 +86,60 @@ pub fn warmup_thumbs(paths: Vec<PathBuf>) {
     });
 }
 
+/// Max bytes kept in `.vibecap/thumbs/` — oldest-modified files evicted first.
+const THUMB_CACHE_CAP_BYTES: u64 = 300 * 1024 * 1024;
+
+/// Sweep the thumbs dir on a worker: delete orphans (media file gone) and
+/// evict oldest-modified thumbs while over `THUMB_CACHE_CAP_BYTES`.
+/// `media_names` = full file names of live library items (thumb `x.mp4.jpg`
+/// is orphaned when `x.mp4` no longer exists).
+pub fn sweep_thumbs(save_dir: PathBuf, media_names: std::collections::HashSet<String>) {
+    std::thread::spawn(move || sweep_thumbs_dir(&save_dir, &media_names));
+}
+
+fn sweep_thumbs_dir(save_dir: &Path, media_names: &std::collections::HashSet<String>) {
+    let dir = thumbs_dir(save_dir);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let mut kept: Vec<(PathBuf, std::time::SystemTime, u64)> = Vec::new();
+    let mut total = 0u64;
+    for e in entries.flatten() {
+        let path = e.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = e.file_name().to_string_lossy().to_string();
+        let media = name.strip_suffix(".jpg").unwrap_or(&name).to_string();
+        if !media_names.contains(&media) {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+        let Ok(meta) = e.metadata() else {
+            continue;
+        };
+        let len = meta.len();
+        total += len;
+        kept.push((
+            path,
+            meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+            len,
+        ));
+    }
+    if total <= THUMB_CACHE_CAP_BYTES {
+        return;
+    }
+    kept.sort_by_key(|(_, m, _)| *m);
+    for (path, _, len) in kept {
+        if total <= THUMB_CACHE_CAP_BYTES {
+            break;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            total -= len;
+        }
+    }
+}
+
 /// Remove leftover `frames_temp/` dirs under the media folder (crash leftovers).
 pub fn cleanup_frames_temp(save_dir: &Path) {
     let p = save_dir.join("frames_temp");
@@ -105,5 +159,21 @@ mod tests {
         let s = t.to_string_lossy();
         assert!(s.contains(".vibecap"), "{s}");
         assert!(s.contains("thumbs"), "{s}");
+    }
+
+    #[test]
+    fn sweep_removes_orphans_keeps_live() {
+        let dir = std::env::temp_dir().join(format!("vibecap_sweep_{}", std::process::id()));
+        let thumbs = thumbs_dir(&dir);
+        std::fs::create_dir_all(&thumbs).unwrap();
+        let live = thumbs.join("keep.mp4.jpg");
+        let dead = thumbs.join("gone.mp4.jpg");
+        std::fs::write(&live, b"x").unwrap();
+        std::fs::write(&dead, b"x").unwrap();
+        let names = std::collections::HashSet::from(["keep.mp4".to_string()]);
+        sweep_thumbs_dir(&dir, &names);
+        assert!(live.exists(), "live thumb must survive");
+        assert!(!dead.exists(), "orphaned thumb must be removed");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

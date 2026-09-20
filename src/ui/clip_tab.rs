@@ -421,7 +421,11 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
         let dur = (parse_timecode(&app.trim_end).unwrap_or(5.0)
             - parse_timecode(&app.trim_start).unwrap_or(0.0))
         .max(0.2);
-        let est = (dur * app.gif_fps as f64 * (app.gif_width as f64 / 400.0) * 18.0) as u64;
+        let est = (dur
+            * if app.gif_pingpong { 2.0 } else { 1.0 }
+            * app.gif_fps as f64
+            * (app.gif_width as f64 / 400.0)
+            * 18.0) as u64;
         ui.label(
             RichText::new(format!("~{} KB", est.max(20)))
                 .small()
@@ -432,6 +436,8 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
     ui.add(egui::Slider::new(&mut app.gif_fps, 8..=24).show_value(true));
     ui.label(RichText::new("width").size(11.0).color(theme::TEXT_DIM()));
     ui.add(egui::Slider::new(&mut app.gif_width, 320..=1280).show_value(true));
+    ui.checkbox(&mut app.gif_pingpong, "Ping-pong ↺")
+        .on_hover_text("Boomerang — plays forward then in reverse (2× duration)");
     ui.add_space(theme::SP_2);
     group(ui, "PRESETS", |ui| {
         let file_clone = file.to_path_buf();
@@ -560,11 +566,19 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
                     "-i".into(),
                     file_clone.to_str().unwrap().into(),
                     "-vf".into(),
-                    format!(
-                        "fps={},scale={}:-1:flags=lanczos",
-                        app.gif_fps.clamp(4, 30),
-                        app.gif_width.clamp(160, 1920)
-                    ),
+                    if app.gif_pingpong {
+                        format!(
+                            "fps={},scale={}:-1:flags=lanczos,split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1",
+                            app.gif_fps.clamp(4, 30),
+                            app.gif_width.clamp(160, 1920)
+                        )
+                    } else {
+                        format!(
+                            "fps={},scale={}:-1:flags=lanczos",
+                            app.gif_fps.clamp(4, 30),
+                            app.gif_width.clamp(160, 1920)
+                        )
+                    },
                     "-y".into(),
                     gif_out.to_str().unwrap().into(),
                 ],
@@ -733,6 +747,26 @@ fn tools_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path)
                     ],
                     "Frame extracted",
                 );
+            }
+        });
+        group(ui, "NOTES", |ui| {
+            ui.add(
+                egui::TextEdit::multiline(&mut app.clip_notes)
+                    .hint_text("Clip notes — saved to a .notes.txt sidecar")
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY),
+            );
+            if btn_small(ui, "Save note") {
+                let side = file.with_extension("notes.txt");
+                if app.clip_notes.trim().is_empty() {
+                    let _ = std::fs::remove_file(&side);
+                    app.show_toast("Note cleared");
+                } else {
+                    match std::fs::write(&side, app.clip_notes.trim()) {
+                        Ok(_) => app.show_toast("Note saved"),
+                        Err(e) => app.show_toast(format!("❌ Note save failed: {e}")),
+                    }
+                }
             }
         });
     }

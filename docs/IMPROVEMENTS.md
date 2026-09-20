@@ -493,9 +493,9 @@ background chip (112), save-as-copy (116), Esc depth (125).
 132. **Stream-copy trim** — `-c copy` when codec allows; instant cut. ✓ (was already shipped — Trim video uses `-ss/-to -c copy`)
 133. **Export preset chips** — Discord 8 MB / README 480p / lossless. ✓ (was already shipped — PRESETS group)
 134. **GIF settings dialog** — fps, width, loop mode, size estimate pre-encode. ✓ (was already shipped — sliders + ~KB estimate)
-135. **GIF ping-pong** — boomerang loop toggle.
+135. **GIF ping-pong** — boomerang loop toggle. ✓ ("Ping-pong ↺" checkbox → split/reverse/concat filtergraph, estimate doubles)
 136. **GIF frame ops** — delete frames, per-frame delay in filmstrip.
-137. **Re-GIF existing MP4** — new settings without re-recording.
+137. **Re-GIF existing MP4** — new settings without re-recording. ✓ (was already shipped — GIF group + presets encode from the loaded file)
 138. **WebM/AV1 export** — codec picker on the export row.
 139. **Extract audio** — one-click `.m4a` from clip. ✓ (was already shipped — AUDIO group)
 140. **Frame-grab** — current preview frame → new still in Library. ✓ (transport "Grab frame" → ffmpeg `-ss -vframes 1` JPG)
@@ -503,7 +503,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 142. **Marker list** — click a marker to jump the preview. ✓ (clickable timecode chips under the ruler)
 143. **Auto-trim dead air** — detect frozen head/tail, offer trim. ✓ (`dead_air_bounds` on filmstrip RGBA; "Trim to content" banner)
 144. **Speed ramp** — 0.5×/2× segments (stretch goal, simple `-setpts`).
-145. **Clip notes** — text sidecar shown under the player.
+145. **Clip notes** — text sidecar shown under the player. ✓ (NOTES group → `<file>.notes.txt`, Save/clear; loaded on filmstrip open)
 146. **Compare mode** — split-screen before/after trim preview.
 147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error. ✓ (transport bar)
 148. **Preview quality toggle** — half-res filmstrip for long clips. ✓ (Settings → "Low-res clip preview" → 240px filmstrip via session `filmstrip_low_res`)
@@ -597,7 +597,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 ## J · Performance (226–250)
 
 226. **Thumb decode off-thread** — `egui_extras` loader already async; verify no decode on UI thread for large files.
-227. **Thumb disk cache** — `.vibecap/thumbs` exists; add LRU cap (e.g. 500 MB) + stale sweep.
+227. **Thumb disk cache** — `.vibecap/thumbs` exists; add LRU cap (e.g. 500 MB) + stale sweep. ✓ (`sweep_thumbs` on every library scan: orphans deleted, 300 MB LRU by oldest-modified)
 228. **Filmstrip parallel extract** — ffmpeg `-vsync` batch or threaded frame pull. ✓ (JPEG decode + RGBA convert spread across up to 8 scoped threads, round-robin slots, ordered reassembly; progress callback still fires per-frame)
 229. **Lazy library page** — only render visible tiles; 1000-file folders shouldn't instantiate 1000 widgets.
 230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old.

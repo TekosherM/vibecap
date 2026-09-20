@@ -445,6 +445,10 @@ pub(crate) struct VibecapApp {
     clip_loop: bool,
     gif_fps: u32,
     gif_width: u32,
+    /// Boomerang loop — export plays forward then reverse (#135).
+    gif_pingpong: bool,
+    /// Editable clip notes — persisted to `<file>.notes.txt` beside the media.
+    clip_notes: String,
     record_markers: Vec<f64>,
     shutter_flash_until: Option<Instant>,
     #[allow(dead_code)]
@@ -2069,6 +2073,11 @@ impl VibecapApp {
         app::thumbs::cleanup_frames_temp(&self.save_dir);
         let warmup: Vec<PathBuf> = items.iter().take(40).map(|i| i.path.clone()).collect();
         app::thumbs::warmup_thumbs(warmup);
+        // Orphaned thumbs (media deleted via Explorer) + LRU byte cap.
+        app::thumbs::sweep_thumbs(
+            self.save_dir.clone(),
+            items.iter().map(|i| i.name.clone()).collect(),
+        );
         // Keep the tray's "Recent captures" slots in sync with the scan
         // (newest-first order — the menu mirrors it verbatim).
         if let Some(tray) = self.tray.as_mut() {
@@ -2965,6 +2974,8 @@ impl VibecapApp {
         self.player_pos = 0.0;
         self.player_last_time = None;
         self.record_markers = load_marker_sidecar(&file);
+        self.clip_notes =
+            std::fs::read_to_string(file.with_extension("notes.txt")).unwrap_or_default();
         self.filmstrip_progress = (0, 0);
 
         let (tx, rx) = crossbeam_channel::bounded(1);
