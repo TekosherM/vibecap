@@ -51,7 +51,7 @@ use app::{
     get_dir_size_bytes, kill_recorder, live_usage_snapshot, load_budget, mcp_live_dir, parse_args,
     run_headless, run_mcp_server, scan_media_dir, take_pending_still, write_json_atomic,
     write_pending_still, write_pending_still_error, CliAction, FeedbackRequest, FeedbackResponse,
-    MediaItem, LIBRARY_PAGE_SIZE,
+    MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
 };
 
 /// Cached live-dir stats for the Capture tab's proof-of-life row.
@@ -669,6 +669,8 @@ pub(crate) struct VibecapApp {
 
     // Notification toast (message, shown_at, severity)
     toast_message: Option<(String, Instant, ToastLevel)>,
+    /// Last error toast — persistent surface in Settings + tray tooltip (K253).
+    last_error: Option<String>,
     /// Post-capture action card (path + shown_at); mutually preferred over simple toast.
     /// Last fresh capture card — `bool` is whether auto-copy already landed
     /// on the clipboard, so the card title can say "Copied" honestly.
@@ -1042,8 +1044,20 @@ impl VibecapApp {
 
     fn apply_session(&mut self, s: SessionState) {
         self.density = density_from_str(&s.density);
-        if !s.library_filter.is_empty() {
+        // K258: a stale/hand-edited filter value would render the library as
+        // an unexplained empty grid — whitelist to real categories.
+        let valid_filters = [
+            "All",
+            MediaCategory::Screenshot.label(),
+            MediaCategory::Video.label(),
+            MediaCategory::Gif.label(),
+            MediaCategory::Audio.label(),
+            MediaCategory::Note.label(),
+        ];
+        if valid_filters.contains(&s.library_filter.as_str()) {
             self.library_filter = s.library_filter;
+        } else if !s.library_filter.is_empty() {
+            self.library_filter = "All".into();
         }
         self.current_tab = match s.tab.as_str() {
             "library" | "media" => AppTab::Library,
@@ -1078,9 +1092,18 @@ impl VibecapApp {
         self.wizard_open = !s.wizard_done;
         self.wizard_step = 0;
         theme::set_theme_mode(theme::theme_mode_from_str(&s.theme));
-        self.last_region = s
-            .last_region
-            .map(|a| Rect::from_min_max(Pos2::new(a[0], a[1]), Pos2::new(a[2], a[3])));
+        // K258: reject inverted/garbage rects — they'd feed a corrupt ghost
+        // or crop bounds downstream.
+        self.last_region = s.last_region.and_then(|a| {
+            if a[2] > a[0] && a[3] > a[1] && a.iter().all(|v| v.is_finite()) {
+                Some(Rect::from_min_max(
+                    Pos2::new(a[0], a[1]),
+                    Pos2::new(a[2], a[3]),
+                ))
+            } else {
+                None
+            }
+        });
         self.record_countdown_secs = match s.record_countdown_secs {
             3 | 5 => s.record_countdown_secs,
             _ => 0,
@@ -1089,7 +1112,11 @@ impl VibecapApp {
             self.name_pattern = s.name_pattern;
         }
         if let Some([w, h, x, y]) = s.last_screen_rect {
-            self.selected_screen_rect = Some((w, h, x, y));
+            // K258: clamp to sane capture dims — a corrupt value must not
+            // become a gdigrab rect.
+            if (1..=32768).contains(&w) && (1..=32768).contains(&h) {
+                self.selected_screen_rect = Some((w, h, x, y));
+            }
         }
         self.draw_mouse = s.draw_mouse;
         if s.fps == 24 || s.fps == 30 || s.fps == 60 {
@@ -1978,13 +2005,17 @@ impl VibecapApp {
         };
         let inbox = self.feedback_pending_count;
         if let Some(tray) = self.tray.as_mut() {
-            tray.set_live_state(state, inbox);
+            tray.set_live_state(state, inbox, self.last_error.as_deref());
         }
     }
 
     fn show_toast(&mut self, message: impl Into<String>) {
         let message = message.into();
         let level = ToastLevel::from_message(&message);
+        // K253: errors persist — Settings + tray tooltip show the last one.
+        if matches!(level, ToastLevel::Error) {
+            self.last_error = Some(message.clone());
+        }
         // Silent mode suppresses feedback noise — errors still surface.
         if self.silent_mode && !matches!(level, ToastLevel::Error) {
             return;
@@ -2121,12 +2152,21 @@ impl VibecapApp {
         let mut out: Vec<&MediaItem> = filter_items(&self.library_items, &self.library_filter)
             .into_iter()
             .filter(|i| {
-                q.is_empty()
-                    || i.name.to_ascii_lowercase().contains(&q)
-                    || i.path.with_extension("txt").exists()
-                        && std::fs::read_to_string(i.path.with_extension("txt"))
+                if q.is_empty() || i.name.to_ascii_lowercase().contains(&q) {
+                    return true;
+                }
+                // Sidecar search (G152): notes + legacy txt transcripts.
+                for ext in ["notes.txt", "txt"] {
+                    let side = i.path.with_extension(ext);
+                    if side.exists()
+                        && std::fs::read_to_string(&side)
                             .map(|t| t.to_ascii_lowercase().contains(&q))
                             .unwrap_or(false)
+                    {
+                        return true;
+                    }
+                }
+                false
             })
             .collect();
         self.library_sort.apply(&mut out);
@@ -2414,7 +2454,7 @@ impl VibecapApp {
         let inbox_n = self.feedback_pending_count;
         if let Some(tray) = self.tray.as_mut() {
             // Reset debounce so Idle+Inbox title always applies.
-            tray.force_live_state(live, inbox_n);
+            tray.force_live_state(live, inbox_n, self.last_error.as_deref());
         }
     }
 
@@ -4512,7 +4552,11 @@ impl eframe::App for VibecapApp {
                 self.budget_warned = true;
                 self.show_toast(format!("Budget cap: {reason}"));
                 if let Some(tray) = self.tray.as_mut() {
-                    tray.force_live_state(TrayLiveState::Idle, self.feedback_pending_count);
+                    tray.force_live_state(
+                        TrayLiveState::Idle,
+                        self.feedback_pending_count,
+                        self.last_error.as_deref(),
+                    );
                 }
             }
         }

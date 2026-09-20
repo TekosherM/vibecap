@@ -1,7 +1,7 @@
 //! Still studio — image crop / adjust / annotate / save with keyboard shortcuts & instant software baking.
 
 use eframe::egui;
-use egui::{Align2, FontId, Frame, Margin, Pos2, Rect, RichText, Stroke, Vec2};
+use egui::{Align2, Color32, FontId, Frame, Margin, Pos2, Rect, RichText, Stroke, Vec2};
 use rfd::FileDialog;
 
 use crate::app::{AnnotationAction, AnnotationTool};
@@ -258,7 +258,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             switch(ui, "Live preview", &mut app.img_preview_on);
             ui.label(
                 RichText::new(
-                    "Drag to draw · Shift = snap · Space+drag pan · scroll zoom · 0/1 fit/100% · ⌘Z undo",
+                    "Drag to draw · Shift = snap · hold B = before · Space+drag pan · scroll zoom · 0/1 fit/100% · ⌘Z undo",
                 )
                     .small()
                     .color(theme::TEXT_MUTED()),
@@ -417,14 +417,20 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             };
 
-            // Render existing annotations
-            for action in &app.annotation_actions {
-                draw_action(&painter, action);
-            }
+            // E120: hold B to peek the un-annotated original (before/after).
+            let peek_original = !ctx.wants_keyboard_input()
+                && ctx.input(|i| i.key_down(egui::Key::B));
 
-            // Render active shape being drawn
-            if let Some(action) = &app.current_action {
-                draw_action(&painter, action);
+            // Render existing annotations
+            if !peek_original {
+                for action in &app.annotation_actions {
+                    draw_action(&painter, action);
+                }
+
+                // Render active shape being drawn
+                if let Some(action) = &app.current_action {
+                    draw_action(&painter, action);
+                }
             }
 
             let space = ctx.input(|i| i.key_down(egui::Key::Space));
@@ -572,8 +578,60 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                     group(ui, "BRUSH", |ui| {
                         ui.color_edit_button_srgba(&mut app.current_color);
+                        // E113: one-tap swatches for the common markup colors —
+                        // the picker stays for anything else.
+                        ui.horizontal_wrapped(|ui| {
+                            for c in [
+                                Color32::from_rgb(0xFF, 0x4D, 0x4D), // red — callouts
+                                Color32::from_rgb(0xFF, 0xB0, 0x2E), // amber
+                                Color32::from_rgb(0x3E, 0xE6, 0x87), // green — OK
+                                Color32::from_rgb(0x4D, 0x9E, 0xFF), // blue
+                                Color32::WHITE,
+                                Color32::BLACK,
+                            ] {
+                                let (r, resp) = ui.allocate_exact_size(
+                                    Vec2::splat(16.0),
+                                    egui::Sense::click(),
+                                );
+                                let cur = app.current_color;
+                                let active = cur.r() == c.r()
+                                    && cur.g() == c.g()
+                                    && cur.b() == c.b();
+                                let p = ui.painter();
+                                p.circle_filled(r.center(), 6.5, c);
+                                p.circle_stroke(
+                                    r.center(),
+                                    7.5,
+                                    Stroke::new(
+                                        if active { 2.0f32 } else { 1.0 },
+                                        if active {
+                                            theme::ACCENT()
+                                        } else {
+                                            theme::BORDER()
+                                        },
+                                    ),
+                                );
+                                if resp.clicked() {
+                                    app.current_color = c;
+                                }
+                            }
+                        });
+                        // E114: tap a common width instead of nudging the slider.
+                        ui.horizontal_wrapped(|ui| {
+                            for w in [2.0f32, 4.0, 8.0] {
+                                let sel =
+                                    (app.current_stroke_width - w).abs() < 0.5;
+                                if crate::ui::components::chip(
+                                    ui,
+                                    &format!("{w:.0}px"),
+                                    sel,
+                                ) {
+                                    app.current_stroke_width = w;
+                                }
+                            }
+                        });
                         ui.add(
-                            egui::Slider::new(&mut app.current_stroke_width, 1.0..=12.0)
+                            egui::Slider::new(&mut app.current_stroke_width, 1.0f32..=12.0)
                                 .text("px"),
                         );
                     });

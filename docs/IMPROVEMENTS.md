@@ -459,14 +459,14 @@ Numbered 1–300 for this round. Sections sized 25 each.
 110. **Measure tool** — px distance + angle readout.
 111. **In-place text editing** — click canvas, type there; no separate field. ✓ (was already shipped — `text_edit_at` Area)
 112. **Text background chip** — filled label look with padding + radius. ✓ (was already shipped — OVERLAY_LABEL pill)
-113. **Annotation color palette** — 6 swatch row + custom hex.
-114. **Stroke width presets** — 2/4/8 chips + slider.
+113. **Annotation color palette** — 6 swatch row + custom hex. ✓ (red/amber/green/blue/white/black swatches in BRUSH + custom color editor)
+114. **Stroke width presets** — 2/4/8 chips + slider. ✓ (2/4/8 px chips + 1–12 slider)
 115. **Copy original vs annotated** — explicit choice in the copy menu. ✓ ("Copy original (no markup)" in the Still ⋯ menu)
 116. **Save-as-copy default** — never silently overwrite the source still. ✓ (was already shipped — "Save as copy" + explicit overwrite)
 117. **Export format picker** — PNG/JPEG/WebP + quality slider.
 118. **Resize-on-export** — % or max-width field with pixel preview.
 119. **Paste-onto-canvas** — clipboard image becomes a movable layer.
-120. **Before/after hold** — hold Space to peek the un-annotated original.
+120. **Before/after hold** — hold Space to peek the un-annotated original. ✓ (hold B — Space stays pan; annotations skipped while peeking)
 121. **Watermark preset** — corner text/logo with opacity.
 122. **Canvas padding** — add uniform border pixels with fill color on export.
 123. **Annotation list panel** — side list of strokes; click selects, Del removes.
@@ -513,7 +513,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 ## G · Library (151–175)
 
 151. **Filename search** — filter-as-you-type in the header. ✓ (was already shipped)
-152. **Search sidecars** — `.txt` notes + transcript text indexed.
+152. **Search sidecars** — `.txt` notes + transcript text indexed. ✓ (library search reads `.notes.txt` + `.txt` beside each item; sidecars hidden from grid via denylist)
 153. **Sort menu** — date/size/duration/name/type. ✓ (⇅ menu; non-date sorts drop group headers)
 154. **Favorites** — ★ floats to top, filter chip.
 155. **Tags** — free-form tags + colored filter chips.
@@ -536,7 +536,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 172. **GIF↔clip routing** — GIFs offer both "trim as clip" and "still frame".
 173. **Reveal-in-folder on tile** — hover icon opens Explorer with file selected. ✓ (↗ ghost button, thumb top-right)
 174. **Selection count bar** — floating action bar appears when ≥1 selected. ✓ (was already shipped)
-175. **Library empty-state CTA** — "Take your first screenshot" button routes to Capture.
+175. **Library empty-state CTA** — "Take your first screenshot" button routes to Capture. ✓ ("Take a screenshot" primary btn in empty state + import guidance)
 
 ## H · Inbox & HITL (176–200)
 
@@ -626,12 +626,12 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 251. **doctor --fix** — auto-remediate missing ffmpeg PATH, bad output dir, stale session.
 252. **doctor JSON mode** — `--json` for agent parsing.
-253. **Last-error surface** — persistent "last capture error" in Settings + tray tooltip.
+253. **Last-error surface** — persistent "last capture error" in Settings + tray tooltip. ✓ (`last_error` persists error toasts; Settings row + tray idle tooltip)
 254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session. ✓ (`crash.log` in config dir — panic hook appends timestamped info, then chains to the default hook)
 255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem.
 256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry.
 257. **Session schema versioning** — migrate old session.json fields cleanly.
-258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash.
+258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash. ✓ (apply_session whitelists tab/density/filter/countdown/fps/digits, floors window dims, rejects inverted rects + insane screen dims)
 259. **Windows CI smoke** — gdigrab one-frame test asserting file size (round-1 #99, still open).
 260. **Golden-theme CI** — screenshot-diff the five themes to catch alpha regressions.
 261. **Input-fuzz test** — rapid region-drag/cancel sequences can't orphan the overlay.

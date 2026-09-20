@@ -240,6 +240,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             "No media in this category",
             "Take a screenshot or recording — it lands here. Drag files in to import.",
         );
+        ui.vertical_centered(|ui| {
+            ui.add_space(theme::SP_2);
+            if app.library_items.is_empty() {
+                // G175: first-run CTA routes straight to the shutter.
+                if crate::ui::components::btn_primary(ui, "Take a screenshot") {
+                    app.current_tab = crate::AppTab::Capture;
+                }
+            } else if chip(ui, "Clear filters & search", false) {
+                app.library_filter = "All".into();
+                app.library_search.clear();
+            }
+        });
         return;
     }
 

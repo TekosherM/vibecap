@@ -137,6 +137,21 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .size(11.0)
                     .color(theme::TEXT_DIM()),
                 );
+                // K253: persistent last-error surface — toasts scroll away,
+                // this stays until cleared.
+                if let Some(err) = app.last_error.clone() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new("Last error").size(12.0).color(theme::TEXT_MUTED()),
+                        );
+                        ui.label(
+                            RichText::new(&err).size(11.0).color(theme::WARN()),
+                        );
+                        if ui.small_button("Clear").clicked() {
+                            app.last_error = None;
+                        }
+                    });
+                }
                 ui.add_space(theme::SP_2);
                 setting_row(ui, "Countdown", |ui| {
                     if segmented(ui, &mut app.record_countdown_secs, &[(0u8, "Off"), (3, "3s"), (5, "5s")])

@@ -236,20 +236,31 @@ impl TrayController {
     }
 
     /// Same as [`set_live_state`] but always refreshes (e.g. new Inbox item).
-    pub fn force_live_state(&mut self, state: TrayLiveState, inbox_pending: usize) {
+    pub fn force_live_state(
+        &mut self,
+        state: TrayLiveState,
+        inbox_pending: usize,
+        last_error: Option<&str>,
+    ) {
         self.last_progress_key.clear();
-        self.set_live_state(state, inbox_pending);
+        self.set_live_state(state, inbox_pending, last_error);
     }
 
     /// Update menu-bar title, tooltip, status row, Record label, and icon.
     /// Call ~1s while active; pass `TrayLiveState::Idle` when idle.
-    pub fn set_live_state(&mut self, state: TrayLiveState, inbox_pending: usize) {
+    pub fn set_live_state(
+        &mut self,
+        state: TrayLiveState,
+        inbox_pending: usize,
+        last_error: Option<&str>,
+    ) {
+        let err_key = last_error.map(|e| e.len()).unwrap_or(0);
         let key = match state {
-            TrayLiveState::Idle => format!("idle:{inbox_pending}"),
-            TrayLiveState::Arming => format!("arm:{inbox_pending}"),
-            TrayLiveState::Finalizing => format!("fin:{inbox_pending}"),
+            TrayLiveState::Idle => format!("idle:{inbox_pending}:{err_key}"),
+            TrayLiveState::Arming => format!("arm:{inbox_pending}:{err_key}"),
+            TrayLiveState::Finalizing => format!("fin:{inbox_pending}:{err_key}"),
             TrayLiveState::Recording { elapsed_secs } => {
-                format!("rec:{elapsed_secs}:{inbox_pending}")
+                format!("rec:{elapsed_secs}:{inbox_pending}:{err_key}")
             }
         };
         if key == self.last_progress_key {
@@ -325,7 +336,12 @@ impl TrayController {
                         .set_text(format!("Agent waiting · {inbox_pending}"));
                 } else {
                     self.tray.set_title(Some(""));
-                    let _ = self.tray.set_tooltip(Some("Vibecap — click to show"));
+                    // K253: surface the last error in the tray tooltip.
+                    let tip = match last_error {
+                        Some(e) => format!("Vibecap — last error: {e}"),
+                        None => "Vibecap — click to show".to_string(),
+                    };
+                    let _ = self.tray.set_tooltip(Some(tip));
                     self.status_item.set_text("Vibecap · Ready");
                 }
                 if let Ok(icon) = make_tray_icon(IconPhase::Idle) {
