@@ -642,6 +642,9 @@ pub(crate) struct VibecapApp {
     /// while the fresh one lands. Confirms are blocked until it swaps in
     /// (crop pixels must map to the snap that will be cropped).
     region_backdrop_stale: bool,
+    /// When the current backdrop snap was captured — a re-pick within 2 s
+    /// skips the re-grab entirely and reuses it (J230).
+    region_backdrop_at: Option<Instant>,
     still_crop_mode: bool,
     still_pan: Vec2,
     text_edit_at: Option<Pos2>,
@@ -3556,6 +3559,29 @@ impl VibecapApp {
             return;
         }
 
+        // J230: a snap taken <2 s ago is still the screen the user just saw —
+        // reopen the pick on the same freeze instead of re-grabbing. The
+        // fullscreen overlay covers the studio either way, so no hide needed.
+        let snap_fresh = self.region_backdrop.is_some()
+            && self
+                .region_snap_path
+                .as_ref()
+                .map(|p| p.exists())
+                .unwrap_or(false)
+            && self
+                .region_backdrop_at
+                .map(|t| t.elapsed() < Duration::from_secs(2))
+                .unwrap_or(false);
+        if snap_fresh {
+            self.region_backdrop_stale = false;
+            self.is_selecting_region = true;
+            self.wake_shared
+                .region_overlay_state
+                .store(1, Ordering::SeqCst);
+            ctx.request_repaint();
+            return;
+        }
+
         // Snagit-style instant pick on Windows: exclude the studio from the
         // grab (WDA_EXCLUDEFROMCAPTURE) instead of hiding it — and show the
         // selector immediately (dim until the freeze lands). The overlay gets
@@ -3677,7 +3703,13 @@ impl VibecapApp {
                 self.region_backdrop_px = (w, h);
                 self.region_backdrop_rgba = Some((w, h, pixels));
                 self.region_backdrop_stale = false;
-                self.region_snap_path = Some(path);
+                self.region_backdrop_at = Some(Instant::now());
+                // Bound temp-dir snaps to the current one.
+                if let Some(old) = self.region_snap_path.replace(path.clone()) {
+                    if old != path {
+                        let _ = std::fs::remove_file(old);
+                    }
+                }
                 self.is_selecting_region = true;
                 // Restore the owner so the child overlay can take the mouse —
                 // but only when it needs restoring: on the affinity path the
@@ -3769,9 +3801,8 @@ impl VibecapApp {
         self.region_refocus_frames = 4;
         self.region_start = None;
         self.region_end = None;
-        self.region_backdrop = None;
-        self.region_backdrop_rgba = None;
-        self.region_backdrop_stale = false;
+        // Keep backdrop + snap: the next pick's pre-warm shows this freeze
+        // instantly, and a re-pick within 2 s reuses it entirely (J230).
         self.window_pick_hover = None;
         self.window_pick_hover_monitor = false;
         self.window_pick_cycle = 0;
@@ -3826,8 +3857,8 @@ impl VibecapApp {
                     // here would include our own restored window.
                     match crop_image_file(&snap, &dest, region) {
                         Ok(()) => {
-                            let _ = std::fs::remove_file(&snap);
-                            self.region_snap_path = None;
+                            // Keep the snap — a re-pick within 2 s reuses it
+                            // as a fresh backdrop (J230).
                             self.finish_screenshot(ctx, Ok(dest));
                         }
                         Err(e) => {
@@ -3845,9 +3876,7 @@ impl VibecapApp {
                     // rect, not the window name (it may move mid-record).
                     self.capture_target = CaptureTarget::Region;
                 }
-                if let Some(snap) = self.region_snap_path.take() {
-                    let _ = std::fs::remove_file(snap);
-                }
+                // Keep the snap — a re-pick within 2 s reuses it (J230).
                 self.pending_arm_record = true;
                 ctx.request_repaint();
             }
@@ -4570,9 +4599,7 @@ impl eframe::App for VibecapApp {
                     }
                 }
                 RegionHudResult::Cancelled => {
-                    if let Some(snap) = self.region_snap_path.take() {
-                        let _ = std::fs::remove_file(snap);
-                    }
+                    // Keep the snap — a re-pick within 2 s reuses it (J230).
                     self.pending_region_kind = None;
                     self.exit_region_overlay(ctx);
                     self.show_toast("Region select cancelled");
@@ -5331,6 +5358,28 @@ impl eframe::App for VibecapApp {
 }
 
 fn main() -> eframe::Result<()> {
+    // Panic capture (K249): append crash info to <config>/crash.log — a
+    // windows-subsystem GUI dies silently otherwise.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let line = format!(
+            "[{}] panic: {}\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            info
+        );
+        let log = vibecap_config_dir().join("crash.log");
+        let _ = std::fs::create_dir_all(vibecap_config_dir());
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log)
+        {
+            use std::io::Write;
+            let _ = f.write_all(line.as_bytes());
+        }
+        default_hook(info);
+    }));
+
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let cli = parse_args(&raw);
 

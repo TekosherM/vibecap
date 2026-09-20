@@ -496,7 +496,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 135. **GIF ping-pong** — boomerang loop toggle. ✓ ("Ping-pong ↺" checkbox → split/reverse/concat filtergraph, estimate doubles)
 136. **GIF frame ops** — delete frames, per-frame delay in filmstrip.
 137. **Re-GIF existing MP4** — new settings without re-recording. ✓ (was already shipped — GIF group + presets encode from the loaded file)
-138. **WebM/AV1 export** — codec picker on the export row.
+138. **WebM/AV1 export** — codec picker on the export row. ✓ (ENCODE group: "WebM (VP9)" libvpx-vp9+libopus → .webm, "AV1 (SVT)" libsvtav1 → .mp4)
 139. **Extract audio** — one-click `.m4a` from clip. ✓ (was already shipped — AUDIO group)
 140. **Frame-grab** — current preview frame → new still in Library. ✓ (transport "Grab frame" → ffmpeg `-ss -vframes 1` JPG)
 141. **Chapter markers** — marker hotkey during record; ticks on the ruler. ✓ (was already shipped — sidecar + ruler ticks)
@@ -599,8 +599,8 @@ background chip (112), save-as-copy (116), Esc depth (125).
 226. **Thumb decode off-thread** — `egui_extras` loader already async; verify no decode on UI thread for large files.
 227. **Thumb disk cache** — `.vibecap/thumbs` exists; add LRU cap (e.g. 500 MB) + stale sweep. ✓ (`sweep_thumbs` on every library scan: orphans deleted, 300 MB LRU by oldest-modified)
 228. **Filmstrip parallel extract** — ffmpeg `-vsync` batch or threaded frame pull. ✓ (JPEG decode + RGBA convert spread across up to 8 scoped threads, round-robin slots, ordered reassembly; progress callback still fires per-frame)
-229. **Lazy library page** — only render visible tiles; 1000-file folders shouldn't instantiate 1000 widgets.
-230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old.
+229. **Lazy library page** — only render visible tiles; 1000-file folders shouldn't instantiate 1000 widgets. ✓ (row-culled grid: chunks outside the scroll viewport allocate height but skip tile widgets + image-loader calls)
+230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old. ✓ (backdrop+snap now survive overlay exit; `region_backdrop_at` <2 s + file exists → instant reopen, no grab)
 231. **DPI-aware texture cache** — don't re-rasterize icons on scale change storms.
 232. **Font load once** — semibold/bold loads measured; cache family lookups.
 233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change.
@@ -617,7 +617,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 244. **Session write debounce** — don't serialize+write session on every state change; batch 500 ms.
 245. **Log ring-buffer** — `.ffmpeg.log` tail kept in memory for doctor, not re-read from disk.
 246. **Parallel test capture** — smoke tests run gdigrab in parallel with unit tests.
-247. **Binary size audit** — strip symbols, LTO release; target <15 MB installed.
+247. **Binary size audit** — strip symbols, LTO release; target <15 MB installed. ✓ (release profile: `lto = "thin"` + `strip = true`; CGU=1 left off for iteration speed)
 248. **Cold-start no-network** — update check must never block first paint.
 249. **Large-file still guard** — >25 MP stills decode at half-res for canvas, full-res on export.
 250. **Idle CPU zero** — hidden/tray app should sit at 0 % CPU, verified in CI.
@@ -627,7 +627,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 251. **doctor --fix** — auto-remediate missing ffmpeg PATH, bad output dir, stale session.
 252. **doctor JSON mode** — `--json` for agent parsing.
 253. **Last-error surface** — persistent "last capture error" in Settings + tray tooltip.
-254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session.
+254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session. ✓ (`crash.log` in config dir — panic hook appends timestamped info, then chains to the default hook)
 255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem.
 256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry.
 257. **Session schema versioning** — migrate old session.json fields cleanly.

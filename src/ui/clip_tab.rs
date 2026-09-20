@@ -729,6 +729,62 @@ fn tools_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path)
                     "Speed change applied",
                 );
             }
+            if btn_small(ui, "WebM (VP9)") {
+                let out = file_clone
+                    .with_file_name(format!(
+                        "webm_{}",
+                        file_clone
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("clip")
+                    ))
+                    .with_extension("webm");
+                app.spawn_ffmpeg_job(
+                    vec![
+                        "-i".into(),
+                        file_clone.to_str().unwrap().into(),
+                        "-c:v".into(),
+                        "libvpx-vp9".into(),
+                        "-crf".into(),
+                        "32".into(),
+                        "-b:v".into(),
+                        "0".into(),
+                        "-c:a".into(),
+                        "libopus".into(),
+                        "-y".into(),
+                        out.to_str().unwrap().into(),
+                    ],
+                    "WebM exported",
+                );
+            }
+            if btn_small(ui, "AV1 (SVT)") {
+                let out = file_clone
+                    .with_file_name(format!(
+                        "av1_{}",
+                        file_clone
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("clip")
+                    ))
+                    .with_extension("mp4");
+                app.spawn_ffmpeg_job(
+                    vec![
+                        "-i".into(),
+                        file_clone.to_str().unwrap().into(),
+                        "-c:v".into(),
+                        "libsvtav1".into(),
+                        "-crf".into(),
+                        "35".into(),
+                        "-preset".into(),
+                        "10".into(),
+                        "-c:a".into(),
+                        "aac".into(),
+                        "-y".into(),
+                        out.to_str().unwrap().into(),
+                    ],
+                    "AV1 exported",
+                );
+            }
             if btn_small(ui, "Frame @ playhead") {
                 let out = file_clone
                     .with_file_name(format!("frame_{}.jpg", app.trim_start.replace(':', "-")));

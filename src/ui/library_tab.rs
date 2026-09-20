@@ -275,6 +275,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         let mut do_open: Option<PathBuf> = None;
         let mut do_toggle_sel: Option<PathBuf> = None;
 
+        // Row height is uniform across the grid — used for virtualization.
+        let thumb_w = card_w - 12.0;
+        let thumb_h = thumb_w * 9.0 / 16.0;
+        let card_h = 6.0 + thumb_h + 4.0 + 14.0 + 12.0 + 6.0;
+
         for (glabel, idxs) in &groups {
             ui.add_space(6.0);
             if !glabel.is_empty() {
@@ -282,16 +287,19 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 ui.add_space(2.0);
             }
             for chunk in idxs.chunks(cols) {
+                // Virtualized grid (J229): rows fully outside the scroll
+                // viewport allocate their space but skip tile widgets — no
+                // image-loader calls, no hit-test rects for off-screen items.
+                let row_top = ui.cursor().min.y;
+                let clip = ui.clip_rect();
+                if row_top + card_h < clip.min.y - card_h || row_top > clip.max.y + card_h {
+                    ui.allocate_space(Vec2::new(card_w * cols as f32, card_h));
+                    continue;
+                }
                 ui.horizontal(|ui| {
                     for &i in chunk {
                         let item = &visible[i];
                         let selected = app.library_selected.contains(&item.path);
-
-                        // Borderless tile: hover wash / accent ring when
-                        // selected, thumbnail flush to the top edge.
-                        let thumb_w = card_w - 12.0;
-                        let thumb_h = thumb_w * 9.0 / 16.0;
-                        let card_h = 6.0 + thumb_h + 4.0 + 14.0 + 12.0 + 6.0;
                         let (rect, resp) =
                             ui.allocate_exact_size(Vec2::new(card_w, card_h), egui::Sense::click());
                         let hovered = resp.hovered();

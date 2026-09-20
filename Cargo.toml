@@ -41,3 +41,9 @@ tray-icon = "0.19"
 
 [build-dependencies]
 winresource = "0.1"
+
+[profile.release]
+# J245: thin LTO + stripped symbols — smaller installed binary at a modest
+# build-time cost (CGU=1 intentionally left off; iteration speed matters).
+lto = "thin"
+strip = true
