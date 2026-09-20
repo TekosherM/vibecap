@@ -10,18 +10,32 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
-static FFMPEG: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// `None` = not probed yet · `Some(inner)` = discovery ran (inner may be None).
+/// A Mutex (not OnceLock) so the Settings/Capture "Re-check" button can re-run
+/// discovery after the user installs ffmpeg mid-session.
+static FFMPEG: Mutex<Option<Option<PathBuf>>> = Mutex::new(None);
 
 /// Absolute path to a runnable `ffmpeg`, if found.
-pub fn ffmpeg_path() -> Option<&'static Path> {
-    FFMPEG.get_or_init(discover).as_deref()
+pub fn ffmpeg_path() -> Option<PathBuf> {
+    let mut g = FFMPEG.lock().unwrap();
+    g.get_or_insert_with(discover).clone()
 }
 
 /// Whether ffmpeg can be started (for status strip / diagnostics).
+/// Cheap hot path: no PathBuf clone, just the cached probe result.
 pub fn ffmpeg_available() -> bool {
-    ffmpeg_path().is_some()
+    let mut g = FFMPEG.lock().unwrap();
+    g.get_or_insert_with(discover).is_some()
+}
+
+/// Re-run discovery (e.g. after the user installs ffmpeg while Vibecap is open).
+/// Returns the new availability.
+pub fn ffmpeg_recheck() -> bool {
+    let mut g = FFMPEG.lock().unwrap();
+    *g = Some(discover());
+    g.as_ref().unwrap().is_some()
 }
 
 /// Hide the extra console window ffmpeg opens on Windows GUI launches.

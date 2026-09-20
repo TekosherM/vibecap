@@ -364,12 +364,12 @@ Numbered 1–300 for this round. Sections sized 25 each.
 ## B · Layout, rail & navigation (26–50)
 
 26. **Collapsible rail** — icon-only 48 px mode; labels on hover tooltip.
-27. **Rail badges** — numeric badge on Inbox (pending count), dot on Library (new items since open).
+27. **Rail badges** — numeric badge on Inbox (pending count), dot on Library (new items since open). ✓ (Inbox count shipped; Library new-dot open)
 28. **Rail section labels** — CAPTURE / REVIEW / SYSTEM group dividers in expanded mode.
 29. **Rail drag-reorder** — let users pin favorite stages to top.
-30. **Keyboard rail nav** — Ctrl+1..5 jump to stages; shown in `?` sheet.
+30. **Keyboard rail nav** — Ctrl+1..5 jump to stages; shown in `?` sheet. ✓ (was already shipped)
 31. **Breadcrumb in Review** — `Library › clip_name` so Esc-depth is visible.
-32. **Back button** — in-header ‹ Back for Review/Clip/Still; Alt+← binding.
+32. **Back button** — in-header ‹ Back for Review/Clip/Still; Alt+← binding. ✓ (Alt+←/→ shipped; header button open)
 33. **Window-size memory per stage** — Library wants wide; Capture wants narrow.
 34. **Min window size enforcement** — below 720 px the rail overlaps content; clamp or collapse.
 35. **Adaptive column width** — the 720 px content column should widen on >1100 px windows.
@@ -379,8 +379,8 @@ Numbered 1–300 for this round. Sections sized 25 each.
 39. **Zen mode** — hide rail + status strip; palette + hotkeys only.
 40. **Header title dynamic** — show contextual title (recording name in Clip, file name in Still) instead of always stage name.
 41. **Subtitle slot in header** — second line under title for context ("unsaved changes", "recording 00:12").
-42. **Command palette recent verbs** — MRU section above the flat list.
-43. **Palette fuzzy match** — substring scoring; "gif" should rank "Export GIF" first.
+42. **Command palette recent verbs** — MRU section above the flat list. ✓
+43. **Palette fuzzy match** — substring scoring; "gif" should rank "Export GIF" first. ✓ (subsequence scoring, word-start/consecutive bonuses)
 44. **Palette actions show shortcuts** — right-aligned kbd hint per row.
 45. **Palette media jump** — typing a filename jumps to its review.
 46. **Tab-strip alternative** — optional top tabs instead of rail for users who want Snagit familiarity.
@@ -400,8 +400,8 @@ Numbered 1–300 for this round. Sections sized 25 each.
 57. **"Waiting for capture" state** — while armed+hidden, the studio (if shown) should say so.
 58. **Options card quick toggles** — cursor/audio/display as icon toggles, not buried in disclosure.
 59. **Audio device picker** — dropdown of dshow devices when Include audio is on.
-60. **Estimated file size** — live "≈4 MB/min @ 30fps" under Record.
-61. **Disk-space guard** — warn <500 MB free on the target dir before arming.
+60. **Estimated file size** — live "≈4 MB/min @ 30fps" under Record. ✓ (STORAGE group in Options, scaled by fps + monitor mpx)
+61. **Disk-space guard** — warn <500 MB free on the target dir before arming. ✓ (GetDiskFreeSpaceExW; warning under shutter + free-space line in STORAGE)
 62. **Battery-aware hint** — on battery, suggest 24 fps / shorter clips.
 63. **Capture history sparkline** — tiny 7-day activity graph on the Capture card.
 64. **Quick-capture tray-free mode** — double-press hotkey within 500 ms = instant region with last settings.
@@ -503,14 +503,14 @@ Numbered 1–300 for this round. Sections sized 25 each.
 
 ## G · Library (151–175)
 
-151. **Filename search** — filter-as-you-type in the header.
+151. **Filename search** — filter-as-you-type in the header. ✓ (was already shipped)
 152. **Search sidecars** — `.txt` notes + transcript text indexed.
-153. **Sort menu** — date/size/duration/name/type.
+153. **Sort menu** — date/size/duration/name/type. ✓ (⇅ menu; non-date sorts drop group headers)
 154. **Favorites** — ★ floats to top, filter chip.
 155. **Tags** — free-form tags + colored filter chips.
-156. **Date groups** — Today/Yesterday/This week/Earlier headers (round-1 open item).
+156. **Date groups** — Today/Yesterday/This week/Earlier headers (round-1 open item). ✓ (was already shipped)
 157. **List view** — dense row alternative to the tile grid.
-158. **Tile size slider** — S/M/L thumbnails.
+158. **Tile size slider** — S/M/L thumbnails. ✓ (segmented S/M/L in header)
 159. **Hover-scrub** — moving across a video tile plays frames (filmstrip reuse).
 160. **Hover quick-actions** — copy/reveal/delete overlay on tiles.
 161. **Multi-select ops** — bulk export ZIP, bulk delete, bulk tag.
@@ -525,8 +525,8 @@ Numbered 1–300 for this round. Sections sized 25 each.
 170. **Thumbnail repair** — regenerate missing/failed thumbs in background.
 171. **Sidecar hygiene** — extend denylist; sweep stale `frames_temp`, `.clean.mp4`, `.ffmpeg.log`.
 172. **GIF↔clip routing** — GIFs offer both "trim as clip" and "still frame".
-173. **Reveal-in-folder on tile** — hover icon opens Explorer with file selected.
-174. **Selection count bar** — floating action bar appears when ≥1 selected.
+173. **Reveal-in-folder on tile** — hover icon opens Explorer with file selected. ✓ (↗ ghost button, thumb top-right)
+174. **Selection count bar** — floating action bar appears when ≥1 selected. ✓ (was already shipped)
 175. **Library empty-state CTA** — "Take your first screenshot" button routes to Capture.
 
 ## H · Inbox & HITL (176–200)
@@ -603,7 +603,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 239. **Window-list cache** — 500 ms TTL on the pick-list enumeration.
 240. **ffmpeg path resolve once** — resolved at startup, not per-capture.
 241. **Starfield precomputation** — star positions hashed once, not per-frame.
-242. **Gradient mesh cache** — sky mesh rebuilt only on resize/theme change, not repaint.
+242. **Gradient mesh cache** — sky mesh rebuilt only on resize/theme change, not repaint. ✓ (shape-list cache keyed by rect+mode)
 243. **Toast timer coalescing** — one timer drives all toast lifetimes.
 244. **Session write debounce** — don't serialize+write session on every state change; batch 500 ms.
 245. **Log ring-buffer** — `.ffmpeg.log` tail kept in memory for doctor, not re-read from disk.
@@ -627,7 +627,16 @@ Numbered 1–300 for this round. Sections sized 25 each.
 260. **Golden-theme CI** — screenshot-diff the five themes to catch alpha regressions.
 261. **Input-fuzz test** — rapid region-drag/cancel sequences can't orphan the overlay.
 262. **Kill-recovery test** — terminate mid-record; next launch must finalize or clean the partial file.
-263. **ffmpeg-missing UX** — capture buttons disable with a clear fix-it card, not a post-click error.
+263. **ffmpeg-missing UX** — capture buttons disable with a clear fix-it card, not a post-click error. ✓ (fix-it card on Capture with copyable install cmd + live Re-check via `ffmpeg_recheck()`)
+
+### Round-3 first cut (built this pass)
+
+ffmpeg fix-it card + recheck (263), recording MB/min estimate + free-space
+readout (60, 61), Library sort menu / tile-size S·M·L / hover reveal
+(153, 158, 173), palette fuzzy scoring + MRU section (43, 42), celestial
+sky shape cache (242). Verified shipped-not-marked: Ctrl+1–5 (30),
+Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
+(156), selection bar (174).
 264. **Self-update rollback** — bad update keeps previous binary.
 265. **Instance handshake** — MCP + GUI detect each other; avoid dual capture locks.
 266. **Clock-skew guard** — recording timestamps survive timezone changes mid-clip.

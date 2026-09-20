@@ -79,28 +79,79 @@ impl PaletteAction {
     }
 }
 
+/// Subsequence fuzzy score — higher is better. Word-start and consecutive
+/// matches rank up; `None` when `q` isn't a subsequence of `text`.
+fn fuzzy_score(q: &str, text: &str) -> Option<i32> {
+    let t = text.to_lowercase();
+    let tb = t.as_bytes();
+    let mut score = 0i32;
+    let mut ti = 0usize;
+    let mut last: Option<usize> = None;
+    for qc in q.chars() {
+        let pos = t[ti..].find(qc).map(|p| ti + p)?;
+        score += 10;
+        if pos == 0 || tb[pos - 1] == b' ' {
+            score += 6; // word-start hit
+        }
+        if last == Some(pos.wrapping_sub(1)) && pos > 0 {
+            score += 6; // consecutive run
+        }
+        last = Some(pos);
+        ti = pos + 1;
+    }
+    // Shorter candidates win ties.
+    Some(score - t.len() as i32 / 8)
+}
+
 /// Modal command palette. Returns selected action when user confirms.
+/// `mru` lists recently-run actions — surfaced as a Recent group when the
+/// query is empty.
 pub fn show_palette(
     ctx: &egui::Context,
     query: &mut String,
     selected: &mut usize,
     open: &mut bool,
+    mru: &[PaletteAction],
 ) -> Option<PaletteAction> {
     if !*open {
         return None;
     }
 
     let mut chosen = None;
-    let q = query.to_lowercase();
-    let filtered: Vec<_> = PaletteAction::all()
-        .iter()
-        .filter(|(_, label, hint)| {
-            q.is_empty()
-                || label.to_lowercase().contains(&q)
-                || hint.to_lowercase().contains(&q)
-        })
-        .copied()
-        .collect();
+    let q = query.trim().to_lowercase();
+    let filtered: Vec<_> = if q.is_empty() {
+        // MRU first (deduped, in recency order), then the rest.
+        let mut v: Vec<(PaletteAction, &'static str, &'static str, bool)> = Vec::new();
+        for &a in mru.iter().take(3) {
+            if let Some(&(_, l, h)) =
+                PaletteAction::all().iter().find(|(x, _, _)| *x == a)
+            {
+                v.push((a, l, h, true));
+            }
+        }
+        for &(a, l, h) in PaletteAction::all() {
+            if !mru.iter().take(3).any(|m| *m == a) {
+                v.push((a, l, h, false));
+            }
+        }
+        v
+    } else {
+        // Fuzzy: label match beats hint match; sort by score.
+        let mut scored: Vec<(i32, (PaletteAction, &'static str, &'static str, bool))> =
+            PaletteAction::all()
+                .iter()
+                .filter_map(|&(a, l, h)| {
+                    let s = fuzzy_score(&q, l)
+                        .map(|s| s + 20)
+                        .or_else(|| fuzzy_score(&q, h))?;
+                    Some((s, (a, l, h, false)))
+                })
+                .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        scored.into_iter().map(|(_, x)| x).collect()
+    };
+    let filtered: Vec<(PaletteAction, &'static str, &'static str, bool)> = filtered;
+
 
     if *selected >= filtered.len() && !filtered.is_empty() {
         *selected = 0;
@@ -160,7 +211,11 @@ pub fn show_palette(
                                 );
                                 return;
                             }
-                            for (i, (action, label, hint)) in filtered.iter().enumerate() {
+                            for (i, (action, label, hint, is_mru)) in filtered.iter().enumerate() {
+                                // "Recent" divider above the first MRU row.
+                                if *is_mru && (i == 0 || !filtered[i - 1].3) {
+                                    theme::caps_label(ui, "Recent");
+                                }
                                 let sel = i == *selected;
                                 let fill = if sel {
                                     theme::SURFACE_3()
@@ -228,7 +283,7 @@ pub fn show_palette(
             *selected = (*selected + filtered.len() - 1) % filtered.len();
         }
         if i.key_pressed(Key::Enter) && !filtered.is_empty() {
-            if let Some((action, _, _)) = filtered.get(*selected) {
+            if let Some((action, _, _, _)) = filtered.get(*selected) {
                 chosen = Some(*action);
                 *open = false;
             }
@@ -360,4 +415,20 @@ pub fn show_cheatsheet(ctx: &egui::Context, open: &mut bool) {
             *open = false;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fuzzy_score;
+
+    #[test]
+    fn fuzzy_subsequence_scores_and_rejects() {
+        assert!(fuzzy_score("gif", "Export GIF").is_some());
+        assert!(fuzzy_score("rl", "Repeat last capture").is_some());
+        assert!(fuzzy_score("xyz", "Screenshot").is_none());
+        // Consecutive word-start hits beat scattered matches.
+        let good = fuzzy_score("go lib", "Go to Library").unwrap();
+        let weak = fuzzy_score("go lib", "Toggle density — comfortable ↔ compact").unwrap_or(0);
+        assert!(good > weak);
+    }
 }

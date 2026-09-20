@@ -5,6 +5,74 @@ use std::path::{Path, PathBuf};
 /// Max rows shown at once in the library (newest first). User can load more.
 pub const LIBRARY_PAGE_SIZE: usize = 40;
 
+/// Grid ordering for the Library.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum LibrarySort {
+    #[default]
+    Newest,
+    Oldest,
+    Largest,
+    Smallest,
+    Name,
+    Type,
+}
+
+impl LibrarySort {
+    pub const ALL: [LibrarySort; 6] = [
+        Self::Newest,
+        Self::Oldest,
+        Self::Largest,
+        Self::Smallest,
+        Self::Name,
+        Self::Type,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Newest => "Newest",
+            Self::Oldest => "Oldest",
+            Self::Largest => "Largest",
+            Self::Smallest => "Smallest",
+            Self::Name => "Name",
+            Self::Type => "Type",
+        }
+    }
+
+    /// Date-based sorts keep the Today/Yesterday/… group headers.
+    pub fn groups_by_date(self) -> bool {
+        matches!(self, Self::Newest | Self::Oldest)
+    }
+
+    /// Sort any slice of items (owned or refs) in place.
+    pub fn apply<T: std::borrow::Borrow<MediaItem>>(self, items: &mut [T]) {
+        match self {
+            Self::Newest => {
+                items.sort_by(|a, b| b.borrow().modified_secs.cmp(&a.borrow().modified_secs))
+            }
+            Self::Oldest => {
+                items.sort_by(|a, b| a.borrow().modified_secs.cmp(&b.borrow().modified_secs))
+            }
+            Self::Largest => {
+                items.sort_by(|a, b| b.borrow().size_bytes.cmp(&a.borrow().size_bytes))
+            }
+            Self::Smallest => {
+                items.sort_by(|a, b| a.borrow().size_bytes.cmp(&b.borrow().size_bytes))
+            }
+            Self::Name => items.sort_by(|a, b| {
+                a.borrow()
+                    .name
+                    .to_lowercase()
+                    .cmp(&b.borrow().name.to_lowercase())
+            }),
+            Self::Type => items.sort_by(|a, b| {
+                (a.borrow().category as u8)
+                    .cmp(&(b.borrow().category as u8))
+                    .then_with(|| b.borrow().modified_secs.cmp(&a.borrow().modified_secs))
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MediaCategory {
     Screenshot,
@@ -246,6 +314,29 @@ pub fn category_bytes(items: &[MediaItem], cat: MediaCategory) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn library_sort_orders() {
+        let mk = |name: &str, size: u64, secs: u64| MediaItem {
+            path: PathBuf::from(name),
+            name: name.to_string(),
+            size_str: String::new(),
+            size_bytes: size,
+            category: MediaCategory::Screenshot,
+            modified_secs: secs,
+        };
+        let mut v = vec![mk("b.png", 10, 100), mk("a.png", 50, 200)];
+        LibrarySort::Name.apply(&mut v);
+        assert_eq!(v[0].name, "a.png");
+        LibrarySort::Largest.apply(&mut v);
+        assert_eq!(v[0].size_bytes, 50);
+        LibrarySort::Oldest.apply(&mut v);
+        assert_eq!(v[0].modified_secs, 100);
+        LibrarySort::Newest.apply(&mut v);
+        assert_eq!(v[0].modified_secs, 200);
+        assert!(LibrarySort::Newest.groups_by_date());
+        assert!(!LibrarySort::Name.groups_by_date());
+    }
 
     #[test]
     fn date_group_recent_is_today() {

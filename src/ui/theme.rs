@@ -688,11 +688,40 @@ pub fn apply_celestial_pink_theme(ctx: &egui::Context) {
 /// Deterministic starfield + radial aurora glows for the Celestial canvas,
 /// matching Chromie's `body` background: vertical gradient base, radial
 /// teal/pink glows, scattered stars. Paint first inside a panel.
+///
+/// Shapes are cached per (rect, mode) — the painter is called for every
+/// panel every frame, and rebuilding ~200 verts of trig each time is waste.
 pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
+    thread_local! {
+        static SKY_CACHE: std::cell::RefCell<Vec<(egui::Rect, u8, Vec<egui::Shape>)>> =
+            std::cell::RefCell::new(Vec::new());
+    }
+    let mode_key = theme_mode() as u8;
+    let shapes = SKY_CACHE.with(|c| {
+        let mut cache = c.borrow_mut();
+        if let Some((_, _, s)) = cache
+            .iter()
+            .find(|(r, m, _)| *r == rect && *m == mode_key)
+        {
+            return s.clone();
+        }
+        let s = build_sky_shapes(rect);
+        cache.push((rect, mode_key, s.clone()));
+        if cache.len() > 8 {
+            cache.remove(0);
+        }
+        s
+    });
+    painter.extend(shapes);
+}
+
+/// Build the sky as a shape list so it can be cached + replayed.
+fn build_sky_shapes(rect: egui::Rect) -> Vec<egui::Shape> {
     let pink = theme_mode() == ThemeMode::CelestialPink;
     let w = rect.width().max(1.0);
     let h = rect.height().max(1.0);
     let dim = w.min(h);
+    let mut out: Vec<egui::Shape> = Vec::with_capacity(4 + 18);
 
     // Base: vertical gradient — Chromie `linear-gradient(180deg, #0F0D29, #0A0820)`.
     let top = if pink {
@@ -707,7 +736,7 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
     base.colored_vertex(rect.right_bottom(), CANVAS());
     base.add_triangle(0, 1, 2);
     base.add_triangle(1, 3, 2);
-    painter.add(egui::Shape::mesh(base));
+    out.push(egui::Shape::mesh(base));
 
     // Radial glows — Chromie `radial-gradient(60% 60% at X Y, …)`.
     // CelestialPink swaps teal for rose so the sky reads pink-forward.
@@ -722,24 +751,21 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
             Color32::from_rgba_unmultiplied(103, 76, 209, 26),
         )
     };
-    radial_glow(
-        painter,
+    out.push(radial_glow_shape(
         egui::pos2(rect.left() + w * 0.18, rect.top() + h * 0.08),
         dim * 0.50,
         g_teal,
-    );
-    radial_glow(
-        painter,
+    ));
+    out.push(radial_glow_shape(
         egui::pos2(rect.left() + w * 0.82, rect.top() + h * 0.06),
         dim * 0.52,
         Color32::from_rgba_unmultiplied(236, 79, 142, 34),
-    );
-    radial_glow(
-        painter,
+    ));
+    out.push(radial_glow_shape(
         egui::pos2(rect.left() + w * 0.08, rect.top() + h * 0.94),
         dim * 0.45,
         g_ambient,
-    );
+    ));
 
     // Stars — positions from Chromie's body starfield (normalized here).
     // `let` not `const`: from_rgba_unmultiplied isn't a const fn.
@@ -770,13 +796,18 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
         } else {
             color
         };
-        painter.circle_filled(egui::pos2(rect.left() + fx * w, rect.top() + fy * h), r, color);
+        out.push(egui::Shape::circle_filled(
+            egui::pos2(rect.left() + fx * w, rect.top() + fy * h),
+            r,
+            color,
+        ));
     }
+    out
 }
 
 /// Soft radial glow — two-ring fan mesh, alpha falls center → edge.
 /// (egui has no radial gradient; this approximates `radial-gradient`.)
-fn radial_glow(painter: &egui::Painter, c: egui::Pos2, r: f32, color: Color32) {
+fn radial_glow_shape(c: egui::Pos2, r: f32, color: Color32) -> egui::Shape {
     const SEG: usize = 32;
     let mut mesh = egui::epaint::Mesh::default();
     let mid = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), color.a() / 3);
@@ -809,7 +840,7 @@ fn radial_glow(painter: &egui::Painter, c: egui::Pos2, r: f32, color: Color32) {
         mesh.add_triangle(a1, b1, a2);
         mesh.add_triangle(a2, b1, b2);
     }
-    painter.add(egui::Shape::mesh(mesh));
+    egui::Shape::mesh(mesh)
 }
 
 /// The aurora's three stops for a given theme. CelestialPink uses

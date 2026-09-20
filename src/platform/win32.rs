@@ -539,6 +539,27 @@ extern "system" {
     ) -> i32;
     fn CloseHandle(handle: *mut c_void) -> i32;
     fn GetCurrentThreadId() -> u32;
+    fn GetDiskFreeSpaceExW(
+        dir: *const u16,
+        free_avail: *mut u64,
+        total: *mut u64,
+        free_total: *mut u64,
+    ) -> i32;
+}
+
+/// Free bytes available on the volume containing `dir` (None on failure).
+pub fn disk_free_bytes(dir: &std::path::Path) -> Option<u64> {
+    let mut wide: Vec<u16> = dir
+        .display()
+        .to_string()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut free = 0u64;
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(wide.as_mut_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut())
+    };
+    (ok != 0).then_some(free)
 }
 
 /// Exe stem for a pid (e.g. `chrome`) — same shape as Get-Process ProcessName.

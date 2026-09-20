@@ -20,6 +20,61 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             egui::Vec2::new(col_w, ui.available_height()),
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
+                        // ── ffmpeg fix-it card — capture can't work without it;
+                        //    don't let the user discover this via a dead click ──
+                        if !crate::platform::ffmpeg_available() {
+                            egui::Frame::none()
+                                .fill(theme::SURFACE())
+                                .rounding(theme::rounding_md())
+                                .stroke(Stroke::new(1.0_f32, theme::DANGER_SOFT()))
+                                .inner_margin(egui::Margin::same(theme::SP_3))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new("ffmpeg not found — capture can't run")
+                                            .size(12.0)
+                                            .strong()
+                                            .color(theme::DANGER_SOFT()),
+                                    );
+                                    ui.label(
+                                        RichText::new(if cfg!(target_os = "windows") {
+                                            "winget install Gyan.FFmpeg"
+                                        } else if cfg!(target_os = "macos") {
+                                            "brew install ffmpeg"
+                                        } else {
+                                            "sudo apt install ffmpeg"
+                                        })
+                                        .size(11.0)
+                                        .monospace()
+                                        .color(theme::TEXT_MUTED()),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        if btn_small(ui, "Copy command") {
+                                            let cmd = if cfg!(target_os = "windows") {
+                                                "winget install Gyan.FFmpeg"
+                                            } else if cfg!(target_os = "macos") {
+                                                "brew install ffmpeg"
+                                            } else {
+                                                "sudo apt install ffmpeg"
+                                            };
+                                            if arboard::Clipboard::new()
+                                                .and_then(|mut b| b.set_text(cmd))
+                                                .is_ok()
+                                            {
+                                                app.show_toast("Install command copied");
+                                            }
+                                        }
+                                        if btn_small(ui, "Re-check") {
+                                            if crate::platform::ffmpeg_recheck() {
+                                                app.show_toast("ffmpeg found ✓");
+                                            } else {
+                                                app.show_toast("Still not found — check PATH or set VIBECAP_FFMPEG");
+                                            }
+                                        }
+                                    });
+                                });
+                            ui.add_space(theme::SP_3);
+                        }
+
                         // ── Primary actions first: Screenshot / Record / GIF ──
                         // The user decides WHAT to do before WHERE — the target
                         // selector below is a secondary setting, not a step.
@@ -60,6 +115,23 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     .size(11.0)
                                     .color(theme::DANGER()),
                             );
+                        }
+                        // Low-disk guard — warn before a long record fills the drive.
+                        if let Some(free) =
+                            crate::platform::disk_free_bytes_for(&app.save_dir)
+                        {
+                            const WARN_AT: u64 = 500 * 1024 * 1024;
+                            if free < WARN_AT {
+                                ui.add_space(theme::SP_1);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "⚠ only {} free on the capture drive",
+                                        crate::app::library::format_size(free)
+                                    ))
+                                    .size(11.0)
+                                    .color(theme::WARN()),
+                                );
+                            }
                         }
 
                         ui.add_space(theme::SP_4);
@@ -479,6 +551,37 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             app.capture_monitor = Some(idx);
                                         });
                                     }
+                                    crate::ui::group(ui, "STORAGE", |ui| {
+                                        // ≈4 MB/min @1080p30 h264, scaled by fps and
+                                        // the selected monitor's pixel count.
+                                        let mpx = monitors
+                                            .get(app.capture_monitor.unwrap_or(0) as usize)
+                                            .or_else(|| monitors.first())
+                                            .map(|m| (m.w as f64 * m.h as f64) / 2_073_600.0)
+                                            .unwrap_or(1.0);
+                                        let mb_min =
+                                            4.0 * (app.fps_target as f64 / 30.0) * mpx.max(0.2);
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "Recording ≈{mb_min:.0} MB/min @ {}fps",
+                                                app.fps_target
+                                            ))
+                                            .size(11.0)
+                                            .color(theme::TEXT_MUTED()),
+                                        );
+                                        if let Some(free) =
+                                            crate::platform::disk_free_bytes_for(&app.save_dir)
+                                        {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} free on the capture drive",
+                                                    crate::app::library::format_size(free)
+                                                ))
+                                                .size(11.0)
+                                                .color(theme::TEXT_DIM()),
+                                            );
+                                        }
+                                    });
                                 });
                                 if app.capture_target == CaptureTarget::Region {
                                     if let Some((w, h, x, y)) = app.selected_screen_rect {

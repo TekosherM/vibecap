@@ -28,6 +28,65 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.add_space(4.0);
         crate::ui::count_chip(ui, &format!("{}", app.library_filtered().len()));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Tile size — S / M / L segmented, matches the chip look.
+            egui::Frame::none()
+                .fill(theme::SURFACE_2())
+                .stroke(egui::Stroke::new(1.0_f32, theme::BORDER()))
+                .rounding(egui::Rounding::same(8.0))
+                .inner_margin(egui::Margin::same(2.0))
+                .show(ui, |ui| {
+                    for (i, lab) in ["S", "M", "L"].iter().enumerate() {
+                        let on = app.library_tile_size == i as u8;
+                        let resp = egui::Frame::none()
+                            .fill(if on {
+                                theme::SURFACE()
+                            } else {
+                                egui::Color32::TRANSPARENT
+                            })
+                            .rounding(theme::rounding_sm())
+                            .inner_margin(egui::Margin::symmetric(7.0, 3.0))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(*lab)
+                                        .size(10.0)
+                                        .color(if on { theme::TEXT() } else { theme::TEXT_MUTED() }),
+                                );
+                            })
+                            .response
+                            .interact(egui::Sense::click())
+                            .on_hover_text("Tile size");
+                        if resp.clicked() {
+                            app.library_tile_size = i as u8;
+                        }
+                    }
+                });
+            ui.add_space(4.0);
+            // Sort menu — date sorts keep the group headers; others go flat.
+            crate::ui::icon_menu_button(
+                ui,
+                &format!("⇅ {}", app.library_sort.label()),
+                |ui| {
+                    ui.set_min_width(120.0);
+                    for s in crate::app::LibrarySort::ALL {
+                        let on = app.library_sort == s;
+                        if ui
+                            .selectable_label(
+                                on,
+                                RichText::new(s.label()).color(if on {
+                                    theme::ACCENT()
+                                } else {
+                                    theme::TEXT()
+                                }),
+                            )
+                            .clicked()
+                        {
+                            app.library_sort = s;
+                            ui.close_menu();
+                        }
+                    }
+                },
+            );
+            ui.add_space(4.0);
             crate::ui::icon_menu_button(ui, "⋯", |ui| {
                 ui.set_min_width(180.0);
                 if ui.button("Refresh").clicked() {
@@ -196,13 +255,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     }
 
     // Gallery grid: thumb cards grouped by date, click → Review, right-click → actions.
-    let card_w = 176.0;
+    let card_w = match app.library_tile_size {
+        0 => 132.0,
+        2 => 224.0,
+        _ => 176.0,
+    };
     let cols = ((ui.available_width() + 8.0) / card_w).floor().max(1.0) as usize;
 
-    // Group visible items by date label (items arrive date-sorted).
+    // Group by date label only for date sorts — Name/Size/Type go flat.
     let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    let by_date = app.library_sort.groups_by_date();
     for (i, item) in visible.iter().enumerate() {
-        let g = date_group_label(item.modified_secs).to_string();
+        let g = if by_date {
+            date_group_label(item.modified_secs).to_string()
+        } else {
+            String::new()
+        };
         match groups.last_mut() {
             Some((lg, v)) if *lg == g => v.push(i),
             _ => groups.push((g, vec![i])),
@@ -220,8 +288,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
         for (glabel, idxs) in &groups {
             ui.add_space(6.0);
-            theme::caps_label(ui, glabel);
-            ui.add_space(2.0);
+            if !glabel.is_empty() {
+                theme::caps_label(ui, glabel);
+                ui.add_space(2.0);
+            }
             for chunk in idxs.chunks(cols) {
                 ui.horizontal(|ui| {
                     for &i in chunk {
@@ -339,6 +409,35 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 7.0,
                                 egui::Stroke::new(1.5_f32, theme::TEXT_DIM()),
                             );
+                        }
+
+                        // Hover quick-action: reveal in Explorer/Finder —
+                        // ghost button pinned to the thumb's top-right.
+                        if hovered && !selected {
+                            let btn_rect = Rect::from_center_size(
+                                thumb_rect.right_top() + Vec2::new(-13.0, 13.0),
+                                Vec2::splat(22.0),
+                            );
+                            let r2 = ui.allocate_ui_at_rect(btn_rect, |ui| {
+                                egui::Frame::none()
+                                    .fill(egui::Color32::from_black_alpha(140))
+                                    .rounding(theme::rounding_sm())
+                                    .inner_margin(egui::Margin::same(3.0))
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new("↗")
+                                                    .size(12.0)
+                                                    .color(theme::TEXT()),
+                                            )
+                                            .sense(egui::Sense::click()),
+                                        )
+                                    })
+                                    .response
+                            });
+                            if r2.inner.on_hover_text("Reveal in folder").clicked() {
+                                do_reveal = Some(item.path.clone());
+                            }
                         }
 
                         // Name + meta painted directly — no nested rows.

@@ -503,6 +503,10 @@ pub(crate) struct VibecapApp {
     pub(crate) recent_key: String,
     /// "All" | category labels from MediaCategory::label()
     library_filter: String,
+    /// Grid ordering (LibrarySort). Date sorts keep the group headers.
+    library_sort: crate::app::LibrarySort,
+    /// Tile width preset: 0 = S, 1 = M, 2 = L.
+    library_tile_size: u8,
     /// How many filtered items to show (starts at LIBRARY_PAGE_SIZE).
     library_show_limit: usize,
     /// Paths selected for bulk open/delete.
@@ -641,6 +645,8 @@ pub(crate) struct VibecapApp {
     palette_open: bool,
     palette_query: String,
     palette_selected: usize,
+    /// Recently-run palette actions (most recent first, max 3).
+    palette_mru: Vec<PaletteAction>,
     density: Density,
     /// Soft-deleted paths staged for undo (restore before expiry).
     undo_trash: Option<(Vec<PathBuf>, Instant, PathBuf)>,
@@ -817,6 +823,8 @@ impl VibecapApp {
             ffmpeg_tx: Some(ffmpeg_tx),
             ffmpeg_rx: Some(ffmpeg_rx),
             library_filter: "All".to_string(),
+            library_sort: crate::app::LibrarySort::Newest,
+            library_tile_size: 1,
             library_show_limit: LIBRARY_PAGE_SIZE,
             library_selected: std::collections::HashSet::new(),
             library_confirm_clear: false,
@@ -1481,6 +1489,9 @@ impl VibecapApp {
     }
 
     fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
+        self.palette_mru.retain(|a| *a != action);
+        self.palette_mru.insert(0, action);
+        self.palette_mru.truncate(3);
         match action {
             PaletteAction::GoShutter => self.current_tab = AppTab::Capture,
             PaletteAction::GoMedia => self.current_tab = AppTab::Library,
@@ -1905,7 +1916,7 @@ impl VibecapApp {
 
     fn library_filtered(&self) -> Vec<&MediaItem> {
         let q = self.library_search.trim().to_ascii_lowercase();
-        filter_items(&self.library_items, &self.library_filter)
+        let mut out: Vec<&MediaItem> = filter_items(&self.library_items, &self.library_filter)
             .into_iter()
             .filter(|i| {
                 q.is_empty()
@@ -1917,7 +1928,9 @@ impl VibecapApp {
                             .map(|t| t.to_ascii_lowercase().contains(&q))
                             .unwrap_or(false)
             })
-            .collect()
+            .collect();
+        self.library_sort.apply(&mut out);
+        out
     }
 
     /// Chrome-only snapshot for the bottom status strip (no new backends).
@@ -4578,6 +4591,7 @@ impl eframe::App for VibecapApp {
             &mut self.palette_query,
             &mut self.palette_selected,
             &mut self.palette_open,
+            &self.palette_mru,
         ) {
             self.run_palette_action(ctx, action);
         }

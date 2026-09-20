@@ -25,19 +25,32 @@ pub use capture::{
     spawn_screen_recorder, spawn_screen_recorder_opts, spawn_voice_memo, LiveFormat, ScreenRect,
 };
 pub use ffmpeg::{
-    ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path, format_timecode,
-    list_audio_input_devices, parse_timecode, probe_duration, run_ffmpeg,
+    ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path, ffmpeg_recheck,
+    format_timecode, list_audio_input_devices, parse_timecode, probe_duration, run_ffmpeg,
 };
 pub use notify::notify_agent_question;
 pub use paths::{config_dir, live_dir, live_session_dir, media_dir, media_dir_display};
 pub use process::{cont_process, pause_supported, stop_process};
 #[cfg(windows)]
 pub(crate) use win32::{
-    cursor_pos, foreground_process_name, hide_studio_window, minimize_studio,
+    cursor_pos, disk_free_bytes, foreground_process_name, hide_studio_window, minimize_studio,
     monitor_at_point, restore_studio_to_taskbar, run_at_login_enabled_native,
     set_run_at_login_native, set_studio_capture_excluded, set_title_capture_excluded,
     studio_is_minimized, windows_at_point, ExcludeStatus,
 };
+
+/// Free bytes on the volume containing `dir` (Windows native; None elsewhere).
+pub fn disk_free_bytes_for(dir: &std::path::Path) -> Option<u64> {
+    #[cfg(windows)]
+    {
+        disk_free_bytes(dir)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        None
+    }
+}
 pub use shell::{
     activate_own_app, focus_app, frontmost_app_name, list_capture_windows,
     list_capture_windows_cached, list_monitors,

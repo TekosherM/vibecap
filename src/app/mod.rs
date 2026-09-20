@@ -38,7 +38,7 @@ pub use io::{
 };
 pub use library::{
     category_bytes, date_group_label, filter_items, get_dir_size_bytes, scan_media_dir,
-    LoopPosition, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
+    LibrarySort, LoopPosition, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
 };
 pub use cli::{parse_args, run_headless, CliAction};
 pub use doctor::doctor_text;
