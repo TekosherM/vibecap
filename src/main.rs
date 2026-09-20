@@ -635,6 +635,10 @@ pub(crate) struct VibecapApp {
     update_status: String,
     hotkey_shot_digit: u8,
     hotkey_rec_digit: u8,
+    /// Digits currently registered with the OS — rebind unregisters these,
+    /// not the (possibly edited) pending digits.
+    hotkey_shot_digit_prev: u8,
+    hotkey_rec_digit_prev: u8,
     region_snap_path: Option<PathBuf>,
     region_snap_rx: Option<Receiver<Result<(PathBuf, u32, u32, Vec<u8>), String>>>,
     brand_logo: Option<egui::TextureHandle>,
@@ -816,6 +820,8 @@ impl VibecapApp {
             gif_width: 800,
             hotkey_shot_digit: 3,
             hotkey_rec_digit: 2,
+            hotkey_shot_digit_prev: 3,
+            hotkey_rec_digit_prev: 2,
             save_dir: default_dir,
             wake_shared: Arc::new(WakeShared::default()),
             arm_cancel: Arc::new(AtomicBool::new(false)),
@@ -945,6 +951,67 @@ impl VibecapApp {
         let _ = manager.register(hk_rec);
         let _ = manager.register(hk_shot);
         let _ = manager.register(hk_summon);
+        self.hotkey_rec_digit_prev = rec;
+        self.hotkey_shot_digit_prev = shot;
+    }
+
+    /// Re-register global hotkeys after the user changes the digit in
+    /// Settings — no restart needed (I201). Returns Err listing which
+    /// bindings failed (e.g. another app owns the combo).
+    fn rebind_global_hotkeys(&mut self) -> Result<(), String> {
+        let Some(manager) = self.hotkey_manager.as_ref() else {
+            return Err("global hotkey manager unavailable".into());
+        };
+        // Reconstruct the previously registered HotKeys — unregister matches
+        // on HotKey::id(), which is a deterministic hash of mods+code.
+        let prev = [
+            HotKey::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Self::digit_code(self.hotkey_rec_digit_prev),
+            ),
+            HotKey::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Self::digit_code(self.hotkey_shot_digit_prev),
+            ),
+            HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV),
+        ];
+        for hk in prev {
+            let _ = manager.unregister(hk);
+        }
+        let mut failed = Vec::new();
+        let rec = self.hotkey_rec_digit.clamp(0, 9);
+        let shot = self.hotkey_shot_digit.clamp(0, 9);
+        let hk_rec = HotKey::new(
+            Some(Modifiers::CONTROL | Modifiers::SHIFT),
+            Self::digit_code(rec),
+        );
+        let hk_shot = HotKey::new(
+            Some(Modifiers::CONTROL | Modifiers::SHIFT),
+            Self::digit_code(shot),
+        );
+        let hk_summon = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
+        if manager.register(hk_rec).is_err() {
+            failed.push(format!("Ctrl+Shift+{rec}"));
+        }
+        if manager.register(hk_shot).is_err() {
+            failed.push(format!("Ctrl+Shift+{shot}"));
+        }
+        if manager.register(hk_summon).is_err() {
+            failed.push("Ctrl+Alt+V".to_string());
+        }
+        self.hotkey_id_record = hk_rec.id();
+        self.hotkey_id_screenshot = hk_shot.id();
+        self.hotkey_id_summon = hk_summon.id();
+        self.hotkey_rec_digit_prev = rec;
+        self.hotkey_shot_digit_prev = shot;
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "{} already taken by another app",
+                failed.join(", ")
+            ))
+        }
     }
 
     fn apply_session(&mut self, s: SessionState) {

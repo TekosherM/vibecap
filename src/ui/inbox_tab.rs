@@ -287,6 +287,26 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     });
 }
 
+/// Seconds since a request was filed (`created_at` is `%Y-%m-%d %H:%M:%S`
+/// local). None when the stamp doesn't parse — treat as no tint.
+fn thread_age_secs(created_at: &str) -> Option<i64> {
+    let naive =
+        chrono::NaiveDateTime::parse_from_str(created_at.trim(), "%Y-%m-%d %H:%M:%S").ok()?;
+    let age = chrono::Local::now().naive_local() - naive;
+    Some(age.num_seconds().max(0))
+}
+
+/// Compact age label — "3m", "1h", "2d".
+fn rel_age(secs: i64) -> String {
+    if secs < 3600 {
+        format!("{}m", (secs / 60).max(1))
+    } else if secs < 86400 {
+        format!("{}h", secs / 3600)
+    } else {
+        format!("{}d", secs / 86400)
+    }
+}
+
 fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pending: bool) {
     let selected = app.feedback_selected.as_deref() == Some(req.id.as_str());
     let agent = if req.agent_label.is_empty() {
@@ -363,11 +383,22 @@ fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pe
             } else {
                 theme::TEXT_MUTED()
             }));
-            ui.label(
-                RichText::new(&req.created_at)
-                    .size(10.0)
-                    .color(theme::TEXT_DIM()),
-            );
+            // SLA age tint: pending threads go amber after 10 min, red after
+            // 30 — a stale question should be visible at a glance.
+            let age_color = if pending {
+                match thread_age_secs(&req.created_at) {
+                    Some(s) if s > 30 * 60 => theme::DANGER(),
+                    Some(s) if s > 10 * 60 => theme::WARN(),
+                    _ => theme::TEXT_DIM(),
+                }
+            } else {
+                theme::TEXT_DIM()
+            };
+            let stamp = match thread_age_secs(&req.created_at) {
+                Some(s) if pending => format!("{} · {}", req.created_at, rel_age(s)),
+                _ => req.created_at.clone(),
+            };
+            ui.label(RichText::new(stamp).size(10.0).color(age_color));
         })
         .response
         .interact(egui::Sense::click());
@@ -677,4 +708,24 @@ fn show_conversation_detail(
                 });
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rel_age, thread_age_secs};
+
+    #[test]
+    fn rel_age_buckets() {
+        assert_eq!(rel_age(30), "1m");
+        assert_eq!(rel_age(599), "9m");
+        assert_eq!(rel_age(3600), "1h");
+        assert_eq!(rel_age(172800), "2d");
+    }
+
+    #[test]
+    fn thread_age_parses_stamp() {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        assert!(thread_age_secs(&now).unwrap() < 5);
+        assert!(thread_age_secs("not a date").is_none());
+    }
 }

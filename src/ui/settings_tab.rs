@@ -289,7 +289,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 );
                 ui.add_space(theme::SP_2);
                 ui.label(
-                    RichText::new("Global hotkey digits (Ctrl+Shift+N) — applies next launch")
+                    RichText::new("Global hotkey digits (Ctrl+Shift+N) — applies immediately")
                         .size(12.0)
                         .color(theme::TEXT_MUTED()),
                 );
@@ -299,9 +299,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ui.label("Record");
                     ui.add(egui::Slider::new(&mut app.hotkey_rec_digit, 0..=9).prefix("#"));
                 });
-                if btn_small(ui, "Save hotkeys") {
-                    app.persist_session();
-                    app.show_toast("Hotkeys saved — restart the GUI to rebind");
+                if btn_small(ui, "Apply hotkeys") {
+                    match app.rebind_global_hotkeys() {
+                        Ok(()) => {
+                            app.persist_session();
+                            app.show_toast("Hotkeys live — try them now");
+                        }
+                        Err(e) => app.show_toast(format!("⚠ {e}")),
+                    }
                 }
                 ui.add_space(theme::SP_2);
                 if cfg!(windows) {

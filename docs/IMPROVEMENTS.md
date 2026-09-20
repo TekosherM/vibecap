@@ -490,22 +490,22 @@ background chip (112), save-as-copy (116), Esc depth (125).
 129. **Frame-step keys** — ←/→ one frame, J/K 10 frames. ✓ (←/→ existed; J/K ±10 + I/O trim-at-playhead added)
 130. **In/out loop** — preview loops the marked range. ✓ (was already shipped — `L` toggles)
 131. **Trim-verify export** — assert ffmpeg `-ss/-to` equals the ruler seconds.
-132. **Stream-copy trim** — `-c copy` when codec allows; instant cut.
-133. **Export preset chips** — Discord 8 MB / README 480p / lossless.
-134. **GIF settings dialog** — fps, width, loop mode, size estimate pre-encode.
+132. **Stream-copy trim** — `-c copy` when codec allows; instant cut. ✓ (was already shipped — Trim video uses `-ss/-to -c copy`)
+133. **Export preset chips** — Discord 8 MB / README 480p / lossless. ✓ (was already shipped — PRESETS group)
+134. **GIF settings dialog** — fps, width, loop mode, size estimate pre-encode. ✓ (was already shipped — sliders + ~KB estimate)
 135. **GIF ping-pong** — boomerang loop toggle.
 136. **GIF frame ops** — delete frames, per-frame delay in filmstrip.
 137. **Re-GIF existing MP4** — new settings without re-recording.
 138. **WebM/AV1 export** — codec picker on the export row.
-139. **Extract audio** — one-click `.m4a` from clip.
-140. **Frame-grab** — current preview frame → new still in Library.
+139. **Extract audio** — one-click `.m4a` from clip. ✓ (was already shipped — AUDIO group)
+140. **Frame-grab** — current preview frame → new still in Library. ✓ (transport "Grab frame" → ffmpeg `-ss -vframes 1` JPG)
 141. **Chapter markers** — marker hotkey during record; ticks on the ruler. ✓ (was already shipped — sidecar + ruler ticks)
-142. **Marker list** — click a marker to jump the preview.
+142. **Marker list** — click a marker to jump the preview. ✓ (clickable timecode chips under the ruler)
 143. **Auto-trim dead air** — detect frozen head/tail, offer trim.
 144. **Speed ramp** — 0.5×/2× segments (stretch goal, simple `-setpts`).
 145. **Clip notes** — text sidecar shown under the player.
 146. **Compare mode** — split-screen before/after trim preview.
-147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error.
+147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error. ✓ (transport bar)
 148. **Preview quality toggle** — half-res filmstrip for long clips.
 149. **Auto-play setting** — the autoplay we shipped becomes a Settings toggle.
 150. **Clip deletion guard** — deleting a recording with unsaved trims asks once.
@@ -555,7 +555,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 188. **Request grouping** — threads collapse by agent/session.
 189. **Unread divider** — "new since you last looked" line.
 190. **Bulk approve** — shift-select threads → approve all.
-191. **SLA colors** — threads age-tint (green→amber→red) as they wait.
+191. **SLA colors** — threads age-tint (green→amber→red) as they wait. ✓ (timestamp goes amber >10m, red >30m; relative age shown)
 192. **Attachment preview** — media_path renders inline thumb in thread.
 193. **Reply templates per request type** — screenshot-needed vs approval prompts get different quick replies.
 194. **Notification dedupe** — repeat polls for same request don't re-toast.
@@ -568,7 +568,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 ## I · Tray, hotkeys & OS integration (201–225)
 
-201. **Hotkey rebind UI** — Settings editor, applies live (round-1 open).
+201. **Hotkey rebind UI** — Settings editor, applies live (round-1 open). ✓ (`rebind_global_hotkeys` unregisters/re-registers; conflict toast names the taken combo)
 202. **Per-mode hotkeys** — region-still, window-still, GIF, pause each rebindable.
 203. **Hotkey conflict detect** — warn when binding collides with OS/browser.
 204. **Tray recent-captures** — last 5 items submenu with copy/reveal.

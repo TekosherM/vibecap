@@ -224,6 +224,36 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
                 .size(11.0)
                 .color(theme::TEXT_DIM()),
         );
+        // Always-visible external Open — real-player fallback shouldn't only
+        // exist on the error path.
+        if btn_small(ui, "Open") {
+            open_external(app);
+        }
+        // Frame-grab — current preview frame → a new still next to the clip.
+        if n > 0 && btn_small(ui, "Grab frame") {
+            if let Some(f) = &app.edit_file {
+                let src = f.clone();
+                let out = src.with_file_name(format!(
+                    "frame_{}.jpg",
+                    format_timecode(app.player_pos).replace(':', "-")
+                ));
+                app.spawn_ffmpeg_job(
+                    vec![
+                        "-y".into(),
+                        "-ss".into(),
+                        format!("{:.3}", app.player_pos),
+                        "-i".into(),
+                        src.to_str().unwrap_or_default().into(),
+                        "-frames:v".into(),
+                        "1".into(),
+                        "-q:v".into(),
+                        "2".into(),
+                        out.to_str().unwrap_or_default().into(),
+                    ],
+                    "Frame saved as JPG",
+                );
+            }
+        }
     });
 }
 
@@ -861,6 +891,19 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             );
                         });
                     });
+                    // Marker list — click a chapter tick to jump the playhead.
+                    if !markers.is_empty() {
+                        ui.add_space(theme::SP_1);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("Markers").size(10.0).color(theme::TEXT_DIM()));
+                            for m in &markers {
+                                if btn_small(ui, &format_timecode(*m)) {
+                                    app.player_pos = (*m).clamp(0.0, duration);
+                                    app.player_playing = false;
+                                }
+                            }
+                        });
+                    }
                 });
             },
         ); // left column
