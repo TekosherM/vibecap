@@ -4,17 +4,16 @@ use eframe::egui;
 use egui::{RichText, Stroke};
 
 use crate::ui::theme;
+use crate::ui::{btn_small, switch};
 use crate::ui::{shutter_strip, ShutterAction};
 use crate::{CaptureTarget, VibecapApp};
-use crate::ui::{btn_small, switch};
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
-
-                    // Centered content column — the column centers, rows inside
-                    // it left-align (Chromie popup column). vertical_centered
-                    // centered every row independently, orphaning short labels.
-                    let col_w = ui.available_width().min(720.0);
-                    ui.horizontal(|ui| {
+    // Centered content column — the column centers, rows inside
+    // it left-align (Chromie popup column). vertical_centered
+    // centered every row independently, orphaning short labels.
+    let col_w = ui.available_width().min(720.0);
+    ui.horizontal(|ui| {
                         ui.add_space(((ui.available_width() - col_w) / 2.0).max(0.0));
                         ui.allocate_ui_with_layout(
                             egui::Vec2::new(col_w, ui.available_height()),
@@ -759,5 +758,4 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             },
                         );
                     });
-
 }

@@ -36,14 +36,22 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     // ── Keyboard Shortcuts (Cmd+C / Cmd+S) ──────────────────────────
     ctx.input_mut(|i| {
-        if i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::C))
-            || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::C))
-        {
+        if i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::COMMAND,
+            egui::Key::C,
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::C,
+        )) {
             app.copy_current_still_to_clipboard();
         }
-        if i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::S))
-            || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::S))
-        {
+        if i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::COMMAND,
+            egui::Key::S,
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::S,
+        )) {
             app.save_current_still();
         }
         if i.consume_shortcut(&egui::KeyboardShortcut::new(
@@ -60,9 +68,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             }
         }
-        if i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Z))
-            || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Z))
-        {
+        if i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::COMMAND,
+            egui::Key::Z,
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::Z,
+        )) {
             app.annotation_do_undo();
         }
         if i.consume_shortcut(&egui::KeyboardShortcut::new(
@@ -71,9 +83,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
             egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
             egui::Key::Z,
-        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Y))
-            || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Y))
-        {
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::COMMAND,
+            egui::Key::Y,
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::Y,
+        )) {
             app.annotation_do_redo();
         }
         if i.key_pressed(egui::Key::Num0) {

@@ -246,9 +246,18 @@ fn step_welcome(ui: &mut egui::Ui) {
     );
     ui.add_space(theme::SP_3);
     for (title, body) in [
-        ("Capture", "Screenshot, record, or GIF — one button, global hotkeys."),
-        ("Review", "Mark up stills, trim clips, then copy or save in one tap."),
-        ("Inbox", "When an agent asks, reply with chips, text, voice, or markup."),
+        (
+            "Capture",
+            "Screenshot, record, or GIF — one button, global hotkeys.",
+        ),
+        (
+            "Review",
+            "Mark up stills, trim clips, then copy or save in one tap.",
+        ),
+        (
+            "Inbox",
+            "When an agent asks, reply with chips, text, voice, or markup.",
+        ),
     ] {
         ui.horizontal(|ui| {
             ui.label(RichText::new("▸").color(theme::TEXT_DIM()));
@@ -374,11 +383,7 @@ fn step_budget(app: &mut VibecapApp, ui: &mut egui::Ui) {
                             .color(theme::TEXT()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(cost)
-                                .size(11.0)
-                                .color(theme::TEXT_DIM()),
-                        );
+                        ui.label(RichText::new(cost).size(11.0).color(theme::TEXT_DIM()));
                     });
                 });
                 ui.label(RichText::new(desc).size(12.0).color(theme::TEXT_MUTED()));
@@ -442,12 +447,7 @@ fn step_shortcuts(ui: &mut egui::Ui) {
                 .rounding(theme::rounding_sm())
                 .inner_margin(Margin::symmetric(8.0, 3.0))
                 .show(ui, |ui| {
-                    ui.label(
-                        RichText::new(keys)
-                            .size(12.0)
-                            .strong()
-                            .color(theme::TEXT()),
-                    );
+                    ui.label(RichText::new(keys).size(12.0).strong().color(theme::TEXT()));
                 });
             ui.label(RichText::new(action).size(13.0).color(theme::TEXT_MUTED()));
         });
@@ -476,4 +476,3 @@ fn step_shortcuts(ui: &mut egui::Ui) {
             .color(theme::TEXT_DIM()),
     );
 }
-

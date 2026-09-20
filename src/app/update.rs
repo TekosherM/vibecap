@@ -2,8 +2,7 @@
 
 use std::process::Command;
 
-const RELEASES: &str =
-    "https://api.github.com/repos/TekosherM/vibecap/releases/latest";
+const RELEASES: &str = "https://api.github.com/repos/TekosherM/vibecap/releases/latest";
 
 pub fn check_latest_release() -> Result<String, String> {
     let body = fetch_latest_json()?;

@@ -46,7 +46,8 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
     match icon {
         Icon::Shutter | Icon::Camera => {
             // Camera body
-            let body = Rect::from_center_size(c + Vec2::new(0.0, s * 0.08), Vec2::new(s * 1.5, s * 1.05));
+            let body =
+                Rect::from_center_size(c + Vec2::new(0.0, s * 0.08), Vec2::new(s * 1.5, s * 1.05));
             painter.rect_stroke(body, 2.0, stroke);
             painter.circle_stroke(c + Vec2::new(0.0, s * 0.1), s * 0.32, stroke);
             // Viewfinder bump
@@ -79,8 +80,14 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
         }
         Icon::Media => {
             // Stacked cards
-            let a = Rect::from_center_size(c + Vec2::new(-s * 0.12, -s * 0.08), Vec2::new(s * 1.35, s * 1.0));
-            let b = Rect::from_center_size(c + Vec2::new(s * 0.12, s * 0.12), Vec2::new(s * 1.35, s * 1.0));
+            let a = Rect::from_center_size(
+                c + Vec2::new(-s * 0.12, -s * 0.08),
+                Vec2::new(s * 1.35, s * 1.0),
+            );
+            let b = Rect::from_center_size(
+                c + Vec2::new(s * 0.12, s * 0.12),
+                Vec2::new(s * 1.35, s * 1.0),
+            );
             painter.rect_stroke(b, 2.0, stroke);
             painter.rect_stroke(a, 2.0, stroke);
         }
@@ -89,7 +96,10 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             let frame = Rect::from_center_size(c, Vec2::new(s * 1.45, s * 1.0));
             painter.rect_stroke(frame, 2.0, stroke);
             painter.line_segment(
-                [Pos2::new(c.x, frame.top() + 2.0), Pos2::new(c.x, frame.bottom() - 2.0)],
+                [
+                    Pos2::new(c.x, frame.top() + 2.0),
+                    Pos2::new(c.x, frame.bottom() - 2.0),
+                ],
                 stroke,
             );
             for dy in [-0.32_f32, 0.32] {
@@ -135,11 +145,17 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             ];
             painter.add(Shape::closed_line(tray.to_vec(), stroke));
             painter.line_segment(
-                [Pos2::new(c.x - s * 0.35, c.y - s * 0.15), Pos2::new(c.x, c.y + s * 0.15)],
+                [
+                    Pos2::new(c.x - s * 0.35, c.y - s * 0.15),
+                    Pos2::new(c.x, c.y + s * 0.15),
+                ],
                 stroke,
             );
             painter.line_segment(
-                [Pos2::new(c.x + s * 0.35, c.y - s * 0.15), Pos2::new(c.x, c.y + s * 0.15)],
+                [
+                    Pos2::new(c.x + s * 0.35, c.y - s * 0.15),
+                    Pos2::new(c.x, c.y + s * 0.15),
+                ],
                 stroke,
             );
         }
@@ -155,11 +171,17 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
         }
         Icon::Check => {
             painter.line_segment(
-                [c + Vec2::new(-s * 0.45, 0.05), c + Vec2::new(-0.08, s * 0.4)],
+                [
+                    c + Vec2::new(-s * 0.45, 0.05),
+                    c + Vec2::new(-0.08, s * 0.4),
+                ],
                 Stroke::new(stroke.width + 0.4, color),
             );
             painter.line_segment(
-                [c + Vec2::new(-0.08, s * 0.4), c + Vec2::new(s * 0.5, -s * 0.4)],
+                [
+                    c + Vec2::new(-0.08, s * 0.4),
+                    c + Vec2::new(s * 0.5, -s * 0.4),
+                ],
                 Stroke::new(stroke.width + 0.4, color),
             );
         }
@@ -177,11 +199,17 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
         Icon::Error => {
             painter.circle_stroke(c, s * 0.65, stroke);
             painter.line_segment(
-                [c + Vec2::new(-s * 0.3, -s * 0.3), c + Vec2::new(s * 0.3, s * 0.3)],
+                [
+                    c + Vec2::new(-s * 0.3, -s * 0.3),
+                    c + Vec2::new(s * 0.3, s * 0.3),
+                ],
                 stroke,
             );
             painter.line_segment(
-                [c + Vec2::new(s * 0.3, -s * 0.3), c + Vec2::new(-s * 0.3, s * 0.3)],
+                [
+                    c + Vec2::new(s * 0.3, -s * 0.3),
+                    c + Vec2::new(-s * 0.3, s * 0.3),
+                ],
                 stroke,
             );
         }
@@ -198,15 +226,11 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             painter.rect_stroke(frame, 2.0, stroke);
             for i in 0..4 {
                 let x = frame.left() + 4.0 + i as f32 * (frame.width() - 8.0) / 3.0;
-                let hole = Rect::from_min_size(
-                    Pos2::new(x, frame.top() + 3.0),
-                    Vec2::new(3.0, 4.0),
-                );
+                let hole =
+                    Rect::from_min_size(Pos2::new(x, frame.top() + 3.0), Vec2::new(3.0, 4.0));
                 painter.rect_filled(hole, 0.5, color);
-                let hole2 = Rect::from_min_size(
-                    Pos2::new(x, frame.bottom() - 7.0),
-                    Vec2::new(3.0, 4.0),
-                );
+                let hole2 =
+                    Rect::from_min_size(Pos2::new(x, frame.bottom() - 7.0), Vec2::new(3.0, 4.0));
                 painter.rect_filled(hole2, 0.5, color);
             }
             painter.line_segment(
@@ -218,10 +242,14 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             );
         }
         Icon::Monitor => {
-            let body = Rect::from_center_size(c + Vec2::new(0.0, -s * 0.12), Vec2::new(s * 1.4, s * 0.95));
+            let body =
+                Rect::from_center_size(c + Vec2::new(0.0, -s * 0.12), Vec2::new(s * 1.4, s * 0.95));
             painter.rect_stroke(body, 2.0, stroke);
             painter.line_segment(
-                [Pos2::new(c.x, body.bottom()), Pos2::new(c.x, body.bottom() + s * 0.3)],
+                [
+                    Pos2::new(c.x, body.bottom()),
+                    Pos2::new(c.x, body.bottom() + s * 0.3),
+                ],
                 stroke,
             );
             painter.line_segment(

@@ -62,7 +62,8 @@ pub fn bake_annotations(
                 } else {
                     (color.a() as f32) / 255.0
                 };
-                let draw_color = image::Rgba([color.r(), color.g(), color.b(), (alpha * 255.0) as u8]);
+                let draw_color =
+                    image::Rgba([color.r(), color.g(), color.b(), (alpha * 255.0) as u8]);
 
                 for i in 1..action.points.len() {
                     let (x0, y0) = map_pos(action.points[i - 1]);
@@ -283,14 +284,28 @@ fn pixelate_rect(
 fn draw_badge_number(rgba: &mut image::RgbaImage, cx: i32, cy: i32, num: usize, badge_r: i32) {
     let text = num.to_string();
     let font_scale = (badge_r as f32 / 12.0).max(1.0);
-    draw_simple_text(rgba, cx - (text.len() as i32 * 4 * font_scale as i32), cy - (4.0 * font_scale) as i32, &text, image::Rgba([0, 0, 0, 255]), font_scale);
+    draw_simple_text(
+        rgba,
+        cx - (text.len() as i32 * 4 * font_scale as i32),
+        cy - (4.0 * font_scale) as i32,
+        &text,
+        image::Rgba([0, 0, 0, 255]),
+        font_scale,
+    );
 }
 
-fn draw_text_box(rgba: &mut image::RgbaImage, x: i32, y: i32, text: &str, color: Color32, scale: f32) {
+fn draw_text_box(
+    rgba: &mut image::RgbaImage,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color32,
+    scale: f32,
+) {
     let font_scale = scale.clamp(1.0, 3.0);
     let text_w = text.len() as i32 * 8 * font_scale as i32;
     let text_h = 16 * font_scale as i32;
-    
+
     // Background pill
     let bg_color = image::Rgba([20, 20, 24, 220]);
     let min_x = (x - 6).max(0) as u32;
@@ -308,7 +323,14 @@ fn draw_text_box(rgba: &mut image::RgbaImage, x: i32, y: i32, text: &str, color:
     draw_simple_text(rgba, x, y, text, draw_color, font_scale);
 }
 
-fn draw_simple_text(rgba: &mut image::RgbaImage, x: i32, y: i32, text: &str, color: image::Rgba<u8>, scale: f32) {
+fn draw_simple_text(
+    rgba: &mut image::RgbaImage,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: image::Rgba<u8>,
+    scale: f32,
+) {
     let s = scale.max(1.0) as i32;
     let mut cur_x = x;
 
@@ -321,7 +343,11 @@ fn draw_simple_text(rgba: &mut image::RgbaImage, x: i32, y: i32, text: &str, col
                             for sx in 0..s {
                                 let px = cur_x + (col as i32) * s + sx;
                                 let py = y + (row as i32) * s + sy;
-                                if px >= 0 && px < rgba.width() as i32 && py >= 0 && py < rgba.height() as i32 {
+                                if px >= 0
+                                    && px < rgba.width() as i32
+                                    && py >= 0
+                                    && py < rgba.height() as i32
+                                {
                                     blend_pixel(rgba, px as u32, py as u32, color);
                                 }
                             }

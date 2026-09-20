@@ -112,4 +112,3 @@ pub fn feedback_last_poll_secs() -> Option<u64> {
     let modified = meta.modified().ok()?;
     Some(modified.elapsed().ok()?.as_secs())
 }
-

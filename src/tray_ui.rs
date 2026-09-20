@@ -40,7 +40,9 @@ pub enum TrayLiveState {
     Arming,
     /// ffmpeg is finalizing the MP4 after Stop (moov write on a worker).
     Finalizing,
-    Recording { elapsed_secs: u64 },
+    Recording {
+        elapsed_secs: u64,
+    },
 }
 
 /// Which icon glyph to draw. `Recording` carries elapsed secs so the icon can
@@ -230,17 +232,14 @@ impl TrayController {
                 let clock = format_clock(elapsed_secs);
                 // Menu bar: compact live tracker next to aperture icon.
                 self.tray.set_title(Some(format!("REC {clock}")));
-                let _ = self.tray.set_tooltip(Some(format!(
-                    "Recording {clock} — menu: Stop · ⌃⇧2"
-                )));
-                self.status_item
-                    .set_text(format!("Recording · {clock}"));
+                let _ = self
+                    .tray
+                    .set_tooltip(Some(format!("Recording {clock} — menu: Stop · ⌃⇧2")));
+                self.status_item.set_text(format!("Recording · {clock}"));
                 self.record_item
                     .set_text(format!("Stop Recording  [{clock}]\t⌃⇧2"));
                 if let Ok(icon) = make_tray_icon(IconPhase::Recording { elapsed_secs }) {
-                    let _ = self
-                        .tray
-                        .set_icon_with_as_template(Some(icon), false);
+                    let _ = self.tray.set_icon_with_as_template(Some(icon), false);
                 }
             }
             TrayLiveState::Arming => {

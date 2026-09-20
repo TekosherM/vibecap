@@ -59,7 +59,9 @@ pub fn park_offscreen(ctx: &Context, pre_outer: &mut Option<Pos2>, pre_size: &mu
     snapshot_park_geometry(ctx, pre_outer, pre_size);
     ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
     ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(-12_000.0, -12_000.0)));
+    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(
+        -12_000.0, -12_000.0,
+    )));
     ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(120.0, 80.0)));
     ctx.request_repaint();
 }
@@ -121,8 +123,17 @@ mod tests {
 
     #[test]
     fn snapshot_skips_already_parked_and_tiny_windows() {
-        assert!(!should_snapshot_geometry(true, Some(Vec2::new(1160.0, 800.0))));
-        assert!(!should_snapshot_geometry(false, Some(Vec2::new(120.0, 80.0))));
-        assert!(should_snapshot_geometry(false, Some(Vec2::new(1160.0, 800.0))));
+        assert!(!should_snapshot_geometry(
+            true,
+            Some(Vec2::new(1160.0, 800.0))
+        ));
+        assert!(!should_snapshot_geometry(
+            false,
+            Some(Vec2::new(120.0, 80.0))
+        ));
+        assert!(should_snapshot_geometry(
+            false,
+            Some(Vec2::new(1160.0, 800.0))
+        ));
     }
 }

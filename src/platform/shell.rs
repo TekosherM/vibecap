@@ -128,8 +128,7 @@ mod macos_ffi {
     }
 
     unsafe fn msg_send_id(recv: Id, sel: Sel) -> Id {
-        let f: unsafe extern "C" fn(Id, Sel) -> Id =
-            std::mem::transmute(objc_msgSend as *const ());
+        let f: unsafe extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
         f(recv, sel)
     }
 
@@ -509,10 +508,7 @@ fn should_skip_app_name(name: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn frontmost_app_lsappinfo() -> Option<String> {
-    let front = Command::new("lsappinfo")
-        .arg("front")
-        .output()
-        .ok()?;
+    let front = Command::new("lsappinfo").arg("front").output().ok()?;
     if !front.status.success() {
         return None;
     }
@@ -656,7 +652,10 @@ tell application "System Events"
 end tell
 return n
 "#;
-        let out = Command::new("osascript").args(["-e", script]).output().ok()?;
+        let out = Command::new("osascript")
+            .args(["-e", script])
+            .output()
+            .ok()?;
         if !out.status.success() {
             return None;
         }
@@ -727,7 +726,10 @@ pub fn focus_app(app_name: &str) -> Result<(), String> {
             return Ok(());
         }
         // Retry via AppleScript activate (resolves by name differently).
-        let script = format!("tell application \"{}\" to activate", app_name.replace('"', "\\\""));
+        let script = format!(
+            "tell application \"{}\" to activate",
+            app_name.replace('"', "\\\"")
+        );
         let _ = Command::new("osascript").arg("-e").arg(&script).status();
         std::thread::sleep(Duration::from_millis(400));
         if matches(&frontmost_app_name()) {
@@ -756,11 +758,7 @@ pub fn focus_app(app_name: &str) -> Result<(), String> {
             std::thread::sleep(Duration::from_millis(300));
             return Ok(());
         }
-        if Command::new("gtk-launch")
-            .arg(app_name)
-            .spawn()
-            .is_ok()
-        {
+        if Command::new("gtk-launch").arg(app_name).spawn().is_ok() {
             std::thread::sleep(Duration::from_millis(400));
             return Ok(());
         }
@@ -1027,7 +1025,12 @@ pub fn open_screen_recording_settings() -> Result<(), String> {
             "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
         ];
         for u in urls {
-            if Command::new("open").arg(u).status().map(|s| s.success()).unwrap_or(false) {
+            if Command::new("open")
+                .arg(u)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
                 return Ok(());
             }
         }
@@ -1101,13 +1104,21 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
     {
         // Prefer AppleScript → real Finder. `open -R` can fail silently when
         // NSFileViewer points at a missing third-party app (e.g. Path Finder).
-        let posix = path.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+        let posix = path
+            .to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
         let script_reveal = format!(
             "tell application \"Finder\" to reveal POSIX file \"{}\"",
             posix
         );
         let status = Command::new("osascript")
-            .args(["-e", &script_reveal, "-e", "tell application \"Finder\" to activate"])
+            .args([
+                "-e",
+                &script_reveal,
+                "-e",
+                "tell application \"Finder\" to activate",
+            ])
             .status();
         if status.map(|s| s.success()).unwrap_or(false) {
             return Ok(());
@@ -1121,7 +1132,11 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
 
         // Last resort: open containing folder in Finder
         if let Some(parent) = path.parent() {
-            let _ = Command::new("open").arg("-a").arg("Finder").arg(parent).status();
+            let _ = Command::new("open")
+                .arg("-a")
+                .arg("Finder")
+                .arg(parent)
+                .status();
             return Ok(());
         }
         return Err("could not reveal file in Finder".into());

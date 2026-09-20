@@ -557,7 +557,12 @@ pub fn disk_free_bytes(dir: &std::path::Path) -> Option<u64> {
         .collect();
     let mut free = 0u64;
     let ok = unsafe {
-        GetDiskFreeSpaceExW(wide.as_mut_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut())
+        GetDiskFreeSpaceExW(
+            wide.as_mut_ptr(),
+            &mut free,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
     };
     (ok != 0).then_some(free)
 }
@@ -916,7 +921,6 @@ pub fn focus_window(needle: &str) -> Result<(), String> {
     }
 }
 
-
 // ── Registry: Run-key autostart (direct advapi32 — no reg.exe, no console flash) ──
 
 const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
@@ -1032,7 +1036,15 @@ mod tests {
         assert!(!"Vibecap Recorder".starts_with("Vibecap Studio"));
     }
 
-    fn win(title: &str, process: &str, x: i32, y: i32, w: i32, h: i32, minimized: bool) -> EnumWindow {
+    fn win(
+        title: &str,
+        process: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        minimized: bool,
+    ) -> EnumWindow {
         EnumWindow {
             hwnd: 0,
             process: process.into(),

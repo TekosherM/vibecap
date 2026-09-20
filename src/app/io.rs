@@ -28,10 +28,7 @@ pub fn write_pending_still(path: &Path) {
 
 pub fn write_pending_still_error(msg: &str) {
     let _ = std::fs::create_dir_all(vibecap_config_dir());
-    let _ = std::fs::write(
-        pending_still_path(),
-        format!("ERROR\n{msg}").as_bytes(),
-    );
+    let _ = std::fs::write(pending_still_path(), format!("ERROR\n{msg}").as_bytes());
 }
 
 /// Returns Ok(path) or Err(message). Clears the marker.

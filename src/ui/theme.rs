@@ -76,19 +76,28 @@ fn install_ui_fonts(ctx: &egui::Context) {
             ]
         };
         let monospace: &[&str] = if cfg!(windows) {
-            &[r"C:\Windows\Fonts\CascadiaMono.ttf", r"C:\Windows\Fonts\consola.ttf"]
+            &[
+                r"C:\Windows\Fonts\CascadiaMono.ttf",
+                r"C:\Windows\Fonts\consola.ttf",
+            ]
         } else {
             &[]
         };
         // Real weight faces — egui's `.strong()` only brightens color, so a
         // named family is the only way to get the mockup's 550/650 weights.
         let semibold: &[&str] = if cfg!(windows) {
-            &[r"C:\Windows\Fonts\seguisb.ttf", r"C:\Windows\Fonts\segoeuib.ttf"]
+            &[
+                r"C:\Windows\Fonts\seguisb.ttf",
+                r"C:\Windows\Fonts\segoeuib.ttf",
+            ]
         } else {
             &[]
         };
         let bold: &[&str] = if cfg!(windows) {
-            &[r"C:\Windows\Fonts\segoeuib.ttf", r"C:\Windows\Fonts\segoeui.ttf"]
+            &[
+                r"C:\Windows\Fonts\segoeuib.ttf",
+                r"C:\Windows\Fonts\segoeui.ttf",
+            ]
         } else {
             &[]
         };
@@ -98,7 +107,9 @@ fn install_ui_fonts(ctx: &egui::Context) {
         for (i, path) in proportional.iter().enumerate() {
             if let Ok(bytes) = std::fs::read(path) {
                 let name = format!("ui-sans-{i}");
-                fonts.font_data.insert(name.clone(), egui::FontData::from_owned(bytes));
+                fonts
+                    .font_data
+                    .insert(name.clone(), egui::FontData::from_owned(bytes));
                 fonts
                     .families
                     .entry(egui::FontFamily::Proportional)
@@ -110,7 +121,9 @@ fn install_ui_fonts(ctx: &egui::Context) {
         for (i, path) in monospace.iter().enumerate() {
             if let Ok(bytes) = std::fs::read(path) {
                 let name = format!("ui-mono-{i}");
-                fonts.font_data.insert(name.clone(), egui::FontData::from_owned(bytes));
+                fonts
+                    .font_data
+                    .insert(name.clone(), egui::FontData::from_owned(bytes));
                 fonts
                     .families
                     .entry(egui::FontFamily::Monospace)
@@ -122,7 +135,9 @@ fn install_ui_fonts(ctx: &egui::Context) {
             for path in paths {
                 if let Ok(bytes) = std::fs::read(path) {
                     let data = format!("ui-{family_name}");
-                    fonts.font_data.insert(data.clone(), egui::FontData::from_owned(bytes));
+                    fonts
+                        .font_data
+                        .insert(data.clone(), egui::FontData::from_owned(bytes));
                     fonts
                         .families
                         .insert(egui::FontFamily::Name(family_name.into()), vec![data]);
@@ -237,7 +252,10 @@ macro_rules! pent {
 
 /// True for the two cosmic themes (starfield + aurora accents apply).
 pub fn is_celestial() -> bool {
-    matches!(theme_mode(), ThemeMode::Celestial | ThemeMode::CelestialPink)
+    matches!(
+        theme_mode(),
+        ThemeMode::Celestial | ThemeMode::CelestialPink
+    )
 }
 
 // ── Canvas ──────────────────────────────────────────────────────────
@@ -699,10 +717,7 @@ pub fn paint_celestial_sky(painter: &egui::Painter, rect: egui::Rect) {
     let mode_key = theme_mode() as u8;
     let shapes = SKY_CACHE.with(|c| {
         let mut cache = c.borrow_mut();
-        if let Some((_, _, s)) = cache
-            .iter()
-            .find(|(r, m, _)| *r == rect && *m == mode_key)
-        {
+        if let Some((_, _, s)) = cache.iter().find(|(r, m, _)| *r == rect && *m == mode_key) {
             return s.clone();
         }
         let s = build_sky_shapes(rect);
@@ -770,24 +785,109 @@ fn build_sky_shapes(rect: egui::Rect) -> Vec<egui::Shape> {
     // Stars — positions from Chromie's body starfield (normalized here).
     // `let` not `const`: from_rgba_unmultiplied isn't a const fn.
     let stars: &[(f32, f32, f32, Color32)] = &[
-        (0.04, 0.07, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 178)),
-        (0.15, 0.19, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 128)),
+        (
+            0.04,
+            0.07,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 178),
+        ),
+        (
+            0.15,
+            0.19,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 128),
+        ),
         (0.28, 0.11, 1.5, CELESTIAL_STAR),
-        (0.39, 0.30, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 153)),
-        (0.52, 0.07, 1.0, Color32::from_rgba_unmultiplied(38, 214, 192, 217)),
-        (0.67, 0.27, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 140)),
-        (0.80, 0.42, 1.5, Color32::from_rgba_unmultiplied(236, 79, 142, 217)),
-        (0.92, 0.17, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 128)),
-        (0.07, 0.36, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 102)),
-        (0.23, 0.51, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 140)),
-        (0.44, 0.61, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 115)),
-        (0.62, 0.72, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 128)),
-        (0.14, 0.77, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 153)),
-        (0.85, 0.87, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 102)),
-        (0.36, 0.86, 1.0, Color32::from_rgba_unmultiplied(38, 214, 192, 140)),
-        (0.74, 0.58, 1.0, Color32::from_rgba_unmultiplied(236, 79, 142, 140)),
-        (0.57, 0.92, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 120)),
-        (0.95, 0.62, 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 100)),
+        (
+            0.39,
+            0.30,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 153),
+        ),
+        (
+            0.52,
+            0.07,
+            1.0,
+            Color32::from_rgba_unmultiplied(38, 214, 192, 217),
+        ),
+        (
+            0.67,
+            0.27,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 140),
+        ),
+        (
+            0.80,
+            0.42,
+            1.5,
+            Color32::from_rgba_unmultiplied(236, 79, 142, 217),
+        ),
+        (
+            0.92,
+            0.17,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 128),
+        ),
+        (
+            0.07,
+            0.36,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 102),
+        ),
+        (
+            0.23,
+            0.51,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 140),
+        ),
+        (
+            0.44,
+            0.61,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 115),
+        ),
+        (
+            0.62,
+            0.72,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 128),
+        ),
+        (
+            0.14,
+            0.77,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 153),
+        ),
+        (
+            0.85,
+            0.87,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 102),
+        ),
+        (
+            0.36,
+            0.86,
+            1.0,
+            Color32::from_rgba_unmultiplied(38, 214, 192, 140),
+        ),
+        (
+            0.74,
+            0.58,
+            1.0,
+            Color32::from_rgba_unmultiplied(236, 79, 142, 140),
+        ),
+        (
+            0.57,
+            0.92,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 120),
+        ),
+        (
+            0.95,
+            0.62,
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 100),
+        ),
     ];
     for &(fx, fy, r, color) in stars {
         // Teal-tinted stars become rose under CelestialPink.
@@ -814,17 +914,11 @@ fn radial_glow_shape(c: egui::Pos2, r: f32, color: Color32) -> egui::Shape {
     mesh.colored_vertex(c, color);
     for i in 0..SEG {
         let a = i as f32 / SEG as f32 * std::f32::consts::TAU;
-        mesh.colored_vertex(
-            c + egui::vec2(a.cos(), a.sin()) * r * 0.55,
-            mid,
-        );
+        mesh.colored_vertex(c + egui::vec2(a.cos(), a.sin()) * r * 0.55, mid);
     }
     for i in 0..SEG {
         let a = i as f32 / SEG as f32 * std::f32::consts::TAU;
-        mesh.colored_vertex(
-            c + egui::vec2(a.cos(), a.sin()) * r,
-            Color32::TRANSPARENT,
-        );
+        mesh.colored_vertex(c + egui::vec2(a.cos(), a.sin()) * r, Color32::TRANSPARENT);
     }
     for i in 0..SEG {
         let n = (i + 1) % SEG;

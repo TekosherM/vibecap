@@ -5,53 +5,53 @@ mod platform;
 mod tray_ui;
 mod ui;
 
-use eframe::egui;
-use std::process::Child;
-use std::path::PathBuf;
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use chrono::Local;
 use crossbeam_channel::Receiver;
-use global_hotkey::{GlobalHotKeyManager, hotkey::{HotKey, Modifiers, Code}};
-use global_hotkey::GlobalHotKeyEvent;
-use tray_icon::{menu::MenuEvent, TrayIconEvent};
+use eframe::egui;
 use egui::{
-    Color32, Stroke, Pos2, Rect, Vec2, ViewportId, ViewportBuilder, ViewportCommand, RichText,
-    Frame, Align2, FontId, UserAttentionType,
+    Align2, Color32, FontId, Frame, Pos2, Rect, RichText, Stroke, UserAttentionType, Vec2,
+    ViewportBuilder, ViewportCommand, ViewportId,
 };
+use global_hotkey::GlobalHotKeyEvent;
+use global_hotkey::{
+    hotkey::{Code, HotKey, Modifiers},
+    GlobalHotKeyManager,
+};
+use std::collections::VecDeque;
+use std::path::PathBuf;
+use std::process::Child;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tray_icon::{menu::MenuEvent, TrayIconEvent};
 
 use platform::{
-capture_screenshot, capture_screenshot_interactive,
-    capture_screenshot_opts, cont_process, crop_image_file, even_screen_rect, focus_app,
-    frontmost_app_name, list_running_apps, notify_agent_question, open_screen_recording_settings,
-    request_screen_recording_access, reveal_in_file_manager, screen_capture_allowed,
-    spawn_screen_recorder_opts, spawn_voice_memo, stop_process, CaptureOpts, ScreenRect,
-    record_screen_clip_opts, export_gif_clip,
+    capture_screenshot, capture_screenshot_interactive, capture_screenshot_opts, cont_process,
+    crop_image_file, even_screen_rect, export_gif_clip, focus_app, frontmost_app_name,
+    list_running_apps, notify_agent_question, open_screen_recording_settings,
+    record_screen_clip_opts, request_screen_recording_access, reveal_in_file_manager,
+    screen_capture_allowed, spawn_screen_recorder_opts, spawn_voice_memo, stop_process,
+    CaptureOpts, ScreenRect,
 };
 use tray_ui::{TrayAction, TrayController, TrayLiveState};
+use ui::theme;
 use ui::{
     apply_celestial_theme, apply_current_theme, apply_graphite_theme, funnel_stripe, loop_rail,
-    show_capture_toast,
-    overlay_rect_to_pixels, show_countdown_bubble, show_palette, show_region_selector,
-    show_toast_card, status_strip, CaptureToastAction, Density, LoopStage, PaletteAction,
-    RegionHudResult, StatusSnapshot, ThemeMode, ToastLevel,
+    overlay_rect_to_pixels, show_capture_toast, show_countdown_bubble, show_palette,
+    show_region_selector, show_toast_card, status_strip, CaptureToastAction, Density, LoopStage,
+    PaletteAction, RegionHudResult, StatusSnapshot, ThemeMode, ToastLevel,
 };
-use ui::theme;
 
-use app::{
-default_live_dir, default_media_dir,
-    budget_exceeded_reason, extract_filmstrip_rgba, feedback_requests_dir, feedback_responses_dir, filter_items,
-    finalize_recorder, get_dir_size_bytes, kill_recorder,
-    live_usage_snapshot, load_budget, mcp_live_dir, parse_args, run_headless, run_mcp_server, scan_media_dir, take_pending_still, write_json_atomic, write_pending_still,
-    write_pending_still_error, CliAction, FeedbackRequest,
-    FeedbackResponse, MediaItem, LIBRARY_PAGE_SIZE,
-};
 use app::annotation_baker::{snap_annotation_point, AnnotationAction, AnnotationTool};
 use app::io::vibecap_config_dir;
-use app::session::{
-    density_from_str, density_to_str, load_session, save_session, SessionState,
+use app::session::{density_from_str, density_to_str, load_session, save_session, SessionState};
+use app::{
+    budget_exceeded_reason, default_live_dir, default_media_dir, extract_filmstrip_rgba,
+    feedback_requests_dir, feedback_responses_dir, filter_items, finalize_recorder,
+    get_dir_size_bytes, kill_recorder, live_usage_snapshot, load_budget, mcp_live_dir, parse_args,
+    run_headless, run_mcp_server, scan_media_dir, take_pending_still, write_json_atomic,
+    write_pending_still, write_pending_still_error, CliAction, FeedbackRequest, FeedbackResponse,
+    MediaItem, LIBRARY_PAGE_SIZE,
 };
 
 /// Cached live-dir stats for the Capture tab's proof-of-life row.
@@ -243,7 +243,10 @@ fn snap_is_uniform_dim(pixels: &[u8]) -> bool {
             first = c;
         }
         n += 1;
-        if c.iter().zip(first).all(|(a, b)| (*a as i32 - b as i32).abs() <= 10) {
+        if c.iter()
+            .zip(first)
+            .all(|(a, b)| (*a as i32 - b as i32).abs() <= 10)
+        {
             same += 1;
         }
     }
@@ -479,7 +482,7 @@ pub(crate) struct VibecapApp {
     is_recording_voice_memo: bool,
     voice_memo_child: Option<Child>,
     voice_memo_start: Option<Instant>,
-    
+
     // Channels for async capture
     /// Region-select → arm recording on next frame (avoids re-entrancy).
     pending_arm_record: bool,
@@ -491,7 +494,7 @@ pub(crate) struct VibecapApp {
     pub(crate) recording_finalizing: bool,
     /// Worker → main: voice memo finalize (same blocking wait shape as video).
     voice_finalize_rx: Option<Receiver<Result<(), String>>>,
-    
+
     // File paths & Media Library
     save_dir: PathBuf,
     current_mp4_file: Option<PathBuf>,
@@ -518,7 +521,7 @@ pub(crate) struct VibecapApp {
     library_selected: std::collections::HashSet<PathBuf>,
     /// Pending confirm for clear-all in current category.
     library_confirm_clear: bool,
-    
+
     // Edit tab & Video Processing
     trim_start: String,
     trim_end: String,
@@ -547,7 +550,7 @@ pub(crate) struct VibecapApp {
     pending_text: String,
     feedback_description: String,
     step_counter: usize,
-    
+
     /// Pump-thread mailbox: hotkey + tray events queued while the GUI loop
     /// was parked (a minimized Windows window gets no WM_PAINT → no update()).
     wake_shared: Arc<WakeShared>,
@@ -570,7 +573,7 @@ pub(crate) struct VibecapApp {
     allow_exit: bool,
     /// Start window hidden (still in tray).
     start_hidden: bool,
-    
+
     // Region Selection Overlay
     is_selecting_region: bool,
     region_start: Option<Pos2>,
@@ -768,11 +771,15 @@ pub(crate) struct VibecapApp {
 }
 
 impl Default for AppTab {
-    fn default() -> Self { AppTab::Capture }
+    fn default() -> Self {
+        AppTab::Capture
+    }
 }
 
 impl Default for CaptureTarget {
-    fn default() -> Self { CaptureTarget::Fullscreen }
+    fn default() -> Self {
+        CaptureTarget::Fullscreen
+    }
 }
 
 impl VibecapApp {
@@ -786,7 +793,7 @@ impl VibecapApp {
             Ok(manager) => (Some(manager), Some(GlobalHotKeyEvent::receiver().clone())),
             Err(_) => (None, None),
         };
-        
+
         let default_dir = default_media_dir();
 
         let (ffmpeg_tx, ffmpeg_rx) = crossbeam_channel::unbounded();
@@ -922,8 +929,14 @@ impl VibecapApp {
         };
         let rec = self.hotkey_rec_digit.clamp(0, 9);
         let shot = self.hotkey_shot_digit.clamp(0, 9);
-        let hk_rec = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Self::digit_code(rec));
-        let hk_shot = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Self::digit_code(shot));
+        let hk_rec = HotKey::new(
+            Some(Modifiers::CONTROL | Modifiers::SHIFT),
+            Self::digit_code(rec),
+        );
+        let hk_shot = HotKey::new(
+            Some(Modifiers::CONTROL | Modifiers::SHIFT),
+            Self::digit_code(shot),
+        );
         // Ctrl+Shift+V would steal "paste plain text" in other apps; Ctrl+Alt+V is free.
         let hk_summon = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
         self.hotkey_id_record = hk_rec.id();
@@ -953,7 +966,12 @@ impl VibecapApp {
                 let is_image = path
                     .extension()
                     .and_then(|e| e.to_str())
-                    .map(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp"))
+                    .map(|e| {
+                        matches!(
+                            e.to_ascii_lowercase().as_str(),
+                            "jpg" | "jpeg" | "png" | "gif" | "webp"
+                        )
+                    })
                     .unwrap_or(false);
                 if is_image || matches!(self.current_tab, AppTab::Still) {
                     self.img_edit_file = Some(path.clone());
@@ -967,9 +985,9 @@ impl VibecapApp {
         self.wizard_open = !s.wizard_done;
         self.wizard_step = 0;
         theme::set_theme_mode(theme::theme_mode_from_str(&s.theme));
-        self.last_region = s.last_region.map(|a| {
-            Rect::from_min_max(Pos2::new(a[0], a[1]), Pos2::new(a[2], a[3]))
-        });
+        self.last_region = s
+            .last_region
+            .map(|a| Rect::from_min_max(Pos2::new(a[0], a[1]), Pos2::new(a[2], a[3])));
         self.record_countdown_secs = match s.record_countdown_secs {
             3 | 5 => s.record_countdown_secs,
             _ => 0,
@@ -1015,9 +1033,9 @@ impl VibecapApp {
             AppTab::Feedback => "feedback",
             AppTab::Settings => "settings",
         };
-        let last_region = self.last_region.map(|r| {
-            [r.min.x, r.min.y, r.max.x, r.max.y]
-        });
+        let last_region = self
+            .last_region
+            .map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]);
         // Prefer the path matching the active studio tab.
         let edit_file = match self.current_tab {
             AppTab::Still => self
@@ -1097,7 +1115,11 @@ impl VibecapApp {
                 }
             },
         };
-        app::bake_annotations(&mut dyn_img, &self.annotation_actions, self.annotation_canvas_rect);
+        app::bake_annotations(
+            &mut dyn_img,
+            &self.annotation_actions,
+            self.annotation_canvas_rect,
+        );
         match dyn_img.save(&out) {
             Ok(_) => {
                 if out == path {
@@ -1132,7 +1154,11 @@ impl VibecapApp {
                 }
             },
         };
-        app::bake_annotations(&mut dyn_img, &self.annotation_actions, self.annotation_canvas_rect);
+        app::bake_annotations(
+            &mut dyn_img,
+            &self.annotation_actions,
+            self.annotation_canvas_rect,
+        );
 
         let rgba = dyn_img.to_rgba8();
         let (w, h) = (rgba.width() as usize, rgba.height() as usize);
@@ -1370,7 +1396,11 @@ impl VibecapApp {
         }
         // Windows resolves this via PowerShell (~200-500ms spawn) — run it on a
         // worker and poll rarely.
-        let throttle_ms = if cfg!(target_os = "windows") { 2000 } else { 400 };
+        let throttle_ms = if cfg!(target_os = "windows") {
+            2000
+        } else {
+            400
+        };
         let due = self
             .last_front_poll
             .map(|t| t.elapsed() > Duration::from_millis(throttle_ms))
@@ -1430,8 +1460,7 @@ impl VibecapApp {
         }
         // Window target with no app chosen would silently become fullscreen —
         // refuse instead so the user picks a real target.
-        if self.capture_target == CaptureTarget::Window && self.capture_focus_target().is_none()
-        {
+        if self.capture_target == CaptureTarget::Window && self.capture_focus_target().is_none() {
             self.show_toast("Pick a window app first — or switch to Full.");
             return;
         }
@@ -1447,8 +1476,7 @@ impl VibecapApp {
         if secs == 0 {
             self.arm_recording(ctx);
         } else {
-            self.countdown_deadline =
-                Some(Instant::now() + Duration::from_secs(secs as u64));
+            self.countdown_deadline = Some(Instant::now() + Duration::from_secs(secs as u64));
             self.show_window(ctx);
             ctx.request_repaint();
         }
@@ -1506,37 +1534,33 @@ impl VibecapApp {
             PaletteAction::GoSettings => self.current_tab = AppTab::Settings,
             PaletteAction::Screenshot => self.trigger_capture(ctx, true),
             PaletteAction::RepeatLast => self.repeat_last_capture(ctx),
-            PaletteAction::CopyLastMarkdown => {
-                match self.last_capture.clone() {
-                    Some(LastCapture::Still(p) | LastCapture::Clip(p)) => {
-                        let md = format!("![]({})", p.display());
-                        if arboard::Clipboard::new()
-                            .and_then(|mut b| b.set_text(md))
-                            .is_ok()
-                        {
-                            self.show_toast("📋 Markdown copied");
-                        } else {
-                            self.show_toast("❌ Could not copy");
-                        }
+            PaletteAction::CopyLastMarkdown => match self.last_capture.clone() {
+                Some(LastCapture::Still(p) | LastCapture::Clip(p)) => {
+                    let md = format!("![]({})", p.display());
+                    if arboard::Clipboard::new()
+                        .and_then(|mut b| b.set_text(md))
+                        .is_ok()
+                    {
+                        self.show_toast("📋 Markdown copied");
+                    } else {
+                        self.show_toast("❌ Could not copy");
                     }
-                    None => self.show_toast("Nothing captured yet"),
                 }
-            }
-            PaletteAction::CopyLastPath => {
-                match self.last_capture.clone() {
-                    Some(LastCapture::Still(p) | LastCapture::Clip(p)) => {
-                        if arboard::Clipboard::new()
-                            .and_then(|mut b| b.set_text(p.display().to_string()))
-                            .is_ok()
-                        {
-                            self.show_toast("📋 Path copied");
-                        } else {
-                            self.show_toast("❌ Could not copy");
-                        }
+                None => self.show_toast("Nothing captured yet"),
+            },
+            PaletteAction::CopyLastPath => match self.last_capture.clone() {
+                Some(LastCapture::Still(p) | LastCapture::Clip(p)) => {
+                    if arboard::Clipboard::new()
+                        .and_then(|mut b| b.set_text(p.display().to_string()))
+                        .is_ok()
+                    {
+                        self.show_toast("📋 Path copied");
+                    } else {
+                        self.show_toast("❌ Could not copy");
                     }
-                    None => self.show_toast("Nothing captured yet"),
                 }
-            }
+                None => self.show_toast("Nothing captured yet"),
+            },
             PaletteAction::ToggleRecord => {
                 if self.is_recording {
                     self.stop_recording(ctx);
@@ -1559,10 +1583,7 @@ impl VibecapApp {
                     Density::Compact => Density::Comfortable,
                 };
                 self.persist_session();
-                self.show_toast(format!(
-                    "Density: {}",
-                    density_to_str(self.density)
-                ));
+                self.show_toast(format!("Density: {}", density_to_str(self.density)));
             }
             PaletteAction::ToggleTheme => {
                 let order = &theme::THEME_ORDER;
@@ -1786,53 +1807,53 @@ impl VibecapApp {
     }
 
     fn on_tray_action(&mut self, ctx: &egui::Context, action: TrayAction) {
-            match action {
-                TrayAction::Show => self.show_window(ctx),
-                TrayAction::Hide => self.hide_to_tray(ctx),
-                TrayAction::Screenshot => {
-                    // Capture without forcing the main window up (tray-first workflow).
-                    self.trigger_capture(ctx, true);
-                }
-                TrayAction::ToggleRecord => {
-                    if self.is_recording {
-                        self.stop_recording(ctx);
-                    } else if self.recording_arming || self.countdown_deadline.is_some() {
-                        self.cancel_recording(ctx);
-                    } else {
-                        self.trigger_capture(ctx, false);
-                    }
-                }
-                TrayAction::RepeatLast => self.repeat_last_capture(ctx),
-                TrayAction::GoShutter => {
-                    self.current_tab = AppTab::Capture;
-                    self.show_window(ctx);
-                }
-                TrayAction::GoMedia => {
-                    self.current_tab = AppTab::Library;
-                    self.refresh_library();
-                    self.show_window(ctx);
-                }
-                TrayAction::GoReview => {
-                    self.current_tab = self.review_tab();
-                    self.show_window(ctx);
-                }
-                TrayAction::GoInbox => {
-                    self.current_tab = AppTab::Feedback;
-                    self.scan_feedback_requests();
-                    self.show_window(ctx);
-                }
-                TrayAction::GoSettings => {
-                    self.current_tab = AppTab::Settings;
-                    self.show_window(ctx);
-                }
-                TrayAction::ApproveFirst => self.reply_first_pending("approve"),
-                TrayAction::DenyFirst => self.reply_first_pending("deny"),
-                TrayAction::BugReport => {
-                    self.show_window(ctx);
-                    self.bug_report_pack(ctx);
-                }
-                TrayAction::Quit => self.quit_app(),
+        match action {
+            TrayAction::Show => self.show_window(ctx),
+            TrayAction::Hide => self.hide_to_tray(ctx),
+            TrayAction::Screenshot => {
+                // Capture without forcing the main window up (tray-first workflow).
+                self.trigger_capture(ctx, true);
             }
+            TrayAction::ToggleRecord => {
+                if self.is_recording {
+                    self.stop_recording(ctx);
+                } else if self.recording_arming || self.countdown_deadline.is_some() {
+                    self.cancel_recording(ctx);
+                } else {
+                    self.trigger_capture(ctx, false);
+                }
+            }
+            TrayAction::RepeatLast => self.repeat_last_capture(ctx),
+            TrayAction::GoShutter => {
+                self.current_tab = AppTab::Capture;
+                self.show_window(ctx);
+            }
+            TrayAction::GoMedia => {
+                self.current_tab = AppTab::Library;
+                self.refresh_library();
+                self.show_window(ctx);
+            }
+            TrayAction::GoReview => {
+                self.current_tab = self.review_tab();
+                self.show_window(ctx);
+            }
+            TrayAction::GoInbox => {
+                self.current_tab = AppTab::Feedback;
+                self.scan_feedback_requests();
+                self.show_window(ctx);
+            }
+            TrayAction::GoSettings => {
+                self.current_tab = AppTab::Settings;
+                self.show_window(ctx);
+            }
+            TrayAction::ApproveFirst => self.reply_first_pending("approve"),
+            TrayAction::DenyFirst => self.reply_first_pending("deny"),
+            TrayAction::BugReport => {
+                self.show_window(ctx);
+                self.bug_report_pack(ctx);
+            }
+            TrayAction::Quit => self.quit_app(),
+        }
     }
 
     fn sync_tray_recording_progress(&mut self) {
@@ -1983,9 +2004,7 @@ impl VibecapApp {
             .filter(|i| {
                 q.is_empty()
                     || i.name.to_ascii_lowercase().contains(&q)
-                    || i.path
-                        .with_extension("txt")
-                        .exists()
+                    || i.path.with_extension("txt").exists()
                         && std::fs::read_to_string(i.path.with_extension("txt"))
                             .map(|t| t.to_ascii_lowercase().contains(&q))
                             .unwrap_or(false)
@@ -2108,7 +2127,9 @@ impl VibecapApp {
                 None => continue,
             };
             let dest = trash_dir.join(&name);
-            if std::fs::rename(p, &dest).is_ok() || (std::fs::copy(p, &dest).is_ok() && std::fs::remove_file(p).is_ok()) {
+            if std::fs::rename(p, &dest).is_ok()
+                || (std::fs::copy(p, &dest).is_ok() && std::fs::remove_file(p).is_ok())
+            {
                 staged.push(p.clone());
                 n += 1;
                 self.library_selected.remove(p);
@@ -2216,11 +2237,7 @@ impl VibecapApp {
         } else {
             first.agent_label.trim()
         };
-        let q: String = first
-            .question
-            .chars()
-            .take(90)
-            .collect();
+        let q: String = first.question.chars().take(90).collect();
         let more = if new_ones.len() > 1 {
             format!(" (+{} more)", new_ones.len() - 1)
         } else {
@@ -2380,8 +2397,10 @@ impl VibecapApp {
         if img.width() as u64 * img.height() as u64 > 50_000_000 {
             return Err("Image too large (>50 MP) — refusing to edit.".to_string());
         }
-        let any_crop = !self.img_crop_x.trim().is_empty() || !self.img_crop_y.trim().is_empty()
-            || !self.img_crop_w.trim().is_empty() || !self.img_crop_h.trim().is_empty();
+        let any_crop = !self.img_crop_x.trim().is_empty()
+            || !self.img_crop_y.trim().is_empty()
+            || !self.img_crop_w.trim().is_empty()
+            || !self.img_crop_h.trim().is_empty();
         if any_crop {
             let (cx, cy, cw, ch) = (
                 self.img_crop_x.trim().parse::<u32>().unwrap_or(0),
@@ -2389,7 +2408,8 @@ impl VibecapApp {
                 self.img_crop_w.trim().parse::<u32>().unwrap_or(0),
                 self.img_crop_h.trim().parse::<u32>().unwrap_or(0),
             );
-            if cw == 0 || ch == 0
+            if cw == 0
+                || ch == 0
                 || (cx as u64 + cw as u64) > img.width() as u64
                 || (cy as u64 + ch as u64) > img.height() as u64
             {
@@ -2403,25 +2423,48 @@ impl VibecapApp {
             270 => img.rotate270(),
             _ => img,
         };
-        if self.img_flip_h { img = img.fliph(); }
-        if self.img_flip_v { img = img.flipv(); }
+        if self.img_flip_h {
+            img = img.fliph();
+        }
+        if self.img_flip_v {
+            img = img.flipv();
+        }
         if self.img_resize_pct != 100 && self.img_resize_pct > 0 {
             let w = (img.width() as f32 * self.img_resize_pct as f32 / 100.0).max(1.0) as u32;
             let h = (img.height() as f32 * self.img_resize_pct as f32 / 100.0).max(1.0) as u32;
             img = img.resize(w, h, image::imageops::FilterType::Triangle);
         }
-        if self.img_grayscale { img = img.grayscale(); }
-        if self.img_brightness != 0 { img = img.brighten(self.img_brightness); }
-        if self.img_contrast != 0.0 { img = img.adjust_contrast(self.img_contrast); }
-        if self.img_blur > 0.05 { img = img.blur(self.img_blur); }
+        if self.img_grayscale {
+            img = img.grayscale();
+        }
+        if self.img_brightness != 0 {
+            img = img.brighten(self.img_brightness);
+        }
+        if self.img_contrast != 0.0 {
+            img = img.adjust_contrast(self.img_contrast);
+        }
+        if self.img_blur > 0.05 {
+            img = img.blur(self.img_blur);
+        }
         Ok(img)
     }
 
     fn refresh_img_preview(&mut self, ctx: &egui::Context) {
-        let params = format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            self.img_rotate, self.img_flip_h, self.img_flip_v, self.img_grayscale,
-            self.img_brightness, self.img_contrast, self.img_blur, self.img_resize_pct,
-            self.img_crop_x, self.img_crop_y, self.img_crop_w, self.img_crop_h);
+        let params = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            self.img_rotate,
+            self.img_flip_h,
+            self.img_flip_v,
+            self.img_grayscale,
+            self.img_brightness,
+            self.img_contrast,
+            self.img_blur,
+            self.img_resize_pct,
+            self.img_crop_x,
+            self.img_crop_y,
+            self.img_crop_w,
+            self.img_crop_h
+        );
         if params == self.img_preview_params || self.img_edit_file.is_none() {
             return;
         }
@@ -2439,7 +2482,9 @@ impl VibecapApp {
     /// Runs ffmpeg on a background thread and reports the REAL outcome via channel —
     /// success toasts only fire after a verified exit status (no fabricated success).
     fn spawn_ffmpeg_job(&mut self, args: Vec<String>, ok_msg: &str) {
-        let Some(tx) = self.ffmpeg_tx.clone() else { return; };
+        let Some(tx) = self.ffmpeg_tx.clone() else {
+            return;
+        };
         let ok_msg = ok_msg.to_string();
         std::thread::spawn(move || {
             let (ok, msg) = match platform::ffmpeg_command() {
@@ -2495,7 +2540,8 @@ impl VibecapApp {
             let image_buffer = img.to_rgba8();
             let pixels = image_buffer.as_flat_samples();
             let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
-            self.annotation_texture = Some(ctx.load_texture("screenshot", color_image, Default::default()));
+            self.annotation_texture =
+                Some(ctx.load_texture("screenshot", color_image, Default::default()));
         }
         self.annotation_actions.clear();
         self.step_counter = 1;
@@ -2504,7 +2550,9 @@ impl VibecapApp {
     /// Handles the ViewportCommand::Screenshot reply: crops to the annotation canvas and saves it,
     /// producing a flattened image with annotations baked in.
     fn check_annotated_save(&mut self, ctx: &egui::Context) {
-        let Some((target, requested_at)) = self.pending_annotated_save.clone() else { return; };
+        let Some((target, requested_at)) = self.pending_annotated_save.clone() else {
+            return;
+        };
         let mut found: Option<std::sync::Arc<egui::ColorImage>> = None;
         ctx.input(|i| {
             for ev in &i.events {
@@ -2525,10 +2573,16 @@ impl VibecapApp {
             return;
         }
         self.pending_annotated_save = None;
-        let Some(img) = found else { return; };
+        let Some(img) = found else {
+            return;
+        };
 
         let (w, h) = (img.width(), img.height());
-        let raw: Vec<u8> = img.pixels.iter().flat_map(|c| [c.r(), c.g(), c.b(), c.a()]).collect();
+        let raw: Vec<u8> = img
+            .pixels
+            .iter()
+            .flat_map(|c| [c.r(), c.g(), c.b(), c.a()])
+            .collect();
         let mut dynimg = match image::RgbaImage::from_raw(w as u32, h as u32, raw) {
             Some(r) => image::DynamicImage::ImageRgba8(r),
             None => {
@@ -2575,12 +2629,17 @@ impl VibecapApp {
     }
 
     fn recording_elapsed_secs(&self) -> u64 {
-        let current = self.segment_start.map(|s| s.elapsed()).unwrap_or(Duration::ZERO);
+        let current = self
+            .segment_start
+            .map(|s| s.elapsed())
+            .unwrap_or(Duration::ZERO);
         (self.accumulated_duration + current).as_secs()
     }
 
     fn toggle_pause(&mut self) {
-        if !self.is_recording { return; }
+        if !self.is_recording {
+            return;
+        }
         if let Some(child) = &self.child_process {
             let pid = child.id();
             if self.is_paused {
@@ -2734,7 +2793,10 @@ impl VibecapApp {
                     .and_then(|mut b| b.set_text(mp4.display().to_string()))
                     .is_ok();
                 self.last_capture = Some(LastCapture::Clip(mp4.clone()));
-                let name = mp4.file_name().and_then(|n| n.to_str()).unwrap_or("video.mp4");
+                let name = mp4
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("video.mp4");
                 self.show_toast(if copied {
                     format!("💾 Video saved — path copied · {name}")
                 } else {
@@ -2789,17 +2851,13 @@ impl VibecapApp {
                     }
                     let color_image =
                         egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
-                    let tex = ctx.load_texture(
-                        format!("thumb_{i}"),
-                        color_image,
-                        Default::default(),
-                    );
+                    let tex =
+                        ctx.load_texture(format!("thumb_{i}"), color_image, Default::default());
                     self.filmstrip.push(tex);
                 }
                 if self.filmstrip.is_empty() {
-                    self.filmstrip_error = Some(
-                        "No frames extracted — video may be corrupt or too short.".into(),
-                    );
+                    self.filmstrip_error =
+                        Some("No frames extracted — video may be corrupt or too short.".into());
                 } else {
                     // Land playing: a still first frame reads as "won't start".
                     self.player_playing = true;
@@ -3056,7 +3114,11 @@ impl VibecapApp {
             // covered the minimize ANIMATION, which no longer happens. Any
             // configured delay rides on top (menu/tooltip shots: the window is
             // already gone, the wait just lets the user open things first).
-            let hide_ms = if cfg!(target_os = "windows") { 100 } else { 450 };
+            let hide_ms = if cfg!(target_os = "windows") {
+                100
+            } else {
+                450
+            };
             std::thread::sleep(Duration::from_millis(hide_ms + delay_ms));
             if is_window {
                 // Window path focuses + crops inside capture_screenshot_opts;
@@ -3111,7 +3173,11 @@ impl VibecapApp {
                     // Native focus verifies GetForegroundWindow before returning;
                     // the remaining settle covers the target app's redraw before
                     // the grab reads the frame.
-                    let focus_ms = if cfg!(target_os = "windows") { 350 } else { 700 };
+                    let focus_ms = if cfg!(target_os = "windows") {
+                        350
+                    } else {
+                        700
+                    };
                     std::thread::sleep(Duration::from_millis(focus_ms));
                 }
             } else if !cfg!(target_os = "windows") {
@@ -3156,11 +3222,15 @@ impl VibecapApp {
         let save_dir = self.save_dir.clone();
         let pattern = self.name_pattern.clone();
         let app_token = self.capture_focus_target();
-        let opts = CaptureOpts::from_parts(None, app_token.clone())
-            .with_monitor(self.capture_monitor);
+        let opts =
+            CaptureOpts::from_parts(None, app_token.clone()).with_monitor(self.capture_monitor);
         std::thread::spawn(move || {
             // SW_HIDE is synchronous — ~100 ms covers compositor propagation.
-            let hide_ms = if cfg!(target_os = "windows") { 100 } else { 350 };
+            let hide_ms = if cfg!(target_os = "windows") {
+                100
+            } else {
+                350
+            };
             std::thread::sleep(Duration::from_millis(hide_ms));
             let seq = app::naming::next_seq(&save_dir, "");
             let stem = app::format_capture_stem(&pattern, app_token.as_deref(), seq);
@@ -3252,15 +3322,17 @@ impl VibecapApp {
             let dest = save_dir.join(format!("{stem}.jpg"));
             let snap = std::env::temp_dir().join(format!("vibecap_repeat_{stem}.jpg"));
             // A beat for DWM to drop us from the composed frame.
-            let settle_ms = if cfg!(target_os = "windows") { 100 } else { 450 };
+            let settle_ms = if cfg!(target_os = "windows") {
+                100
+            } else {
+                450
+            };
             std::thread::sleep(Duration::from_millis(settle_ms));
             let region = ScreenRect { x, y, w, h };
-            let result = capture_screenshot_opts(
-                &snap,
-                &CaptureOpts::default().with_draw_mouse(draw_mouse),
-            )
-            .and_then(|_| crop_image_file(&snap, &dest, region))
-            .map(|_| dest);
+            let result =
+                capture_screenshot_opts(&snap, &CaptureOpts::default().with_draw_mouse(draw_mouse))
+                    .and_then(|_| crop_image_file(&snap, &dest, region))
+                    .map(|_| dest);
             let _ = std::fs::remove_file(&snap);
             match &result {
                 Ok(p) => write_pending_still(p),
@@ -3459,9 +3531,7 @@ impl VibecapApp {
     /// exclusion mid-use.
     fn sync_capture_exclusion(&self) {
         #[cfg(windows)]
-        crate::platform::set_studio_capture_excluded(
-            self.region_affinity || self.record_excluded,
-        );
+        crate::platform::set_studio_capture_excluded(self.region_affinity || self.record_excluded);
     }
 
     fn release_record_exclusion(&mut self) {
@@ -3506,8 +3576,7 @@ impl VibecapApp {
             return Some((label, w.x, w.y, w.w, w.h));
         }
         self.window_pick_hover_monitor = true;
-        crate::platform::monitor_at_point(x, y)
-            .map(|m| ("Display".to_string(), m.x, m.y, m.w, m.h))
+        crate::platform::monitor_at_point(x, y).map(|m| ("Display".to_string(), m.x, m.y, m.w, m.h))
     }
     #[cfg(not(windows))]
     fn poll_window_pick(&mut self) -> Option<(String, i32, i32, i32, i32)> {
@@ -3708,32 +3777,40 @@ impl VibecapApp {
             }
         }
         ui.horizontal(|ui| {
-            ui.heading(RichText::new("Annotation Studio").color(theme::ACCENT()).strong());
+            ui.heading(
+                RichText::new("Annotation Studio")
+                    .color(theme::ACCENT())
+                    .strong(),
+            );
             ui.separator();
             ui.radio_value(&mut self.current_tool, AnnotationTool::Pen, "✏ Pen");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Arrow, "➡ Arrow");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Rectangle, "🔲 Rect");
-            ui.radio_value(&mut self.current_tool, AnnotationTool::Highlight, "🖍 Highlight");
+            ui.radio_value(
+                &mut self.current_tool,
+                AnnotationTool::Highlight,
+                "🖍 Highlight",
+            );
             ui.radio_value(&mut self.current_tool, AnnotationTool::Text, "🔤 Text");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Blur, "💧 Blur");
-            ui.radio_value(&mut self.current_tool, AnnotationTool::StepBadge, "🔢 Badge");
-            
+            ui.radio_value(
+                &mut self.current_tool,
+                AnnotationTool::StepBadge,
+                "🔢 Badge",
+            );
+
             ui.separator();
             ui.color_edit_button_srgba(&mut self.current_color);
             ui.add(egui::Slider::new(&mut self.current_stroke_width, 1.0..=10.0).text("Size"));
-            
+
             if self.current_tool == AnnotationTool::Text {
                 ui.separator();
                 ui.label("Text:");
                 ui.text_edit_singleline(&mut self.pending_text);
             }
-            
+
             ui.separator();
-            if ui
-                .button("↩ Undo")
-                .on_hover_text("Ctrl+Z")
-                .clicked()
-            {
+            if ui.button("↩ Undo").on_hover_text("Ctrl+Z").clicked() {
                 self.annotation_do_undo();
             }
             if ui
@@ -3748,12 +3825,16 @@ impl VibecapApp {
                 self.annotation_actions.clear();
                 self.step_counter = 1;
             }
-            
+
             ui.separator();
             let voice_btn_text = if self.is_recording_voice_memo {
-                RichText::new("🔴 Stop Voice Note").color(theme::ON_SOLID()).strong()
+                RichText::new("🔴 Stop Voice Note")
+                    .color(theme::ON_SOLID())
+                    .strong()
             } else {
-                RichText::new("🎙 Voice Note").color(theme::SUCCESS()).strong()
+                RichText::new("🎙 Voice Note")
+                    .color(theme::SUCCESS())
+                    .strong()
             };
             if ui.button(voice_btn_text).clicked() {
                 self.toggle_voice_memo();
@@ -3765,8 +3846,15 @@ impl VibecapApp {
                     self.copy_image_to_clipboard(&shot_clone);
                 }
             }
-            
-            if ui.button(RichText::new("💾 Save & Close").color(theme::ACCENT_INK()).strong()).clicked() {
+
+            if ui
+                .button(
+                    RichText::new("💾 Save & Close")
+                        .color(theme::ACCENT_INK())
+                        .strong(),
+                )
+                .clicked()
+            {
                 if !self.feedback_description.trim().is_empty() {
                     if let Some(shot) = &self.latest_screenshot {
                         let txt_path = shot.with_extension("txt");
@@ -3777,11 +3865,16 @@ impl VibecapApp {
                 let mut annotated_path = String::new();
                 if !self.annotation_actions.is_empty() {
                     if let Some(shot) = self.latest_screenshot.clone() {
-                        let stem = shot.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                        let stem = shot
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
                         let target = shot.with_file_name(format!("{}_annotated.png", stem));
                         annotated_path = target.display().to_string();
                         self.pending_annotated_save = Some((target, Instant::now()));
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Screenshot);
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Screenshot);
                     }
                 }
                 // If this annotation answered an agent's feedback request, submit it as the response.
@@ -3821,11 +3914,15 @@ impl VibecapApp {
 
         ui.separator();
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Optional note to attach with this capture:").small().color(theme::TEXT_MUTED()));
+            ui.label(
+                RichText::new("Optional note to attach with this capture:")
+                    .small()
+                    .color(theme::TEXT_MUTED()),
+            );
             ui.text_edit_singleline(&mut self.feedback_description);
         });
         ui.separator();
-        
+
         if let Some(tex) = &self.annotation_texture {
             let max_size = ui.available_size();
             let mut tex_size = tex.size_vec2();
@@ -3835,28 +3932,30 @@ impl VibecapApp {
             if tex_size.y > max_size.y {
                 tex_size = tex_size * (max_size.y / tex_size.y);
             }
-            
+
             let (response, painter) = ui.allocate_painter(tex_size, egui::Sense::drag());
             self.annotation_canvas_rect = Some(response.rect);
             painter.image(
                 tex.id(),
                 response.rect,
                 egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                theme::ON_SOLID()
+                theme::ON_SOLID(),
             );
 
             let draw_action = |painter: &egui::Painter, action: &AnnotationAction| {
-                if action.points.is_empty() { return; }
+                if action.points.is_empty() {
+                    return;
+                }
                 let mut color = action.color;
                 if action.tool == AnnotationTool::Highlight {
                     color = color.linear_multiply(0.4);
                 }
                 let stroke = Stroke::new(action.stroke_width, color);
-                
+
                 match action.tool {
                     AnnotationTool::Pen | AnnotationTool::Highlight => {
                         for i in 1..action.points.len() {
-                            painter.line_segment([action.points[i-1], action.points[i]], stroke);
+                            painter.line_segment([action.points[i - 1], action.points[i]], stroke);
                         }
                     }
                     AnnotationTool::Arrow => {
@@ -3880,18 +3979,41 @@ impl VibecapApp {
                             let end = *action.points.last().unwrap();
                             let rect = Rect::from_two_pos(start, end);
                             painter.rect_filled(rect, 0.0, theme::OVERLAY_BLUR());
-                            painter.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, theme::NEUTRAL_STROKE()));
+                            painter.rect_stroke(
+                                rect,
+                                0.0,
+                                Stroke::new(1.0_f32, theme::NEUTRAL_STROKE()),
+                            );
                         }
                     }
                     AnnotationTool::Text => {
                         let pos = action.points[0];
-                        painter.rect_filled(Rect::from_min_size(pos - Vec2::new(4.0, 2.0), Vec2::new(action.text_content.len() as f32 * 10.0 + 8.0, 22.0)), 4.0, theme::OVERLAY_LABEL());
-                        painter.text(pos, Align2::LEFT_TOP, &action.text_content, FontId::proportional(16.0), action.color);
+                        painter.rect_filled(
+                            Rect::from_min_size(
+                                pos - Vec2::new(4.0, 2.0),
+                                Vec2::new(action.text_content.len() as f32 * 10.0 + 8.0, 22.0),
+                            ),
+                            4.0,
+                            theme::OVERLAY_LABEL(),
+                        );
+                        painter.text(
+                            pos,
+                            Align2::LEFT_TOP,
+                            &action.text_content,
+                            FontId::proportional(16.0),
+                            action.color,
+                        );
                     }
                     AnnotationTool::StepBadge => {
                         let pos = action.points[0];
                         painter.circle_filled(pos, 14.0, action.color);
-                        painter.text(pos, Align2::CENTER_CENTER, action.badge_number.to_string(), FontId::proportional(14.0), theme::ACCENT_INK());
+                        painter.text(
+                            pos,
+                            Align2::CENTER_CENTER,
+                            action.badge_number.to_string(),
+                            FontId::proportional(14.0),
+                            theme::ACCENT_INK(),
+                        );
                     }
                 }
             };
@@ -3899,7 +4021,7 @@ impl VibecapApp {
             for action in &self.annotation_actions {
                 draw_action(&painter, action);
             }
-            
+
             if let Some(action) = &self.current_action {
                 draw_action(&painter, action);
             }
@@ -3915,8 +4037,10 @@ impl VibecapApp {
                         text_content: self.pending_text.clone(),
                         badge_number: self.step_counter,
                     };
-                    
-                    if self.current_tool == AnnotationTool::Text || self.current_tool == AnnotationTool::StepBadge {
+
+                    if self.current_tool == AnnotationTool::Text
+                        || self.current_tool == AnnotationTool::StepBadge
+                    {
                         if self.current_tool == AnnotationTool::StepBadge {
                             self.step_counter += 1;
                         }
@@ -4162,7 +4286,8 @@ impl eframe::App for VibecapApp {
         }
 
         if !self.budget_warned {
-            if let Some(reason) = budget_exceeded_reason(&default_live_dir().display().to_string()) {
+            if let Some(reason) = budget_exceeded_reason(&default_live_dir().display().to_string())
+            {
                 self.budget_warned = true;
                 self.show_toast(format!("Budget cap: {reason}"));
                 if let Some(tray) = self.tray.as_mut() {
@@ -4349,107 +4474,109 @@ impl eframe::App for VibecapApp {
                             .rounding(theme::rounding_lg())
                             .stroke(Stroke::new(1.5_f32, theme::ACCENT()));
 
-                        egui::CentralPanel::default().frame(bar_frame).show(ctx, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.add_space(6.0);
+                        egui::CentralPanel::default()
+                            .frame(bar_frame)
+                            .show(ctx, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(6.0);
 
-                                let pulse = (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
-                                let dot_color = if self.recording_arming || self.recording_finalizing
-                                {
-                                    theme::ACCENT()
-                                } else if self.is_paused {
-                                    theme::WARN()
-                                } else {
-                                    theme::danger_pulse(pulse)
-                                };
-                                ui.colored_label(dot_color, "●");
+                                    let pulse = (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
+                                    let dot_color =
+                                        if self.recording_arming || self.recording_finalizing {
+                                            theme::ACCENT()
+                                        } else if self.is_paused {
+                                            theme::WARN()
+                                        } else {
+                                            theme::danger_pulse(pulse)
+                                        };
+                                    ui.colored_label(dot_color, "●");
 
-                                if self.recording_arming {
-                                    ui.label(
-                                        RichText::new("Starting…")
+                                    if self.recording_arming {
+                                        ui.label(
+                                            RichText::new("Starting…")
+                                                .strong()
+                                                .color(theme::TEXT()),
+                                        );
+                                    } else if self.recording_finalizing {
+                                        ui.label(
+                                            RichText::new("Saving…").strong().color(theme::TEXT()),
+                                        );
+                                    } else {
+                                        let elapsed = self.recording_elapsed_secs();
+                                        let mins = elapsed / 60;
+                                        let secs = elapsed % 60;
+                                        let status_text =
+                                            if self.is_paused { "PAUSED" } else { "REC" };
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{} {:02}:{:02}",
+                                                status_text, mins, secs
+                                            ))
                                             .strong()
                                             .color(theme::TEXT()),
-                                    );
-                                } else if self.recording_finalizing {
-                                    ui.label(
-                                        RichText::new("Saving…")
-                                            .strong()
-                                            .color(theme::TEXT()),
-                                    );
-                                } else {
-                                    let elapsed = self.recording_elapsed_secs();
-                                    let mins = elapsed / 60;
-                                    let secs = elapsed % 60;
-                                    let status_text = if self.is_paused { "PAUSED" } else { "REC" };
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{} {:02}:{:02}",
-                                            status_text, mins, secs
-                                        ))
-                                        .strong()
-                                        .color(theme::TEXT()),
-                                    );
-                                }
+                                        );
+                                    }
 
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.add_space(4.0);
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            ui.add_space(4.0);
 
-                                        if ui
-                                            .button(
-                                                RichText::new("✖")
-                                                    .color(theme::DANGER())
-                                                    .strong(),
-                                            )
-                                            .on_hover_text("Cancel Recording")
-                                            .clicked()
-                                        {
-                                            self.cancel_recording(ctx);
-                                        }
-
-                                        if !self.recording_arming && !self.recording_finalizing {
                                             if ui
                                                 .button(
-                                                    RichText::new("⏹")
-                                                        .color(theme::ON_SOLID())
+                                                    RichText::new("✖")
+                                                        .color(theme::DANGER())
                                                         .strong(),
                                                 )
-                                                .on_hover_text("Stop & Save")
+                                                .on_hover_text("Cancel Recording")
                                                 .clicked()
                                             {
-                                                self.stop_recording(ctx);
+                                                self.cancel_recording(ctx);
                                             }
 
-                                            if crate::platform::pause_supported() {
-                                                let pause_icon =
-                                                    if self.is_paused { "▶" } else { "⏸" };
-                                                let pause_color = if self.is_paused {
-                                                    theme::SUCCESS()
-                                                } else {
-                                                    theme::WARN()
-                                                };
+                                            if !self.recording_arming && !self.recording_finalizing
+                                            {
                                                 if ui
                                                     .button(
-                                                        RichText::new(pause_icon)
-                                                            .color(pause_color)
+                                                        RichText::new("⏹")
+                                                            .color(theme::ON_SOLID())
                                                             .strong(),
                                                     )
-                                                    .on_hover_text(if self.is_paused {
-                                                        "Resume"
-                                                    } else {
-                                                        "Pause"
-                                                    })
+                                                    .on_hover_text("Stop & Save")
                                                     .clicked()
                                                 {
-                                                    self.toggle_pause();
+                                                    self.stop_recording(ctx);
+                                                }
+
+                                                if crate::platform::pause_supported() {
+                                                    let pause_icon =
+                                                        if self.is_paused { "▶" } else { "⏸" };
+                                                    let pause_color = if self.is_paused {
+                                                        theme::SUCCESS()
+                                                    } else {
+                                                        theme::WARN()
+                                                    };
+                                                    if ui
+                                                        .button(
+                                                            RichText::new(pause_icon)
+                                                                .color(pause_color)
+                                                                .strong(),
+                                                        )
+                                                        .on_hover_text(if self.is_paused {
+                                                            "Resume"
+                                                        } else {
+                                                            "Pause"
+                                                        })
+                                                        .clicked()
+                                                    {
+                                                        self.toggle_pause();
+                                                    }
                                                 }
                                             }
-                                        }
-                                    },
-                                );
+                                        },
+                                    );
+                                });
                             });
-                        });
                     }
                 },
             );
@@ -4547,40 +4674,51 @@ impl eframe::App for VibecapApp {
         // In-window short commands when the app is focused.
         // S = screenshot · R = record · Z = undo delete · ⌘K/Ctrl+K = palette · ⌘I = inbox
         // Alt+←/→ = stage back/forward · Ctrl+1..5 = jump to a Loop stage.
-        if !self.is_annotating && !self.palette_open && !self.wizard_open && !self.screen_perm_modal {
+        if !self.is_annotating && !self.palette_open && !self.wizard_open && !self.screen_perm_modal
+        {
             let wants_text = ctx.wants_keyboard_input();
-            let (press_s, press_r, press_z, press_palette, press_inbox, press_back, press_fwd, press_rail, press_help, stage_jump) =
-                ctx.input(|i| {
-                    let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
-                    let jump = if mod_cmd {
-                        [
-                            egui::Key::Num1,
-                            egui::Key::Num2,
-                            egui::Key::Num3,
-                            egui::Key::Num4,
-                            egui::Key::Num5,
-                        ]
-                        .iter()
-                        .position(|k| i.key_pressed(*k))
-                        .map(|p| p + 1)
-                    } else {
-                        None
-                    };
-                    (
-                        i.key_pressed(egui::Key::S) && !i.modifiers.any(),
-                        i.key_pressed(egui::Key::R) && !i.modifiers.any(),
-                        i.key_pressed(egui::Key::Z) && !i.modifiers.any(),
-                        mod_cmd && i.key_pressed(egui::Key::K),
-                        mod_cmd && i.key_pressed(egui::Key::I),
-                        i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft),
-                        i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight),
-                        mod_cmd && i.key_pressed(egui::Key::B),
-                        !wants_text
-                            && (i.key_pressed(egui::Key::F1)
-                                || (i.modifiers.shift && i.key_pressed(egui::Key::Slash))),
-                        jump,
-                    )
-                });
+            let (
+                press_s,
+                press_r,
+                press_z,
+                press_palette,
+                press_inbox,
+                press_back,
+                press_fwd,
+                press_rail,
+                press_help,
+                stage_jump,
+            ) = ctx.input(|i| {
+                let mod_cmd = i.modifiers.command || i.modifiers.ctrl;
+                let jump = if mod_cmd {
+                    [
+                        egui::Key::Num1,
+                        egui::Key::Num2,
+                        egui::Key::Num3,
+                        egui::Key::Num4,
+                        egui::Key::Num5,
+                    ]
+                    .iter()
+                    .position(|k| i.key_pressed(*k))
+                    .map(|p| p + 1)
+                } else {
+                    None
+                };
+                (
+                    i.key_pressed(egui::Key::S) && !i.modifiers.any(),
+                    i.key_pressed(egui::Key::R) && !i.modifiers.any(),
+                    i.key_pressed(egui::Key::Z) && !i.modifiers.any(),
+                    mod_cmd && i.key_pressed(egui::Key::K),
+                    mod_cmd && i.key_pressed(egui::Key::I),
+                    i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft),
+                    i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight),
+                    mod_cmd && i.key_pressed(egui::Key::B),
+                    !wants_text
+                        && (i.key_pressed(egui::Key::F1)
+                            || (i.modifiers.shift && i.key_pressed(egui::Key::Slash))),
+                    jump,
+                )
+            });
             if let Some(n) = stage_jump {
                 let stages = LoopStage::all();
                 if n <= stages.len() {
@@ -4744,239 +4882,229 @@ impl eframe::App for VibecapApp {
         }
 
         egui::CentralPanel::default()
-            .frame(Frame::none().fill(theme::CANVAS()).inner_margin(theme::SP_4))
+            .frame(
+                Frame::none()
+                    .fill(theme::CANVAS())
+                    .inner_margin(theme::SP_4),
+            )
             .show(ctx, |ui| {
-            if theme::is_celestial() {
-                let clip = ui.clip_rect();
-                theme::paint_celestial_sky(ui.painter(), clip);
-                theme::paint_aurora_strip(
-                    ui.painter(),
-                    egui::Rect::from_min_size(clip.min, egui::Vec2::new(clip.width(), 2.0)),
-                );
-            }
-            if self.is_annotating {
-                self.show_annotation(ui);
-                return;
-            }
-
-            // ── Stage header ─────────────────────────────────────
-            ui.horizontal(|ui| {
-                if ui::icon_btn(ui, "☰", "Stage rail (Ctrl+B)") {
-                    self.rail_open = !self.rail_open;
-                }
-                // Ink logo mark — mono-ui topbar `.logo`.
-                let (logo, _) = ui.allocate_exact_size(
-                    egui::Vec2::splat(24.0),
-                    egui::Sense::hover(),
-                );
-                let lp = ui.painter_at(logo);
                 if theme::is_celestial() {
-                    theme::paint_aurora_button(&lp, logo, 6.0);
-                } else {
-                    lp.rect_filled(logo, 6.0, theme::PRIMARY());
-                }
-                lp.text(
-                    logo.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "V",
-                    egui::FontId::new(13.0, theme::font_bold()),
-                    theme::PRIMARY_INK(),
-                );
-                ui.vertical(|ui| {
-                    ui.label(
-                        RichText::new(self.current_tab.title())
-                            .font(egui::FontId::new(22.0, theme::font_semibold()))
-                            .color(theme::TEXT()),
+                    let clip = ui.clip_rect();
+                    theme::paint_celestial_sky(ui.painter(), clip);
+                    theme::paint_aurora_strip(
+                        ui.painter(),
+                        egui::Rect::from_min_size(clip.min, egui::Vec2::new(clip.width(), 2.0)),
                     );
-                    let sub = self.current_tab.subtitle();
-                    if !sub.is_empty() {
-                        ui.label(
-                            RichText::new(sub)
-                                .size(11.0)
-                                .color(theme::TEXT_DIM()),
-                        );
+                }
+                if self.is_annotating {
+                    self.show_annotation(ui);
+                    return;
+                }
+
+                // ── Stage header ─────────────────────────────────────
+                ui.horizontal(|ui| {
+                    if ui::icon_btn(ui, "☰", "Stage rail (Ctrl+B)") {
+                        self.rail_open = !self.rail_open;
                     }
+                    // Ink logo mark — mono-ui topbar `.logo`.
+                    let (logo, _) =
+                        ui.allocate_exact_size(egui::Vec2::splat(24.0), egui::Sense::hover());
+                    let lp = ui.painter_at(logo);
+                    if theme::is_celestial() {
+                        theme::paint_aurora_button(&lp, logo, 6.0);
+                    } else {
+                        lp.rect_filled(logo, 6.0, theme::PRIMARY());
+                    }
+                    lp.text(
+                        logo.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "V",
+                        egui::FontId::new(13.0, theme::font_bold()),
+                        theme::PRIMARY_INK(),
+                    );
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new(self.current_tab.title())
+                                .font(egui::FontId::new(22.0, theme::font_semibold()))
+                                .color(theme::TEXT()),
+                        );
+                        let sub = self.current_tab.subtitle();
+                        if !sub.is_empty() {
+                            ui.label(RichText::new(sub).size(11.0).color(theme::TEXT_DIM()));
+                        }
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui::icon_btn(ui, "⌘K", "Command palette (Ctrl+K / ⌘K)") {
+                            self.palette_open = true;
+                            self.palette_query.clear();
+                            self.palette_selected = 0;
+                        }
+                        if ui::icon_btn(ui, "⚙", "Settings (Ctrl+5)") {
+                            self.current_tab = AppTab::Settings;
+                        }
+                        let inbox_label = if self.feedback_pending_count > 0 {
+                            format!("🗳 {}", self.feedback_pending_count)
+                        } else {
+                            "🗳".to_string()
+                        };
+                        if ui::icon_btn(ui, &inbox_label, "Inbox (Ctrl+I)") {
+                            self.current_tab = AppTab::Feedback;
+                            self.scan_feedback_requests();
+                        }
+                        if self.is_recording {
+                            let e = self.recording_elapsed_secs();
+                            ui.label(
+                                RichText::new(format!("● REC {:02}:{:02}", e / 60, e % 60))
+                                    .color(theme::DANGER())
+                                    .strong()
+                                    .small(),
+                            );
+                        } else if self.recording_arming {
+                            ui.label(
+                                RichText::new("● Starting…")
+                                    .color(theme::ACCENT())
+                                    .strong()
+                                    .small(),
+                            );
+                        } else if self.recording_finalizing {
+                            ui.label(
+                                RichText::new("● Saving…")
+                                    .color(theme::ACCENT())
+                                    .strong()
+                                    .small(),
+                            );
+                        } else if self.tray.is_some() {
+                            ui.label(RichText::new("tray on").color(theme::TEXT_DIM()).small());
+                        }
+                    });
                 });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui::icon_btn(ui, "⌘K", "Command palette (Ctrl+K / ⌘K)") {
-                        self.palette_open = true;
-                        self.palette_query.clear();
-                        self.palette_selected = 0;
-                    }
-                    if ui::icon_btn(ui, "⚙", "Settings (Ctrl+5)") {
-                        self.current_tab = AppTab::Settings;
-                    }
-                    let inbox_label = if self.feedback_pending_count > 0 {
-                        format!("🗳 {}", self.feedback_pending_count)
-                    } else {
-                        "🗳".to_string()
-                    };
-                    if ui::icon_btn(ui, &inbox_label, "Inbox (Ctrl+I)") {
-                        self.current_tab = AppTab::Feedback;
-                        self.scan_feedback_requests();
-                    }
-                    if self.is_recording {
-                        let e = self.recording_elapsed_secs();
-                        ui.label(
-                            RichText::new(format!("● REC {:02}:{:02}", e / 60, e % 60))
-                                .color(theme::DANGER())
-                                .strong()
-                                .small(),
-                        );
-                    } else if self.recording_arming {
-                        ui.label(
-                            RichText::new("● Starting…")
-                                .color(theme::ACCENT())
-                                .strong()
-                                .small(),
-                        );
-                    } else if self.recording_finalizing {
-                        ui.label(
-                            RichText::new("● Saving…")
-                                .color(theme::ACCENT())
-                                .strong()
-                                .small(),
-                        );
-                    } else if self.tray.is_some() {
-                        ui.label(
-                            RichText::new("tray on")
-                                .color(theme::TEXT_DIM())
-                                .small(),
-                        );
-                    }
-                });
-            });
-            ui.add_space(self.density.sp(theme::SP_2));
+                ui.add_space(self.density.sp(theme::SP_2));
 
-            match self.current_tab {
-                // ── The funnel: Capture → Review → Library, one column.
-                //    Active stage expands; the others collapse to stripes
-                //    (animated — the column visibly squeezes/reveals).
-                AppTab::Capture | AppTab::Still | AppTab::Clip | AppTab::Library => {
-                    const STRIPE_H: f32 = 40.0;
-                    let gap = theme::SP_2;
-                    // The Review slot shows whichever editor is live — if we're
-                    // already on Still/Clip, keep it so the active stage never
-                    // collapses to a stripe mid-review.
-                    let review = if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
-                        self.current_tab
-                    } else {
-                        self.review_tab()
-                    };
-                    let order = [AppTab::Capture, review, AppTab::Library];
-                    let avail_h = ui.available_height().max(120.0);
-                    let expanded_h =
-                        (avail_h - 2.0 * (STRIPE_H + gap)).max(160.0);
+                match self.current_tab {
+                    // ── The funnel: Capture → Review → Library, one column.
+                    //    Active stage expands; the others collapse to stripes
+                    //    (animated — the column visibly squeezes/reveals).
+                    AppTab::Capture | AppTab::Still | AppTab::Clip | AppTab::Library => {
+                        const STRIPE_H: f32 = 40.0;
+                        let gap = theme::SP_2;
+                        // The Review slot shows whichever editor is live — if we're
+                        // already on Still/Clip, keep it so the active stage never
+                        // collapses to a stripe mid-review.
+                        let review = if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
+                            self.current_tab
+                        } else {
+                            self.review_tab()
+                        };
+                        let order = [AppTab::Capture, review, AppTab::Library];
+                        let avail_h = ui.available_height().max(120.0);
+                        let expanded_h = (avail_h - 2.0 * (STRIPE_H + gap)).max(160.0);
 
-                    let mut heights = [0.0_f32; 3];
-                    let mut sum = 0.0_f32;
-                    for (i, t) in order.iter().enumerate() {
-                        let f = ctx.animate_value_with_time(
-                            egui::Id::new("funnel_stage").with(i),
-                            if self.current_tab == *t { 1.0 } else { 0.0 },
-                            0.22,
-                        );
-                        let h = STRIPE_H + (expanded_h - STRIPE_H) * f;
-                        heights[i] = h;
-                        sum += h;
-                    }
-                    // Keep the column exactly avail_h during transitions.
-                    let scale = if sum + 2.0 * gap > avail_h {
-                        ((avail_h - 2.0 * gap) / sum).max(0.0)
-                    } else {
-                        1.0
-                    };
+                        let mut heights = [0.0_f32; 3];
+                        let mut sum = 0.0_f32;
+                        for (i, t) in order.iter().enumerate() {
+                            let f = ctx.animate_value_with_time(
+                                egui::Id::new("funnel_stage").with(i),
+                                if self.current_tab == *t { 1.0 } else { 0.0 },
+                                0.22,
+                            );
+                            let h = STRIPE_H + (expanded_h - STRIPE_H) * f;
+                            heights[i] = h;
+                            sum += h;
+                        }
+                        // Keep the column exactly avail_h during transitions.
+                        let scale = if sum + 2.0 * gap > avail_h {
+                            ((avail_h - 2.0 * gap) / sum).max(0.0)
+                        } else {
+                            1.0
+                        };
 
-                    let lib_n = self.library_items.len();
-                    let mut switch_to: Option<AppTab> = None;
-                    for (i, tab) in order.iter().enumerate() {
-                        let h = (heights[i] * scale).max(30.0);
-                        let w = ui.available_width();
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(w, h),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                if self.current_tab == *tab {
-                                    egui::ScrollArea::vertical()
-                                        .id_source(("funnel_scroll", i))
-                                        .auto_shrink([false; 2])
-                                        .show(ui, |ui| {
-                                            ui.set_width(ui.available_width());
+                        let lib_n = self.library_items.len();
+                        let mut switch_to: Option<AppTab> = None;
+                        for (i, tab) in order.iter().enumerate() {
+                            let h = (heights[i] * scale).max(30.0);
+                            let w = ui.available_width();
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(w, h),
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    if self.current_tab == *tab {
+                                        egui::ScrollArea::vertical()
+                                            .id_source(("funnel_scroll", i))
+                                            .auto_shrink([false; 2])
+                                            .show(ui, |ui| {
+                                                ui.set_width(ui.available_width());
+                                                match tab {
+                                                    AppTab::Capture => {
+                                                        ui::capture_tab::show(self, ui, ctx)
+                                                    }
+                                                    AppTab::Library => {
+                                                        ui::library_tab::show(self, ui, ctx)
+                                                    }
+                                                    AppTab::Clip => {
+                                                        ui::clip_tab::show(self, ui, ctx)
+                                                    }
+                                                    AppTab::Still => {
+                                                        ui::still_tab::show(self, ui, ctx)
+                                                    }
+                                                    _ => {}
+                                                }
+                                            });
+                                    } else {
+                                        let (icon, title, hint): (ui::icons::Icon, &str, String) =
                                             match tab {
-                                                AppTab::Capture => {
-                                                    ui::capture_tab::show(self, ui, ctx)
-                                                }
-                                                AppTab::Library => {
-                                                    ui::library_tab::show(self, ui, ctx)
-                                                }
-                                                AppTab::Clip => {
-                                                    ui::clip_tab::show(self, ui, ctx)
-                                                }
-                                                AppTab::Still => {
-                                                    ui::still_tab::show(self, ui, ctx)
-                                                }
-                                                _ => {}
-                                            }
-                                        });
-                                } else {
-                                    let (icon, title, hint): (
-                                        ui::icons::Icon,
-                                        &str,
-                                        String,
-                                    ) = match tab {
-                                        AppTab::Capture => (
-                                            ui::icons::Icon::Shutter,
-                                            "Capture",
-                                            "grab a shot or clip".to_string(),
-                                        ),
-                                        AppTab::Library => (
-                                            ui::icons::Icon::Media,
-                                            "Library",
-                                            if lib_n == 0 {
-                                                "your captures land here".to_string()
-                                            } else {
-                                                format!("{lib_n} items")
-                                            },
-                                        ),
-                                        _ => (
-                                            ui::icons::Icon::Still,
-                                            "Review",
-                                            "mark it · trim it · ship it".to_string(),
-                                        ),
-                                    };
-                                    if funnel_stripe(ui, icon, title, &hint) {
-                                        switch_to = Some(*tab);
+                                                AppTab::Capture => (
+                                                    ui::icons::Icon::Shutter,
+                                                    "Capture",
+                                                    "grab a shot or clip".to_string(),
+                                                ),
+                                                AppTab::Library => (
+                                                    ui::icons::Icon::Media,
+                                                    "Library",
+                                                    if lib_n == 0 {
+                                                        "your captures land here".to_string()
+                                                    } else {
+                                                        format!("{lib_n} items")
+                                                    },
+                                                ),
+                                                _ => (
+                                                    ui::icons::Icon::Still,
+                                                    "Review",
+                                                    "mark it · trim it · ship it".to_string(),
+                                                ),
+                                            };
+                                        if funnel_stripe(ui, icon, title, &hint) {
+                                            switch_to = Some(*tab);
+                                        }
                                     }
-                                }
-                            },
-                        );
-                        if i < 2 {
-                            ui.add_space(gap);
+                                },
+                            );
+                            if i < 2 {
+                                ui.add_space(gap);
+                            }
+                        }
+                        if let Some(t) = switch_to {
+                            self.current_tab = t;
                         }
                     }
-                    if let Some(t) = switch_to {
-                        self.current_tab = t;
-                    }
-                }
-                // Off-funnel stages: slim way back, then the content.
-                AppTab::Feedback | AppTab::Settings => {
-                    if funnel_stripe(
-                        ui,
-                        ui::icons::Icon::Shutter,
-                        "Capture",
-                        "back to the funnel",
-                    ) {
-                        self.current_tab = AppTab::Capture;
-                    } else {
-                        match self.current_tab {
-                            AppTab::Feedback => ui::inbox_tab::show(self, ui, ctx),
-                            AppTab::Settings => ui::settings_tab::show(self, ui, ctx),
-                            _ => {}
+                    // Off-funnel stages: slim way back, then the content.
+                    AppTab::Feedback | AppTab::Settings => {
+                        if funnel_stripe(
+                            ui,
+                            ui::icons::Icon::Shutter,
+                            "Capture",
+                            "back to the funnel",
+                        ) {
+                            self.current_tab = AppTab::Capture;
+                        } else {
+                            match self.current_tab {
+                                AppTab::Feedback => ui::inbox_tab::show(self, ui, ctx),
+                                AppTab::Settings => ui::settings_tab::show(self, ui, ctx),
+                                _ => {}
+                            }
                         }
                     }
                 }
-            }
-        });
+            });
 
         // Capture action toast takes priority over plain toasts.
         if let Some((path, at, copied)) = self.capture_toast.clone() {
@@ -5049,7 +5177,10 @@ fn main() -> eframe::Result<()> {
         CliAction::Gui { hidden, no_tray } => (no_tray, hidden),
         _ => (false, false),
     };
-    if let Some(id) = raw.iter().find_map(|a| a.strip_prefix("vibecap://feedback/")) {
+    if let Some(id) = raw
+        .iter()
+        .find_map(|a| a.strip_prefix("vibecap://feedback/"))
+    {
         std::env::set_var("VIBECAP_OPEN_FEEDBACK", id);
     }
     if let Err(_pid) = app::instance::acquire_gui_lock() {
@@ -5079,7 +5210,7 @@ fn main() -> eframe::Result<()> {
             .with_title(format!("Vibecap Studio · {}", std::process::id())),
         ..Default::default()
     };
-    
+
     let result = eframe::run_native(
         "Vibecap Studio",
         options,

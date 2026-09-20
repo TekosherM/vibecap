@@ -21,8 +21,9 @@ mod win32;
 pub use capture::{
     capture_live_frame, capture_screenshot, capture_screenshot_interactive,
     capture_screenshot_opts, capture_screenshot_region, capture_to_dir, crop_image_file,
-    even_screen_rect, export_gif_clip, export_gif_clip_ex, record_screen_clip_opts, remux_to_clean_mp4,
-    spawn_screen_recorder, spawn_screen_recorder_opts, spawn_voice_memo, LiveFormat, ScreenRect,
+    even_screen_rect, export_gif_clip, export_gif_clip_ex, record_screen_clip_opts,
+    remux_to_clean_mp4, spawn_screen_recorder, spawn_screen_recorder_opts, spawn_voice_memo,
+    LiveFormat, ScreenRect,
 };
 pub use ffmpeg::{
     ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path, ffmpeg_recheck,
@@ -51,18 +52,15 @@ pub fn disk_free_bytes_for(dir: &std::path::Path) -> Option<u64> {
         None
     }
 }
-pub use shell::{
-    activate_own_app, focus_app, frontmost_app_name, list_capture_windows,
-    list_capture_windows_cached, list_monitors,
-    list_running_apps, open_path, open_screen_recording_settings, request_screen_recording_access,
-    reveal_in_file_manager, run_at_login_enabled, screen_capture_allowed, set_run_at_login,
-    window_tools_hint,
-};
 #[cfg(target_os = "windows")]
 pub use shell::window_rect_on_screen;
-pub use source::{
-    default_output_dir_display, resolve_output_dir, CaptureOpts,
+pub use shell::{
+    activate_own_app, focus_app, frontmost_app_name, list_capture_windows,
+    list_capture_windows_cached, list_monitors, list_running_apps, open_path,
+    open_screen_recording_settings, request_screen_recording_access, reveal_in_file_manager,
+    run_at_login_enabled, screen_capture_allowed, set_run_at_login, window_tools_hint,
 };
+pub use source::{default_output_dir_display, resolve_output_dir, CaptureOpts};
 
 /// Human-readable platform capture backend label (for docs/help).
 pub fn capture_backend_label() -> &'static str {

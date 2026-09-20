@@ -41,9 +41,7 @@ pub fn kill_recorder(mut child: Child, was_paused: bool) {
 ///
 /// The fps is chosen so ~`TARGET` frames span the full duration, which lets the
 /// in-app player flipbook at a known rate and the timeline align to real time.
-pub fn extract_filmstrip_thumbs(
-    file: &Path,
-) -> Result<(PathBuf, Vec<PathBuf>, f64), String> {
+pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>, f64), String> {
     if !file.exists() {
         return Err(format!("Video file missing: {}", file.display()));
     }
@@ -109,9 +107,7 @@ pub fn extract_filmstrip_thumbs(
 /// Decode filmstrip JPEGs to RGBA on a worker thread (keeps the UI loop alive).
 ///
 /// Returns `(frames, fps, duration_secs)` where each frame is `(w, h, rgba)`.
-pub fn extract_filmstrip_rgba(
-    file: &Path,
-) -> Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String> {
+pub fn extract_filmstrip_rgba(file: &Path) -> Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String> {
     let duration = crate::platform::probe_duration(file).unwrap_or(0.0);
     let (_out_dir, thumbs, fps) = extract_filmstrip_thumbs(file)?;
     let mut frames = Vec::with_capacity(thumbs.len());

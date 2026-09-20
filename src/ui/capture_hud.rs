@@ -574,38 +574,38 @@ pub fn show_countdown_bubble(ctx: &egui::Context, seconds_left: u32) -> bool {
             if class != ViewportClass::Immediate {
                 return;
             }
-    egui::Area::new(egui::Id::new("vibecap_countdown"))
-        .order(egui::Order::Foreground)
-        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-        .show(ctx, |ui| {
-            Frame::none()
-                .fill(theme::SURFACE_GLASS())
-                .stroke(Stroke::new(2.0_f32, theme::ACCENT()))
-                .rounding(theme::rounding_lg())
-                .inner_margin(egui::Margin::symmetric(36.0, 28.0))
-                .show(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.label(
-                            RichText::new("Recording in")
-                                .size(14.0)
-                                .color(theme::TEXT_MUTED()),
-                        );
-                        ui.add_space(theme::SP_2);
-                        ui.label(
-                            RichText::new(label)
-                                .size(64.0)
-                                .strong()
-                                .color(theme::ACCENT()),
-                        );
-                        ui.add_space(theme::SP_2);
-                        ui.label(
-                            RichText::new("Esc to cancel")
-                                .size(12.0)
-                                .color(theme::TEXT_DIM()),
-                        );
-                    });
+            egui::Area::new(egui::Id::new("vibecap_countdown"))
+                .order(egui::Order::Foreground)
+                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                .show(ctx, |ui| {
+                    Frame::none()
+                        .fill(theme::SURFACE_GLASS())
+                        .stroke(Stroke::new(2.0_f32, theme::ACCENT()))
+                        .rounding(theme::rounding_lg())
+                        .inner_margin(egui::Margin::symmetric(36.0, 28.0))
+                        .show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new("Recording in")
+                                        .size(14.0)
+                                        .color(theme::TEXT_MUTED()),
+                                );
+                                ui.add_space(theme::SP_2);
+                                ui.label(
+                                    RichText::new(label)
+                                        .size(64.0)
+                                        .strong()
+                                        .color(theme::ACCENT()),
+                                );
+                                ui.add_space(theme::SP_2);
+                                ui.label(
+                                    RichText::new("Esc to cancel")
+                                        .size(12.0)
+                                        .color(theme::TEXT_DIM()),
+                                );
+                            });
+                        });
                 });
-        });
             if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 cancelled = true;
             }
@@ -653,10 +653,7 @@ fn paint_cursor_loupe(
     // Stem from cursor to loupe
     let dir = (center - cursor).normalized();
     let edge = center - dir * radius;
-    painter.line_segment(
-        [cursor, edge],
-        Stroke::new(1.0_f32, theme::ACCENT()),
-    );
+    painter.line_segment([cursor, edge], Stroke::new(1.0_f32, theme::ACCENT()));
     // Cursor hotspot
     painter.circle_filled(cursor, 3.0, theme::ACCENT());
     painter.circle_stroke(cursor, 6.0, Stroke::new(1.0_f32, theme::ON_SOLID()));

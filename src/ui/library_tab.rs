@@ -5,8 +5,7 @@ use egui::{Rect, RichText, Vec2};
 use std::path::PathBuf;
 
 use crate::app::{
-    category_bytes, date_group_label, default_live_dir, MediaCategory,
-    MediaItem, LIBRARY_PAGE_SIZE,
+    category_bytes, date_group_label, default_live_dir, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
 };
 use crate::platform::open_path;
 use crate::ui::icons::Icon;
@@ -46,11 +45,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .rounding(theme::rounding_sm())
                             .inner_margin(egui::Margin::symmetric(7.0, 3.0))
                             .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new(*lab)
-                                        .size(10.0)
-                                        .color(if on { theme::TEXT() } else { theme::TEXT_MUTED() }),
-                                );
+                                ui.label(RichText::new(*lab).size(10.0).color(if on {
+                                    theme::TEXT()
+                                } else {
+                                    theme::TEXT_MUTED()
+                                }));
                             })
                             .response
                             .interact(egui::Sense::click())
@@ -62,30 +61,26 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 });
             ui.add_space(4.0);
             // Sort menu — date sorts keep the group headers; others go flat.
-            crate::ui::icon_menu_button(
-                ui,
-                &format!("⇅ {}", app.library_sort.label()),
-                |ui| {
-                    ui.set_min_width(120.0);
-                    for s in crate::app::LibrarySort::ALL {
-                        let on = app.library_sort == s;
-                        if ui
-                            .selectable_label(
-                                on,
-                                RichText::new(s.label()).color(if on {
-                                    theme::ACCENT()
-                                } else {
-                                    theme::TEXT()
-                                }),
-                            )
-                            .clicked()
-                        {
-                            app.library_sort = s;
-                            ui.close_menu();
-                        }
+            crate::ui::icon_menu_button(ui, &format!("⇅ {}", app.library_sort.label()), |ui| {
+                ui.set_min_width(120.0);
+                for s in crate::app::LibrarySort::ALL {
+                    let on = app.library_sort == s;
+                    if ui
+                        .selectable_label(
+                            on,
+                            RichText::new(s.label()).color(if on {
+                                theme::ACCENT()
+                            } else {
+                                theme::TEXT()
+                            }),
+                        )
+                        .clicked()
+                    {
+                        app.library_sort = s;
+                        ui.close_menu();
                     }
-                },
-            );
+                }
+            });
             ui.add_space(4.0);
             crate::ui::icon_menu_button(ui, "⋯", |ui| {
                 ui.set_min_width(180.0);
@@ -102,9 +97,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 ui.separator();
                 if !app.library_confirm_clear {
                     if ui
-                        .button(
-                            RichText::new("Clear list…").color(theme::DANGER_SOFT()),
-                        )
+                        .button(RichText::new("Clear list…").color(theme::DANGER_SOFT()))
                         .on_hover_text("Delete all files in the current category from disk")
                         .clicked()
                     {
@@ -207,17 +200,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .strong()
                     .color(theme::ACCENT()),
             );
-            if ui
-                .button(format!("Reveal ({selected_count})"))
-                .clicked()
-            {
+            if ui.button(format!("Reveal ({selected_count})")).clicked() {
                 let paths: Vec<_> = app.library_selected.iter().cloned().collect();
                 app.reveal_paths(&paths);
             }
             if ui
                 .button(
-                    RichText::new(format!("Delete ({selected_count})"))
-                        .color(theme::DANGER_SOFT()),
+                    RichText::new(format!("Delete ({selected_count})")).color(theme::DANGER_SOFT()),
                 )
                 .clicked()
             {
@@ -303,10 +292,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         let thumb_w = card_w - 12.0;
                         let thumb_h = thumb_w * 9.0 / 16.0;
                         let card_h = 6.0 + thumb_h + 4.0 + 14.0 + 12.0 + 6.0;
-                        let (rect, resp) = ui.allocate_exact_size(
-                            Vec2::new(card_w, card_h),
-                            egui::Sense::click(),
-                        );
+                        let (rect, resp) =
+                            ui.allocate_exact_size(Vec2::new(card_w, card_h), egui::Sense::click());
                         let hovered = resp.hovered();
                         let paint = ui.painter_at(rect);
                         if selected {
@@ -355,15 +342,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 theme::rounding_sm(),
                                 egui::Stroke::new(1.0_f32, theme::BORDER()),
                             );
-                            if matches!(item.category, MediaCategory::Video | MediaCategory::Gif)
-                            {
+                            if matches!(item.category, MediaCategory::Video | MediaCategory::Gif) {
                                 // ▶ badge on playable media
                                 let c = thumb_rect.center();
-                                paint.circle_filled(
-                                    c,
-                                    13.0,
-                                    egui::Color32::from_black_alpha(150),
-                                );
+                                paint.circle_filled(c, 13.0, egui::Color32::from_black_alpha(150));
                                 paint.text(
                                     c,
                                     egui::Align2::CENTER_CENTER,
@@ -426,9 +408,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     .show(ui, |ui| {
                                         ui.add(
                                             egui::Label::new(
-                                                RichText::new("↗")
-                                                    .size(12.0)
-                                                    .color(theme::TEXT()),
+                                                RichText::new("↗").size(12.0).color(theme::TEXT()),
                                             )
                                             .sense(egui::Sense::click()),
                                         )
@@ -477,10 +457,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         // right-click → actions menu.
                         if resp.clicked() {
                             let (multi, range) = ui.input(|i| {
-                                (
-                                    i.modifiers.ctrl || i.modifiers.command,
-                                    i.modifiers.shift,
-                                )
+                                (i.modifiers.ctrl || i.modifiers.command, i.modifiers.shift)
                             });
                             if range {
                                 if let Some(prev) = &app.library_last_click {
@@ -509,9 +486,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     MediaCategory::Screenshot | MediaCategory::Gif => {
                                         open_still = Some(item.path.clone())
                                     }
-                                    MediaCategory::Video => {
-                                        open_edit = Some(item.path.clone())
-                                    }
+                                    MediaCategory::Video => open_edit = Some(item.path.clone()),
                                     _ => do_open = Some(item.path.clone()),
                                 }
                             }
@@ -528,9 +503,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     MediaCategory::Screenshot | MediaCategory::Gif => {
                                         open_still = Some(item.path.clone())
                                     }
-                                    MediaCategory::Video => {
-                                        open_edit = Some(item.path.clone())
-                                    }
+                                    MediaCategory::Video => open_edit = Some(item.path.clone()),
                                     _ => do_open = Some(item.path.clone()),
                                 }
                                 ui.close_menu();

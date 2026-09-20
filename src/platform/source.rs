@@ -284,9 +284,13 @@ pub fn parse_xdotool_shell(text: &str) -> Option<WindowGeom> {
 
 #[cfg(target_os = "linux")]
 fn linux_screen_size_for(display: &str) -> String {
-    if let Ok(output) = Command::new("xdpyinfo").args(["-display", display]).output() {
+    if let Ok(output) = Command::new("xdpyinfo")
+        .args(["-display", display])
+        .output()
+    {
         if output.status.success() {
-            if let Some(dims) = parse_xdpyinfo_dimensions(&String::from_utf8_lossy(&output.stdout)) {
+            if let Some(dims) = parse_xdpyinfo_dimensions(&String::from_utf8_lossy(&output.stdout))
+            {
                 return dims;
             }
         }
@@ -411,10 +415,7 @@ mod tests {
 
     #[test]
     fn resolve_output_dir_honors_override() {
-        let tmp = std::env::temp_dir().join(format!(
-            "vibecap_outdir_test_{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("vibecap_outdir_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let got = resolve_output_dir(Some(&tmp));
         assert_eq!(got, tmp);

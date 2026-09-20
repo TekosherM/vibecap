@@ -15,7 +15,10 @@ pub fn doctor_text() -> String {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "missing".into())
     ));
-    lines.push(format!("ffmpeg_run={}", if ffmpeg_available() { "yes" } else { "no" }));
+    lines.push(format!(
+        "ffmpeg_run={}",
+        if ffmpeg_available() { "yes" } else { "no" }
+    ));
     lines.push(format!("media_dir={}", media_dir_display()));
     lines.push(format!(
         "output_dir_default={}",

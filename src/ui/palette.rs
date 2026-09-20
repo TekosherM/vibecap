@@ -45,14 +45,30 @@ impl PaletteAction {
                 "Copy last capture path",
                 "File path for still or clip",
             ),
-            (Self::ToggleRecord, "Start / stop recording", "R · Ctrl+Shift+2"),
-            (Self::GoShutter, "Go to Capture", "Take a screenshot or record"),
+            (
+                Self::ToggleRecord,
+                "Start / stop recording",
+                "R · Ctrl+Shift+2",
+            ),
+            (
+                Self::GoShutter,
+                "Go to Capture",
+                "Take a screenshot or record",
+            ),
             (Self::GoMedia, "Go to Library", "All your captures"),
             (Self::GoReview, "Go to Review", "Annotate still · trim clip"),
             (Self::GoInbox, "Go to Inbox", "Agent feedback"),
             (Self::GoSettings, "Go to Settings", "Budget · shortcuts"),
-            (Self::RefreshLibrary, "Refresh library", "Rescan media folder"),
-            (Self::ToggleDensity, "Toggle density", "Comfortable ↔ Compact"),
+            (
+                Self::RefreshLibrary,
+                "Refresh library",
+                "Rescan media folder",
+            ),
+            (
+                Self::ToggleDensity,
+                "Toggle density",
+                "Comfortable ↔ Compact",
+            ),
             (Self::ToggleTheme, "Toggle theme", "Cycle all five themes"),
             (
                 Self::ToggleRetro,
@@ -123,9 +139,7 @@ pub fn show_palette(
         // MRU first (deduped, in recency order), then the rest.
         let mut v: Vec<(PaletteAction, &'static str, &'static str, bool)> = Vec::new();
         for &a in mru.iter().take(3) {
-            if let Some(&(_, l, h)) =
-                PaletteAction::all().iter().find(|(x, _, _)| *x == a)
-            {
+            if let Some(&(_, l, h)) = PaletteAction::all().iter().find(|(x, _, _)| *x == a) {
                 v.push((a, l, h, true));
             }
         }
@@ -152,7 +166,6 @@ pub fn show_palette(
     };
     let filtered: Vec<(PaletteAction, &'static str, &'static str, bool)> = filtered;
 
-
     if *selected >= filtered.len() && !filtered.is_empty() {
         *selected = 0;
     }
@@ -165,8 +178,7 @@ pub fn show_palette(
         .show(ctx, |ui| {
             let screen = ctx.screen_rect();
             let resp = ui.allocate_rect(screen, Sense::click());
-            ui.painter()
-                .rect_filled(screen, 0.0, theme::OVERLAY_DIM());
+            ui.painter().rect_filled(screen, 0.0, theme::OVERLAY_DIM());
             if resp.clicked() {
                 *open = false;
             }
@@ -200,67 +212,65 @@ pub fn show_palette(
                     });
                     ui.add_space(theme::SP_2);
 
-                    ScrollArea::vertical()
-                        .max_height(280.0)
-                        .show(ui, |ui| {
-                            if filtered.is_empty() {
-                                ui.label(
-                                    RichText::new("No matches")
-                                        .color(theme::TEXT_DIM())
-                                        .size(13.0),
-                                );
-                                return;
+                    ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                        if filtered.is_empty() {
+                            ui.label(
+                                RichText::new("No matches")
+                                    .color(theme::TEXT_DIM())
+                                    .size(13.0),
+                            );
+                            return;
+                        }
+                        for (i, (action, label, hint, is_mru)) in filtered.iter().enumerate() {
+                            // "Recent" divider above the first MRU row.
+                            if *is_mru && (i == 0 || !filtered[i - 1].3) {
+                                theme::caps_label(ui, "Recent");
                             }
-                            for (i, (action, label, hint, is_mru)) in filtered.iter().enumerate() {
-                                // "Recent" divider above the first MRU row.
-                                if *is_mru && (i == 0 || !filtered[i - 1].3) {
-                                    theme::caps_label(ui, "Recent");
-                                }
-                                let sel = i == *selected;
-                                let fill = if sel {
-                                    theme::SURFACE_3()
-                                } else {
-                                    egui::Color32::TRANSPARENT
-                                };
-                                let resp = egui::Frame::none()
-                                    .fill(fill)
-                                    .rounding(theme::rounding_sm())
-                                    .inner_margin(egui::Margin::symmetric(8.0, 6.0))
-                                    .show(ui, |ui| {
-                                        ui.set_min_width(400.0);
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(*label)
-                                                    .color(if sel {
-                                                        theme::TEXT()
-                                                    } else {
-                                                        theme::TEXT_MUTED()
-                                                    })
-                                                    .strong(),
-                                            );
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    ui.label(
-                                                        RichText::new(*hint)
-                                                            .size(11.0)
-                                                            .color(theme::TEXT_DIM()),
-                                                    );
-                                                },
-                                            );
-                                        });
-                                    })
-                                    .response
-                                    .interact(Sense::click());
-                                if resp.clicked() {
-                                    chosen = Some(*action);
-                                    *open = false;
-                                }
-                                if resp.hovered() {
-                                    *selected = i;
-                                }
+                            let sel = i == *selected;
+                            let fill = if sel {
+                                theme::SURFACE_3()
+                            } else {
+                                egui::Color32::TRANSPARENT
+                            };
+                            let resp = egui::Frame::none()
+                                .fill(fill)
+                                .rounding(theme::rounding_sm())
+                                .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                                .show(ui, |ui| {
+                                    ui.set_min_width(400.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(*label)
+                                                .color(if sel {
+                                                    theme::TEXT()
+                                                } else {
+                                                    theme::TEXT_MUTED()
+                                                })
+                                                .strong(),
+                                        );
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                ui.label(
+                                                    RichText::new(*hint)
+                                                        .size(11.0)
+                                                        .color(theme::TEXT_DIM()),
+                                                );
+                                            },
+                                        );
+                                    });
+                                })
+                                .response
+                                .interact(Sense::click());
+                            if resp.clicked() {
+                                chosen = Some(*action);
+                                *open = false;
                             }
-                        });
+                            if resp.hovered() {
+                                *selected = i;
+                            }
+                        }
+                    });
 
                     ui.add_space(theme::SP_1);
                     ui.label(
@@ -307,8 +317,7 @@ pub fn show_cheatsheet(ctx: &egui::Context, open: &mut bool) {
         .show(ctx, |ui| {
             let screen = ctx.screen_rect();
             let resp = ui.allocate_rect(screen, Sense::click());
-            ui.painter()
-                .rect_filled(screen, 0.0, theme::OVERLAY_DIM());
+            ui.painter().rect_filled(screen, 0.0, theme::OVERLAY_DIM());
             if resp.clicked() {
                 *open = false;
             }

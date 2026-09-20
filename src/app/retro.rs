@@ -675,10 +675,7 @@ mod tests {
             captures: 0,
             worker_alive: true,
         };
-        let dir = std::env::temp_dir().join(format!(
-            "vibecap_prune_test_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("vibecap_prune_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         for i in 0..10 {
             let p = dir.join(format!("f_test_{i}.jpg"));
@@ -710,10 +707,7 @@ mod tests {
 
     #[test]
     fn list_frame_paths_filters() {
-        let dir = std::env::temp_dir().join(format!(
-            "vibecap_list_test_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("vibecap_list_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::write(dir.join("f_1_000001.jpg"), b"a");
         let _ = std::fs::write(dir.join("notes.txt"), b"no");

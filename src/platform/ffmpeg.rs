@@ -110,7 +110,15 @@ pub fn list_audio_input_devices() -> Vec<String> {
             return Vec::new();
         };
         silence_console(&mut cmd);
-        cmd.args(["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"]);
+        cmd.args([
+            "-hide_banner",
+            "-list_devices",
+            "true",
+            "-f",
+            "dshow",
+            "-i",
+            "dummy",
+        ]);
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());

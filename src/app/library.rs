@@ -277,7 +277,9 @@ fn is_sidecar_note(path: &Path) -> bool {
     let Some(parent) = path.parent() else {
         return false;
     };
-    for ext in ["jpg", "jpeg", "png", "gif", "webp", "mp4", "mov", "webm", "mkv", "m4a"] {
+    for ext in [
+        "jpg", "jpeg", "png", "gif", "webp", "mp4", "mov", "webm", "mkv", "m4a",
+    ] {
         if parent.join(format!("{stem}.{ext}")).exists() {
             return true;
         }

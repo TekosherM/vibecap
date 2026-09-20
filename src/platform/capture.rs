@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use super::source::{resolve_grab, CaptureOpts};
 use super::shell::focus_app;
 #[cfg(target_os = "macos")]
 use super::shell::list_capture_windows;
+use super::source::{resolve_grab, CaptureOpts};
 #[cfg(target_os = "windows")]
 use super::window_rect_on_screen;
 
@@ -633,16 +633,7 @@ pub fn export_gif_clip_ex(
     let vf = format!("fps={fps},scale={width}:-1:flags=lanczos");
     let mut cmd = super::ffmpeg::ffmpeg_command()?;
     cmd.args([
-        "-ss",
-        start_time,
-        "-to",
-        end_time,
-        "-i",
-        video_path,
-        "-vf",
-        &vf,
-        "-y",
-        gif_out,
+        "-ss", start_time, "-to", end_time, "-i", video_path, "-vf", &vf, "-y", gif_out,
     ]);
     run_status(cmd, "ffmpeg gif export")
 }
@@ -716,9 +707,7 @@ pub fn capture_live_frame(
     format: LiveFormat,
     interval_secs: u64,
 ) -> Result<(String, String), String> {
-    let timestamp = chrono::Local::now()
-        .format("%Y-%m-%d_%H-%M-%S")
-        .to_string();
+    let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
     let _ = std::fs::create_dir_all(dir);
 
     match format {
@@ -760,7 +749,14 @@ pub fn spawn_screen_recorder(
     with_audio: bool,
     crop: Option<(i32, i32, i32, i32)>, // w,h,x,y
 ) -> Result<Child, String> {
-    spawn_screen_recorder_opts(out_mp4, fps, with_audio, crop, &CaptureOpts::default(), false)
+    spawn_screen_recorder_opts(
+        out_mp4,
+        fps,
+        with_audio,
+        crop,
+        &CaptureOpts::default(),
+        false,
+    )
 }
 
 /// Unbounded recorder with optional display / window (Linux x11grab).
@@ -944,12 +940,16 @@ pub fn spawn_voice_memo(out_audio: &Path) -> Result<Child, String> {
     #[cfg(target_os = "windows")]
     {
         // Device names vary; override with VIBECAP_AUDIO_DEVICE (DirectShow audio= name).
-        let device = std::env::var("VIBECAP_AUDIO_DEVICE").ok().filter(|s| !s.trim().is_empty())
+        let device = std::env::var("VIBECAP_AUDIO_DEVICE")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
             .or_else(|| {
-                super::ffmpeg::list_audio_input_devices().into_iter().find(|n| {
-                    let l = n.to_ascii_lowercase();
-                    l.contains("microphone") || l.contains("mic")
-                })
+                super::ffmpeg::list_audio_input_devices()
+                    .into_iter()
+                    .find(|n| {
+                        let l = n.to_ascii_lowercase();
+                        l.contains("microphone") || l.contains("mic")
+                    })
             })
             .or_else(|| super::ffmpeg::list_audio_input_devices().into_iter().next())
             .unwrap_or_else(|| "virtual-audio-capturer".into());
@@ -1012,13 +1012,28 @@ mod tests {
         // 100x80 red image.
         let img = image::RgbImage::from_pixel(100, 80, image::Rgb([200, 10, 10]));
         image::DynamicImage::ImageRgb8(img).save(&src).unwrap();
-        crop_image_file(&src, &dest, ScreenRect { x: 10, y: 10, w: 50, h: 40 }).unwrap();
+        crop_image_file(
+            &src,
+            &dest,
+            ScreenRect {
+                x: 10,
+                y: 10,
+                w: 50,
+                h: 40,
+            },
+        )
+        .unwrap();
         assert_eq!(image::image_dimensions(&dest).unwrap(), (50, 40));
         // Out-of-bounds region clamps instead of failing.
         crop_image_file(
             &src,
             &dest,
-            ScreenRect { x: 90, y: 70, w: 500, h: 500 },
+            ScreenRect {
+                x: 90,
+                y: 70,
+                w: 500,
+                h: 500,
+            },
         )
         .unwrap();
         let (w, h) = image::image_dimensions(&dest).unwrap();
@@ -1026,4 +1041,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
-

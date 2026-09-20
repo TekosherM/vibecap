@@ -18,9 +18,7 @@ pub fn notify_desktop(title: &str, body: &str) {
         // osascript is always available; no TCC prompt for display notification.
         let t = applescript_escape(&title);
         let b = applescript_escape(&body);
-        let script = format!(
-            r#"display notification "{b}" with title "{t}" sound name "Glass""#
-        );
+        let script = format!(r#"display notification "{b}" with title "{t}" sound name "Glass""#);
         let _ = Command::new("osascript")
             .arg("-e")
             .arg(script)

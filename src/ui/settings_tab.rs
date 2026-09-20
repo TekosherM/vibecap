@@ -529,11 +529,7 @@ fn theme_swatch(ui: &mut egui::Ui, mode: theme::ThemeMode) -> bool {
                 egui::Vec2::new(pv.width() * 0.55, 10.0),
             );
             p.rect_filled(chip, 2.0, surface);
-            p.circle_filled(
-                egui::pos2(pv.max.x - 6.0, pv.min.y + 6.0),
-                3.0,
-                ink,
-            );
+            p.circle_filled(egui::pos2(pv.max.x - 6.0, pv.min.y + 6.0), 3.0, ink);
         }
     }
     p.rect_stroke(pv, 3.0, egui::Stroke::new(1.0_f32, ring));
@@ -542,7 +538,11 @@ fn theme_swatch(ui: &mut egui::Ui, mode: theme::ThemeMode) -> bool {
         egui::Align2::CENTER_CENTER,
         theme::theme_mode_label(mode),
         egui::FontId::new(10.5, egui::FontFamily::Proportional),
-        if active { theme::TEXT() } else { theme::TEXT_MUTED() },
+        if active {
+            theme::TEXT()
+        } else {
+            theme::TEXT_MUTED()
+        },
     );
     let clicked = resp.clicked();
     resp.on_hover_text(format!("Switch to {}", theme::theme_mode_label(mode)));

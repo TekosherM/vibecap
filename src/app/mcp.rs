@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 
+use crate::app::agent_record::{record_status_line, start_agent_record, stop_agent_record};
 use crate::app::budget::{
     budget_exceeded_reason, budget_status_line, live_usage_snapshot, load_budget, save_budget,
 };
@@ -16,12 +17,10 @@ use crate::app::feedback::{
 };
 use crate::app::io::write_json_atomic;
 use crate::app::live::{
-    get_budget_note_mutex, get_latest_live_gif_mutex, get_live_started_mutex, LIVE_INSPECTION_RUNNING,
+    get_budget_note_mutex, get_latest_live_gif_mutex, get_live_started_mutex,
+    LIVE_INSPECTION_RUNNING,
 };
 use crate::app::retro::{dump_retro_disk_gif, retro_runtime_note, set_retro_enabled};
-use crate::app::agent_record::{
-    record_status_line, start_agent_record, stop_agent_record,
-};
 use crate::platform::{
     capture_live_frame, capture_to_dir, export_gif_clip, focus_app, list_running_apps,
     live_session_dir, media_dir, record_screen_clip_opts, resolve_output_dir, CaptureOpts,
@@ -37,7 +36,10 @@ fn default_media_dir() -> PathBuf {
 }
 
 fn json_str<'a>(args: Option<&'a serde_json::Value>, key: &str) -> Option<&'a str> {
-    args.and_then(|a| a.get(key)).and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty())
+    args.and_then(|a| a.get(key))
+        .and_then(|s| s.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 fn capture_opts_from(args: Option<&serde_json::Value>) -> CaptureOpts {
@@ -79,7 +81,9 @@ pub fn run_mcp_server() {
             Ok(l) => l,
             Err(_) => break,
         };
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
 
         let parsed: serde_json::Value = match serde_json::from_str(&line) {
             Ok(v) => v,
@@ -430,7 +434,8 @@ pub fn run_mcp_server() {
                 let _ = handle.flush();
             }
             "tools/call" => {
-                let tool_name = parsed.get("params")
+                let tool_name = parsed
+                    .get("params")
                     .and_then(|p| p.get("name"))
                     .and_then(|n| n.as_str())
                     .unwrap_or("");
@@ -573,7 +578,7 @@ pub fn run_mcp_server() {
                             .unwrap_or_else(|| if budget_now.analysis_tier == "eco" { "jpg".to_string() } else { "gif".to_string() });
                         let interval_secs = args.and_then(|a| a.get("interval_secs")).and_then(|v| v.as_u64())
                             .unwrap_or_else(|| match budget_now.analysis_tier.as_str() { "eco" => 5, "intensive" => 1, _ => 3 });
-                        
+
                         // Per-process session dir so several MCP servers can stream at once.
                         let default_dir = mcp_live_dir().display().to_string();
                         let live_dir = args.and_then(|a| a.get("output_dir")).and_then(|s| s.as_str()).unwrap_or(&default_dir).to_string();
@@ -631,7 +636,7 @@ pub fn run_mcp_server() {
                     "vibecap_get_live_frame" => {
                         let is_running = LIVE_INSPECTION_RUNNING.load(Ordering::SeqCst);
                         let state = get_latest_live_gif_mutex().lock().map(|l| l.clone()).unwrap_or_default();
-                        
+
                         let parts: Vec<&str> = state.split('|').collect();
                         let (fmt, latest_frame, ts_frame) = if parts.len() == 3 {
                             (parts[0], parts[1], parts[2])
@@ -661,7 +666,7 @@ pub fn run_mcp_server() {
                         let state = get_latest_live_gif_mutex().lock().map(|l| l.clone()).unwrap_or_default();
                         let parts: Vec<&str> = state.split('|').collect();
                         let ts_frame = if parts.len() == 3 { parts[2] } else { "" };
-                        
+
                         let default_dir = mcp_live_dir().display().to_string();
                         let target_dir = if !ts_frame.is_empty() {
                             std::path::Path::new(ts_frame).parent().and_then(|p| p.to_str()).unwrap_or(&default_dir)

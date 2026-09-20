@@ -209,7 +209,13 @@ Docs: README.md  ·  docs/AGENTS.md  ·  docs/USAGE.md  ·  docs/MCP.md  ·  doc
 pub fn paths_text() -> String {
     let ffmpeg = crate::platform::ffmpeg_path()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| if ffmpeg_available() { "yes".into() } else { "no".into() });
+        .unwrap_or_else(|| {
+            if ffmpeg_available() {
+                "yes".into()
+            } else {
+                "no".into()
+            }
+        });
     let extra = crate::platform::window_tools_hint()
         .map(|h| format!("window_crop={h}\n"))
         .unwrap_or_default();
@@ -259,24 +265,25 @@ pub fn run_headless(cli: &CliArgs) -> Option<i32> {
                 }
             }
         }
-        CliAction::RecordStart => match start_agent_record(cli.output_dir.as_deref(), &cli.opts(), cli.gif)
-        {
-            Ok(s) => {
-                println!(
-                    "recording started pid={} mp4={} output_dir={} display={} window={}",
-                    s.pid,
-                    s.mp4,
-                    s.output_dir,
-                    s.display.as_deref().unwrap_or("-"),
-                    s.window.as_deref().unwrap_or("-")
-                );
-                Some(0)
+        CliAction::RecordStart => {
+            match start_agent_record(cli.output_dir.as_deref(), &cli.opts(), cli.gif) {
+                Ok(s) => {
+                    println!(
+                        "recording started pid={} mp4={} output_dir={} display={} window={}",
+                        s.pid,
+                        s.mp4,
+                        s.output_dir,
+                        s.display.as_deref().unwrap_or("-"),
+                        s.window.as_deref().unwrap_or("-")
+                    );
+                    Some(0)
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    Some(1)
+                }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                Some(1)
-            }
-        },
+        }
         CliAction::RecordStop => match stop_agent_record(cli.gif) {
             Ok((s, gif)) => {
                 let bytes = std::fs::metadata(s.mp4_path())
@@ -326,10 +333,7 @@ mod tests {
             "--screenshot --output-dir /workspace/run4/frames --display :1 --window Chrome",
         ));
         assert_eq!(c.action, CliAction::Screenshot);
-        assert_eq!(
-            c.output_dir,
-            Some(PathBuf::from("/workspace/run4/frames"))
-        );
+        assert_eq!(c.output_dir, Some(PathBuf::from("/workspace/run4/frames")));
         assert_eq!(c.display.as_deref(), Some(":1"));
         assert_eq!(c.window.as_deref(), Some("Chrome"));
     }

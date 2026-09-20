@@ -1,6 +1,8 @@
 //! Shared UI components: toast cards, empty states, Loop rail, Shutter strip.
 
-use egui::{Align, Color32, Frame, Layout, Margin, Pos2, Rect, RichText, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{
+    Align, Color32, Frame, Layout, Margin, Pos2, Rect, RichText, Rounding, Sense, Stroke, Ui, Vec2,
+};
 
 use super::icons::{self, Icon};
 use super::theme;
@@ -19,12 +21,18 @@ pub enum ToastLevel {
 impl ToastLevel {
     pub fn from_message(msg: &str) -> Self {
         let t = msg.trim_start();
-        if t.starts_with('❌') || t.contains("failed") || t.contains("Failed") || t.contains("Could not")
+        if t.starts_with('❌')
+            || t.contains("failed")
+            || t.contains("Failed")
+            || t.contains("Could not")
         {
             Self::Error
         } else if t.starts_with('⚠') || t.starts_with("⚠️") {
             Self::Warn
-        } else if t.starts_with('✅') || t.starts_with("💾") || t.starts_with("📸") || t.starts_with("🎨")
+        } else if t.starts_with('✅')
+            || t.starts_with("💾")
+            || t.starts_with("📸")
+            || t.starts_with("🎨")
         {
             Self::Success
         } else {
@@ -72,11 +80,7 @@ pub fn show_toast_card(ctx: &egui::Context, message: &str, level: ToastLevel) {
                         ui.add_space(theme::SP_2);
                         icons::icon_button(ui, level.icon(), accent, 16.0);
                         ui.add_space(theme::SP_2);
-                        ui.label(
-                            RichText::new(message)
-                                .color(theme::TEXT())
-                                .size(13.0),
-                        );
+                        ui.label(RichText::new(message).color(theme::TEXT()).size(13.0));
                     });
                 });
         });
@@ -131,11 +135,7 @@ pub fn show_capture_toast(
                                 .font(egui::FontId::new(14.0, theme::font_semibold()))
                                 .color(theme::TEXT()),
                             );
-                            ui.label(
-                                RichText::new(&name)
-                                    .small()
-                                    .color(theme::TEXT_MUTED()),
-                            );
+                            ui.label(RichText::new(&name).small().color(theme::TEXT_MUTED()));
                         });
                     });
                     ui.add_space(theme::SP_2);
@@ -147,10 +147,18 @@ pub fn show_capture_toast(
                         {
                             action = Some(CaptureToastAction::Annotate);
                         }
-                        if ui.button("Copy Image").on_hover_text("Copy image to clipboard").clicked() {
+                        if ui
+                            .button("Copy Image")
+                            .on_hover_text("Copy image to clipboard")
+                            .clicked()
+                        {
                             action = Some(CaptureToastAction::Copy);
                         }
-                        if ui.button("Copy Path").on_hover_text("Copy file path").clicked() {
+                        if ui
+                            .button("Copy Path")
+                            .on_hover_text("Copy file path")
+                            .clicked()
+                        {
                             action = Some(CaptureToastAction::CopyPath);
                         }
                         if ui
@@ -160,7 +168,11 @@ pub fn show_capture_toast(
                         {
                             action = Some(CaptureToastAction::Reveal);
                         }
-                        if ui.button("Discard").on_hover_text("Move to undo trash").clicked() {
+                        if ui
+                            .button("Discard")
+                            .on_hover_text("Move to undo trash")
+                            .clicked()
+                        {
                             action = Some(CaptureToastAction::Discard);
                         }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -209,11 +221,7 @@ pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, subtitle: &str) {
                 .strong(),
         );
         ui.add_space(theme::SP_1);
-        ui.label(
-            RichText::new(subtitle)
-                .color(theme::TEXT_DIM())
-                .size(12.0),
-        );
+        ui.label(RichText::new(subtitle).color(theme::TEXT_DIM()).size(12.0));
     });
 }
 
@@ -329,11 +337,7 @@ pub fn loop_rail(
                             } else {
                                 theme::TEXT_DIM()
                             };
-                            ui.label(
-                                RichText::new(stage.label())
-                                    .color(label_color)
-                                    .size(10.0),
-                            );
+                            ui.label(RichText::new(stage.label()).color(label_color).size(10.0));
                             if matches!(stage, LoopStage::Inbox) && inbox_badge > 0 {
                                 ui.label(
                                     RichText::new(format!("{}", inbox_badge.min(99)))
@@ -366,7 +370,8 @@ pub fn loop_rail(
                     if theme::is_celestial() {
                         theme::paint_aurora_strip_v(ui.painter(), tick);
                     } else {
-                        ui.painter().rect_filled(tick, Rounding::same(1.5), theme::ACCENT());
+                        ui.painter()
+                            .rect_filled(tick, Rounding::same(1.5), theme::ACCENT());
                     }
                 }
 
@@ -385,11 +390,7 @@ pub fn loop_rail(
                 }
                 // Flow hint between the first two funnel steps.
                 if i == 0 {
-                    ui.label(
-                        RichText::new("↓")
-                            .color(theme::TEXT_DIM())
-                            .size(11.0),
-                    );
+                    ui.label(RichText::new("↓").color(theme::TEXT_DIM()).size(11.0));
                 }
                 ui.add_space(theme::SP_1);
             }
@@ -482,11 +483,7 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
                                 .color(theme::DANGER()),
                         );
                     } else {
-                        ui.label(
-                            RichText::new("idle")
-                                .size(11.0)
-                                .color(theme::TEXT_DIM()),
-                        );
+                        ui.label(RichText::new("idle").size(11.0).color(theme::TEXT_DIM()));
                     }
                 });
             });
@@ -518,13 +515,12 @@ pub fn section_card(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
     } else {
         frame
     };
-    frame
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            theme::caps_label(ui, title);
-            ui.add_space(theme::SP_2);
-            add(ui);
-        });
+    frame.show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        theme::caps_label(ui, title);
+        ui.add_space(theme::SP_2);
+        add(ui);
+    });
     ui.add_space(theme::SP_3);
 }
 
@@ -545,13 +541,10 @@ fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
         BtnKind::Small => (11.5, Vec2::new(11.0, 5.0)),
     };
     let font = egui::FontId::new(size_px, theme::font_semibold());
-    let galley = ui.painter().layout_no_wrap(
-        label.to_string(),
-        font.clone(),
-        theme::TEXT(),
-    );
-    let (rect, resp) =
-        ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), theme::TEXT());
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -559,8 +552,16 @@ fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
     let (fill, stroke, text) = match kind {
         BtnKind::Primary => (theme::PRIMARY(), theme::PRIMARY(), theme::PRIMARY_INK()),
         BtnKind::Secondary => (theme::SURFACE(), theme::BORDER_STRONG(), theme::TEXT()),
-        BtnKind::Small => (theme::SURFACE(), theme::BORDER_STRONG(), theme::TEXT_MUTED()),
-        BtnKind::Danger => (theme::DANGER_SOFT(), theme::DANGER_SOFT(), theme::ON_SOLID()),
+        BtnKind::Small => (
+            theme::SURFACE(),
+            theme::BORDER_STRONG(),
+            theme::TEXT_MUTED(),
+        ),
+        BtnKind::Danger => (
+            theme::DANGER_SOFT(),
+            theme::DANGER_SOFT(),
+            theme::ON_SOLID(),
+        ),
     };
     let down = resp.is_pointer_button_down_on();
     let fill = if down {
@@ -594,7 +595,11 @@ fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
         } else if resp.hovered() {
             p.rect_filled(rect, r, egui::Color32::from_black_alpha(28));
         }
-        p.rect_stroke(rect, r, Stroke::new(1.0_f32, egui::Color32::from_white_alpha(30)));
+        p.rect_stroke(
+            rect,
+            r,
+            Stroke::new(1.0_f32, egui::Color32::from_white_alpha(30)),
+        );
     } else {
         p.rect_filled(rect, r, fill);
         p.rect_stroke(rect, r, Stroke::new(1.0_f32, stroke));
@@ -700,13 +705,11 @@ pub fn count_chip(ui: &mut Ui, label: &str) {
 /// Pill filter chip (mono-ui `.chip` — radius 999, ink fill when active).
 pub fn chip(ui: &mut Ui, label: &str, active: bool) -> bool {
     let font = egui::FontId::new(11.5, theme::font_semibold());
-    let galley =
-        ui.painter()
-            .layout_no_wrap(label.to_string(), font.clone(), theme::TEXT_MUTED());
-    let (rect, resp) = ui.allocate_exact_size(
-        galley.size() + Vec2::new(22.0, 10.0),
-        Sense::click(),
-    );
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), theme::TEXT_MUTED());
+    let (rect, resp) =
+        ui.allocate_exact_size(galley.size() + Vec2::new(22.0, 10.0), Sense::click());
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -714,14 +717,22 @@ pub fn chip(ui: &mut Ui, label: &str, active: bool) -> bool {
         (theme::PRIMARY(), theme::PRIMARY(), theme::PRIMARY_INK())
     } else {
         (
-            if resp.hovered() { theme::SURFACE_3() } else { theme::SURFACE() },
+            if resp.hovered() {
+                theme::SURFACE_3()
+            } else {
+                theme::SURFACE()
+            },
             theme::BORDER(),
             theme::TEXT_MUTED(),
         )
     };
     let p = ui.painter();
     p.rect_filled(rect, Rounding::same(rect.height() / 2.0), fill);
-    p.rect_stroke(rect, Rounding::same(rect.height() / 2.0), Stroke::new(1.0_f32, stroke));
+    p.rect_stroke(
+        rect,
+        Rounding::same(rect.height() / 2.0),
+        Stroke::new(1.0_f32, stroke),
+    );
     p.galley(
         egui::pos2(
             rect.center().x - galley.size().x / 2.0,
@@ -736,11 +747,7 @@ pub fn chip(ui: &mut Ui, label: &str, active: bool) -> bool {
 /// Segmented control for exclusive choices (mono-ui `.seg` — bordered
 /// surface-2 track, active segment pops to `surface` with semibold text).
 /// Returns true when the value changed.
-pub fn segmented<T: PartialEq + Copy>(
-    ui: &mut Ui,
-    current: &mut T,
-    options: &[(T, &str)],
-) -> bool {
+pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, current: &mut T, options: &[(T, &str)]) -> bool {
     let mut changed = false;
     Frame::none()
         .fill(theme::SURFACE_2())
@@ -764,10 +771,8 @@ pub fn segmented<T: PartialEq + Copy>(
                         font.clone(),
                         theme::TEXT(),
                     );
-                    let (rect, resp) = ui.allocate_exact_size(
-                        galley.size() + Vec2::new(24.0, 10.0),
-                        Sense::click(),
-                    );
+                    let (rect, resp) = ui
+                        .allocate_exact_size(galley.size() + Vec2::new(24.0, 10.0), Sense::click());
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -810,10 +815,22 @@ pub fn switch(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
         }
         let paint = ui.painter_at(rect);
         let r = rect.height() / 2.0;
-        let bg = if *on { theme::PRIMARY() } else { theme::SURFACE_3() };
+        let bg = if *on {
+            theme::PRIMARY()
+        } else {
+            theme::SURFACE_3()
+        };
         paint.rect_filled(rect, r, bg);
-        let knob_x = if *on { rect.right() - r } else { rect.left() + r };
-        let knob_c = if *on { theme::PRIMARY_INK() } else { theme::TEXT_MUTED() };
+        let knob_x = if *on {
+            rect.right() - r
+        } else {
+            rect.left() + r
+        };
+        let knob_c = if *on {
+            theme::PRIMARY_INK()
+        } else {
+            theme::TEXT_MUTED()
+        };
         paint.circle_filled(egui::pos2(knob_x, rect.center().y), r - 3.0, knob_c);
         resp.on_hover_text(label);
         ui.add_space(theme::SP_2);
@@ -861,8 +878,7 @@ pub fn group(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
 /// Returns true when the user clicks to expand that stage.
 pub fn funnel_stripe(ui: &mut Ui, icon: Icon, title: &str, hint: &str) -> bool {
     let h = 40.0;
-    let (rect, resp) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), h), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), h), Sense::click());
     let hovered = resp.hovered();
     ui.painter().rect_filled(
         rect,
@@ -876,7 +892,14 @@ pub fn funnel_stripe(ui: &mut Ui, icon: Icon, title: &str, hint: &str) -> bool {
     ui.painter().rect_stroke(
         rect,
         theme::rounding_md(),
-        Stroke::new(1.0_f32, if hovered { theme::ACCENT() } else { theme::BORDER() }),
+        Stroke::new(
+            1.0_f32,
+            if hovered {
+                theme::ACCENT()
+            } else {
+                theme::BORDER()
+            },
+        ),
     );
     icons::paint_icon(
         ui,
@@ -885,7 +908,11 @@ pub fn funnel_stripe(ui: &mut Ui, icon: Icon, title: &str, hint: &str) -> bool {
             Vec2::splat(18.0),
         ),
         icon,
-        if hovered { theme::ACCENT() } else { theme::TEXT_MUTED() },
+        if hovered {
+            theme::ACCENT()
+        } else {
+            theme::TEXT_MUTED()
+        },
     );
     ui.painter().text(
         Pos2::new(rect.left() + 48.0, rect.center().y),
@@ -978,14 +1005,11 @@ pub fn shutter_strip(
                 }
 
                 ui.add_space(theme::SP_2);
-                let gif = egui::Button::new(
-                    RichText::new("  GIF  ")
-                        .color(theme::TEXT())
-                        .size(13.0),
-                )
-                .fill(theme::SURFACE_2())
-                .stroke(Stroke::new(1.0_f32, theme::BORDER()))
-                .rounding(theme::rounding_md());
+                let gif =
+                    egui::Button::new(RichText::new("  GIF  ").color(theme::TEXT()).size(13.0))
+                        .fill(theme::SURFACE_2())
+                        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                        .rounding(theme::rounding_md());
                 if ui
                     .add_sized([88.0, 48.0], gif)
                     .on_hover_text("Record 3 seconds and export a GIF")

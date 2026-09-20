@@ -72,8 +72,14 @@ mod tests {
     #[test]
     fn tokens_are_sanitized() {
         let s = format_capture_stem("{app}-{date}-{seq}", Some("Google Chrome"), 7);
-        assert!(s.contains("Google-Chrome") || s.contains("GoogleChrome"), "{s}");
-        assert!(s.contains("-007") || s.ends_with("007") || s.contains("007"), "{s}");
+        assert!(
+            s.contains("Google-Chrome") || s.contains("GoogleChrome"),
+            "{s}"
+        );
+        assert!(
+            s.contains("-007") || s.ends_with("007") || s.contains("007"),
+            "{s}"
+        );
         assert!(!s.contains(' '));
     }
 
