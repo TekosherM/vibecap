@@ -71,6 +71,10 @@ pub struct SessionState {
     /// Half-width (240px) filmstrip preview — faster extraction, less GPU memory.
     #[serde(default)]
     pub filmstrip_low_res: bool,
+    /// Region overlay dim alpha (0–200). The selection punches through at
+    /// full brightness; the rest of the backdrop dims by this much.
+    #[serde(default = "default_region_dim")]
+    pub region_dim: u8,
 }
 
 fn default_theme_dark() -> String {
@@ -91,6 +95,10 @@ fn default_hotkey_shot() -> u8 {
 
 fn default_hotkey_rec() -> u8 {
     2
+}
+
+fn default_region_dim() -> u8 {
+    110
 }
 
 fn default_clip_autoplay() -> bool {
@@ -134,6 +142,7 @@ impl Default for SessionState {
             inbox_quiet: false,
             clip_autoplay: true,
             filmstrip_low_res: false,
+            region_dim: default_region_dim(),
         }
     }
 }

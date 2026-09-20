@@ -149,3 +149,10 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - Cut marks (#136 partial): right-click a filmstrip thumb marks its slice; "Export without cuts" re-encodes via `select`/`aselect` `not(between())`.
 - Preview audio (#126): parallel `extract_preview_wav` → temp WAV; `play_audio_loop`/`stop_audio` winmm FFI follows `player_playing`. Windows-only, ≤120s.
 - #144 verified already shipped (SPEED chips → setpts/atempo); dead `clip_speed` field removed.
+
+### Still tools II + region HUD polish
+- New annotation tools: `Spotlight` (darken-outside bake, dim bands + hole preview) and `Measure` (drag line → "N px · θ°" label in image px, bakes into export). Both wired into the Still canvas and the annotate modal.
+- `straighten_if_near_line` — near-straight freehand (<6% chord deviation) collapses to a clean 2-point line on release. Pen only; 2 tests.
+- `still_grid` — "▦" toolbar toggle paints a quarters grid over the image (preview-only, never baked).
+- Region HUD: backdrop now dims (`region_dim` session 0–200, Settings slider) with the selection punched through at full brightness; "1080p"/"720p" chips drop centered pixel-size boxes; clicking the W×H plate copies `x,y,w,h` in pixels.
+- Marked already-shipped: #14 nudge/Enter, #19 aspect lock, #56 clip loop, #64 blur mosaic, #66 badge renumber, #67 zoom/pan, #45 0/1 zoom keys, #40 copy-original, #69 copy-path shortcut, #86 min-size guard.

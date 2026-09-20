@@ -472,6 +472,8 @@ pub(crate) struct VibecapApp {
     /// Set by the `1` key; resolved to true-100% inside the canvas block
     /// where the fit scale is known.
     still_zoom_to_100: bool,
+    /// E44 — thirds/quarters composition grid over the still canvas.
+    still_grid: bool,
     clip_loop: bool,
     gif_fps: u32,
     gif_width: u32,
@@ -583,6 +585,8 @@ pub(crate) struct VibecapApp {
     clip_autoplay: bool,
     /// Half-width filmstrip — faster extraction, softer preview.
     filmstrip_low_res: bool,
+    /// E24 — region overlay dim alpha (session-backed).
+    region_dim: u8,
     /// Filmstrip decode progress `(done, total)` for the determinate label.
     filmstrip_progress: (usize, usize),
     filmstrip_progress_rx: Option<Receiver<(usize, usize)>>,
@@ -891,6 +895,7 @@ impl VibecapApp {
             inbox_quiet: false,
             still_zoom: 1.0,
             still_zoom_to_100: false,
+            still_grid: false,
             gif_fps: 15,
             gif_width: 800,
             hotkey_shot_digit: 3,
@@ -1199,6 +1204,7 @@ impl VibecapApp {
         self.inbox_quiet = s.inbox_quiet;
         self.clip_autoplay = s.clip_autoplay;
         self.filmstrip_low_res = s.filmstrip_low_res;
+        self.region_dim = s.region_dim.min(200);
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
         // never unconditionally, so granted users are not re-asked on cold start.
@@ -1254,6 +1260,7 @@ impl VibecapApp {
             inbox_quiet: self.inbox_quiet,
             clip_autoplay: self.clip_autoplay,
             filmstrip_low_res: self.filmstrip_low_res,
+            region_dim: self.region_dim,
         });
     }
 
@@ -4461,6 +4468,12 @@ impl VibecapApp {
             );
             ui.radio_value(&mut self.current_tool, AnnotationTool::Text, "🔤 Text");
             ui.radio_value(&mut self.current_tool, AnnotationTool::Blur, "💧 Blur");
+            ui.radio_value(&mut self.current_tool, AnnotationTool::Spotlight, "🔦 Spot");
+            ui.radio_value(
+                &mut self.current_tool,
+                AnnotationTool::Measure,
+                "📐 Measure",
+            );
             ui.radio_value(
                 &mut self.current_tool,
                 AnnotationTool::StepBadge,
@@ -4604,6 +4617,8 @@ impl VibecapApp {
 
             let (response, painter) = ui.allocate_painter(tex_size, egui::Sense::drag());
             self.annotation_canvas_rect = Some(response.rect);
+            let canvas = response.rect;
+            let tex_px_w = tex.size()[0].max(1) as f32;
             painter.image(
                 tex.id(),
                 response.rect,
@@ -4664,6 +4679,51 @@ impl VibecapApp {
                                 rect,
                                 0.0,
                                 Stroke::new(1.0_f32, theme::NEUTRAL_STROKE()),
+                            );
+                        }
+                    }
+                    AnnotationTool::Spotlight => {
+                        if action.points.len() >= 2 {
+                            let hole = Rect::from_two_pos(
+                                action.points[0],
+                                *action.points.last().unwrap(),
+                            );
+                            let dim = Color32::from_black_alpha(120);
+                            for band in [
+                                Rect::from_min_max(canvas.min, Pos2::new(canvas.max.x, hole.min.y)),
+                                Rect::from_min_max(Pos2::new(canvas.min.x, hole.max.y), canvas.max),
+                                Rect::from_min_max(
+                                    Pos2::new(canvas.min.x, hole.min.y),
+                                    Pos2::new(hole.min.x, hole.max.y),
+                                ),
+                                Rect::from_min_max(
+                                    Pos2::new(hole.max.x, hole.min.y),
+                                    Pos2::new(canvas.max.x, hole.max.y),
+                                ),
+                            ] {
+                                painter.rect_filled(band, 0.0, dim);
+                            }
+                            painter.rect_stroke(
+                                hole,
+                                0.0,
+                                Stroke::new(1.0_f32, theme::NEUTRAL_STROKE()),
+                            );
+                        }
+                    }
+                    AnnotationTool::Measure => {
+                        if action.points.len() >= 2 {
+                            let start = action.points[0];
+                            let end = *action.points.last().unwrap();
+                            painter.line_segment([start, end], stroke);
+                            let px_scale = tex_px_w / canvas.width().max(1.0);
+                            let dist = (end - start).length() * px_scale;
+                            let deg = (end - start).angle().to_degrees().abs() as i32;
+                            painter.text(
+                                end + Vec2::new(8.0, -22.0),
+                                Align2::LEFT_TOP,
+                                format!("{dist:.0} px · {deg}°"),
+                                FontId::proportional(12.0),
+                                action.color,
                             );
                         }
                     }
@@ -4747,7 +4807,11 @@ impl VibecapApp {
                 }
             }
             if response.drag_stopped() {
-                if let Some(action) = self.current_action.take() {
+                if let Some(mut action) = self.current_action.take() {
+                    // E32 — a near-straight freehand becomes a clean line.
+                    if action.tool == AnnotationTool::Pen {
+                        crate::app::straighten_if_near_line(&mut action.points);
+                    }
                     self.annotation_actions.push(action);
                 }
             }
@@ -5082,6 +5146,7 @@ impl eframe::App for VibecapApp {
                 },
                 &mut self.region_aspect_lock,
                 &mut self.window_pick_cycle,
+                self.region_dim,
             ) {
                 RegionHudResult::Continue => {}
                 RegionHudResult::Confirmed { selected, overlay } => {

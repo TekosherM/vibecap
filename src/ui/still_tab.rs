@@ -305,6 +305,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 if btn_small(ui, "−") {
                     app.still_zoom = (app.still_zoom - 0.25).max(0.25);
                 }
+                // E44 — thirds/quarters composition grid (preview only).
+                if ui
+                    .selectable_label(app.still_grid, RichText::new("▦").size(12.0))
+                    .on_hover_text("Grid overlay")
+                    .clicked()
+                {
+                    app.still_grid = !app.still_grid;
+                }
             });
         });
         ui.add_space(theme::SP_2);
@@ -350,6 +358,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                 theme::ON_SOLID(),
             );
+            // E44 — grid overlay is preview chrome, never baked.
+            if app.still_grid {
+                let gs = Stroke::new(1.0_f32, theme::HUD_GUIDE());
+                for i in 1..4 {
+                    let x = img_rect.min.x + img_rect.width() * (i as f32) / 4.0;
+                    painter.line_segment(
+                        [Pos2::new(x, img_rect.min.y), Pos2::new(x, img_rect.max.y)],
+                        gs,
+                    );
+                    let y = img_rect.min.y + img_rect.height() * (i as f32) / 4.0;
+                    painter.line_segment(
+                        [Pos2::new(img_rect.min.x, y), Pos2::new(img_rect.max.x, y)],
+                        gs,
+                    );
+                }
+            }
             if let Some((a, b)) = app.crop_drag {
                 painter.rect_stroke(
                     Rect::from_two_pos(a, b),
@@ -413,6 +437,61 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 0.0,
                                 Stroke::new(1.0_f32, theme::NEUTRAL_STROKE()),
                             );
+                        }
+                    }
+                    AnnotationTool::Spotlight => {
+                        if action.points.len() >= 2 {
+                            let hole =
+                                Rect::from_two_pos(action.points[0], *action.points.last().unwrap());
+                            let dim = Color32::from_black_alpha(120);
+                            for band in [
+                                Rect::from_min_max(
+                                    img_rect.min,
+                                    Pos2::new(img_rect.max.x, hole.min.y),
+                                ),
+                                Rect::from_min_max(
+                                    Pos2::new(img_rect.min.x, hole.max.y),
+                                    img_rect.max,
+                                ),
+                                Rect::from_min_max(
+                                    Pos2::new(img_rect.min.x, hole.min.y),
+                                    Pos2::new(hole.min.x, hole.max.y),
+                                ),
+                                Rect::from_min_max(
+                                    Pos2::new(hole.max.x, hole.min.y),
+                                    Pos2::new(img_rect.max.x, hole.max.y),
+                                ),
+                            ] {
+                                painter.rect_filled(band, 0.0, dim);
+                            }
+                            painter.rect_stroke(
+                                hole,
+                                0.0,
+                                Stroke::new(1.0_f32, theme::NEUTRAL_STROKE()),
+                            );
+                        }
+                    }
+                    AnnotationTool::Measure => {
+                        if action.points.len() >= 2 {
+                            let start = action.points[0];
+                            let end = *action.points.last().unwrap();
+                            painter.line_segment([start, end], stroke);
+                            // Distance in *image* px — canvas len scales by
+                            // the preview's fit ratio.
+                            let px_scale =
+                                app.img_src_wh.0.max(1) as f32 / img_rect.width().max(1.0);
+                            let dist = (end - start).length() * px_scale;
+                            let deg = (end - start).angle().to_degrees().abs() as i32;
+                            let label = format!("{dist:.0} px · {deg}°");
+                            let lp = end + Vec2::new(8.0, -22.0);
+                            let g = painter.layout_no_wrap(
+                                label,
+                                FontId::proportional(12.0),
+                                theme::ON_SOLID(),
+                            );
+                            let pr = Rect::from_min_size(lp, g.size() + Vec2::new(8.0, 4.0));
+                            painter.rect_filled(pr, 4.0, theme::OVERLAY_LABEL());
+                            painter.galley(lp + Vec2::new(4.0, 2.0), g, theme::ON_SOLID());
                         }
                     }
                     AnnotationTool::Text => {
@@ -583,7 +662,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             }
             if !app.still_crop_mode && response.drag_stopped() {
-                if let Some(action) = app.current_action.take() {
+                if let Some(mut action) = app.current_action.take() {
+                    // E32 — a near-straight freehand becomes a clean line.
+                    if action.tool == AnnotationTool::Pen {
+                        crate::app::straighten_if_near_line(&mut action.points);
+                    }
                     app.annotation_actions.push(action);
                 }
             }
@@ -645,6 +728,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             (AnnotationTool::Highlight, "🖍 Highlight"),
                             (AnnotationTool::Text, "🔤 Text"),
                             (AnnotationTool::Blur, "💧 Blur"),
+                            (AnnotationTool::Spotlight, "🔦 Spot"),
+                            (AnnotationTool::Measure, "📐 Measure"),
                             (AnnotationTool::StepBadge, "🔢 Steps"),
                         ] {
                             ui.selectable_value(&mut app.current_tool, tool, label);
@@ -930,6 +1015,8 @@ fn annotation_label(n: usize, a: &AnnotationAction) -> String {
                 AnnotationTool::Ellipse => "Ellipse",
                 AnnotationTool::Highlight => "Highlight",
                 AnnotationTool::Blur => "Blur",
+                AnnotationTool::Spotlight => "Spotlight",
+                AnnotationTool::Measure => "Measure",
                 _ => "Stroke",
             };
             format!("{n} · {name}")

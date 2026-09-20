@@ -38,12 +38,12 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 11. **Last-region ghost in pixel space**, not overlay points. Session `last_region` is `[min_x, min_y, max_x, max_y]` in mixed coords after DPI/maximize changes — wrong box on the next pick.
 12. **Re-record last region without re-picking** (partially done). Add a Shutter chip “Last 800×600” with Clear.
 13. **Display picker** for multi-monitor. Today gdigrab `desktop` is the whole virtual screen; no “this monitor” control.
-14. **Region nudge after confirm** before capture (Enter = capture, arrows still move). Accidental drag-stop currently fires immediately.
+14. **Region nudge after confirm** before capture (Enter = capture, arrows still move). Accidental drag-stop currently fires immediately. ✓ (arrows/WASD nudge, Enter confirms, <24px drags keep the box)
 15. **Click-through vs capture.** Overlay must eat clicks (so you can drag). Document that; add a “click-through preview” mode only if we freeze a snapshot first (Windows already does).
 16. **Countdown while hidden.** Bubble is painted on the main ctx; if the studio is parked, the user may never see 3/5. Paint countdown on the same always-on-top viewport family as the REC bar.
 17. **Shutter flash** (one-frame invert/white) on still capture so you know it fired when the window is hidden.
 18. **Cancel region with right-click** in addition to Esc (Windows muscle memory from Snipping Tool). ✓ (was already shipped — `secondary_clicked` → Cancelled in capture_hud)
-19. **Aspect-ratio lock** on region (Shift = square, Alt = 16:9) for README/demo clips.
+19. **Aspect-ratio lock** on region (Shift = square, Alt = 16:9) for README/demo clips. ✓ (Shift/Alt modifiers + Free/1:1/16:9/9:16 toolbar chips)
 20. **Magnifier that samples pixels** (loupe is chrome-only today — `capture_hud.rs` says so). Optional; keep off by default (cost).
 
 ---
@@ -100,7 +100,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 53. **Keep `frames_temp/` out of the library** and delete on Clip close / app exit (today thumbs are removed in `extract_filmstrip_rgba`, but a crash leaves the dir).
 54. **In/out handles must match export.** Verify GIF/trim ffmpeg `-ss/-to` uses the same seconds as the ruler (probed duration vs filmstrip fps drift).
 55. **Frame step ←/→** and `J/K` while the player is focused.
-56. **Loop region** between in/out.
+56. **Loop region** between in/out. ✓ (`clip_loop`, L key + transport toggle — playhead wraps to in-point)
 57. **Export presets:** “Discord 8 MB”, “README 480p 3s”, “full lossless”. One ffmpeg line each.
 58. **GIF dialog:** fps / width / estimated size before encode. Current export is a fixed `fps=15,scale=800`.
 59. **Audio extract** (m4a) from the TOOLS card — wardrobe has transforms; no “strip audio / extract audio”.
@@ -113,12 +113,12 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 61. **Crop by dragging on the preview**, not four text fields (`img_crop_x/y/w/h` parse in `main.rs`). Numeric fields stay as precision.
 62. **Annotation undo/redo.** `annotation_actions` is a vec with no history stack; Esc exits the whole studio.
 63. **Esc from annotate returns to Still/Inbox**, not a blank capture tab.
-64. **Blur is a filled overlay**, not a real pixel blur (`AnnotationTool::Blur`). Bake a box-blur (or mosaic) so PII is actually gone in the exported JPG.
+64. **Blur is a filled overlay**, not a real pixel blur (`AnnotationTool::Blur`). Bake a box-blur (or mosaic) so PII is actually gone in the exported JPG. ✓ (`pixelate_rect` mosaic bakes into pixels — the preview overlay is just chrome)
 65. **Text tool: in-place editor** at the click, not a separate `pending_text` field you type first.
-66. **Step badges renumber** when you delete one.
-67. **Zoom/pan** on the still canvas (scroll = zoom, space+drag = pan, 0 = fit). 4K stills in a 1160×800 window are unusable to annotate.
+66. **Step badges renumber** when you delete one. ✓ (`renumber_step_badges` on remove)
+67. **Zoom/pan** on the still canvas (scroll = zoom, space+drag = pan, 0 = fit). 4K stills in a 1160×800 window are unusable to annotate. ✓ (scroll zoom 25–400%, Space+drag pan, 0 fit / 1 true-100%)
 68. **Save as copy vs overwrite.** Baking currently writes next to the original; make the two actions explicit.
-69. **Copy image vs copy path** as two shortcuts (⌘C image, ⇧⌘C path) — ⌘C is image-only today.
+69. **Copy image vs copy path** as two shortcuts (⌘C image, ⇧⌘C path) — ⌘C is image-only today. ✓ (Ctrl+C image, Ctrl+Shift+C path)
 70. **Voice note on Windows.** `spawn_voice_memo` uses dshow `virtual-audio-capturer` by default — a virtual *playback* capture driver, not a mic. Use the default WASAPI/dshow *audio input* device.
 
 ---
@@ -207,10 +207,10 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test).
 19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu.
 20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %. ✓
-21. **Named size presets** — 1920×1080 / 1280×720 centered-box buttons in the HUD.
+21. **Named size presets** — 1920×1080 / 1280×720 centered-box buttons in the HUD. ✓ ("1080p"/"720p" chips drop a centered pixel-size box; nudge + Enter captures)
 22. **Saved regions** — persist named rects to session; pick from palette.
 23. **Loupe hex readout** — show the sampled pixel's #RRGGBB in the cursor loupe. ✓ (was already shipped)
-24. **Dim-intensity setting** for the region overlay.
+24. **Dim-intensity setting** for the region overlay. ✓ (session `region_dim` 0–200, Settings slider; backdrop now dims with the selection punched bright)
 25. **Capture without cursor flash** — per-shot toggle in the HUD.
 
 ## B · Still editor (Snagit-editor territory)
@@ -218,10 +218,10 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 26. **Arrow tool** — line with head, stroke/color-aware.
 27. **Rectangle / ellipse outline** tools.
 28. **Blur / pixelate region** — the Inbox "Blur the token" snippet wants this to exist.
-29. **Spotlight** — dim everything outside a rect.
+29. **Spotlight** — dim everything outside a rect. ✓ (`AnnotationTool::Spotlight`; bake darkens outside at 0.45×, preview shows dim bands + hole)
 30. **Badge style presets** — Snagit step-tool look variants (circle/square, filled/outline).
 31. **Highlighter pen** — ~50 % alpha stroke mode.
-32. **Stroke straighten** — near-straight freehand becomes a line.
+32. **Stroke straighten** — near-straight freehand becomes a line. ✓ (`straighten_if_near_line` on pen release: <6% chord deviation collapses to endpoints)
 33. **Text background box** — label look with fill + padding.
 34. **Canvas padding + fill color** on crop.
 35. **Edge effects** — border, torn edge, drop shadow presets.
@@ -229,12 +229,12 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 37. **Annotation undo/redo** — Ctrl+Z / Ctrl+Y stack (per-stroke).
 38. **Resize-for-export** — % or max-width field in the Still inspector (img_resize_pct exists).
 39. **Export format per save** — PNG/JPEG/WebP choice.
-40. **Copy original vs annotated** choice (today annotated wins).
+40. **Copy original vs annotated** choice (today annotated wins). ✓ (⋯ "Copy original (no markup)" alongside annotated Ctrl+C)
 41. **Paste image onto canvas** — combine shots, Snagit-style.
 42. **Hold-Space before/after** preview of annotations.
-43. **Measure tool** — px distance readout between two clicks.
-44. **Ruler / grid overlay** toggle in Still canvas.
-45. **Zoom-to-fit / 100 % quick keys** (Ctrl+0 / Ctrl+1).
+43. **Measure tool** — px distance readout between two clicks. ✓ (`AnnotationTool::Measure` — drag line, "N px · θ°" label in image px, bakes into export)
+44. **Ruler / grid overlay** toggle in Still canvas. ✓ ("▦" toolbar toggle — quarters grid over the image, preview-only)
+45. **Zoom-to-fit / 100 % quick keys** (Ctrl+0 / Ctrl+1). ✓ (`0` fit, `1` true-100% undoing fit scale)
 
 ## C · Video & GIF
 
@@ -429,12 +429,12 @@ Numbered 1–300 for this round. Sections sized 25 each.
 83. **Preset aspect preview tint** — locked-aspect regions tint the dim outside differently.
 84. **Multi-monitor dim** — only the active monitor dims; others stay lit.
 85. **Pick-confirm sound** — soft tick on mouse-up valid region.
-86. **Region min-size guard** — <8×8 drag shows "too small" instead of capturing noise.
+86. **Region min-size guard** — <8×8 drag shows "too small" instead of capturing noise. ✓ (<24px drags don't confirm; the box stays for nudge/Enter at ≥8px)
 87. **Region grid overlay** — thirds/quarters toggle in HUD for composition.
 88. **Window pick confidence flash** — highlight border pulses once on hover-lock.
 89. **Window pick excludes overlays** — our own HUD/REC bar never appear in the pick list.
 90. **Alt=child-window pick** — drill into tooltips/menus as separate regions.
-91. **Region coordinates copy** — click W×H plate copies `x,y,w,h` for scripts.
+91. **Region coordinates copy** — click W×H plate copies `x,y,w,h` for scripts. ✓ (plate is clickable; copies pixel-space x,y,w,h)
 92. **Region color-sampler mode** — click samples hex under cursor to clipboard (design pick).
 93. **Freeze-frame toggle** — optional freeze of backdrop while picking (already static on Windows; make it a toggle for parity).
 94. **HUD remembers toolbar side** — toolbar docks top or bottom per last use.
@@ -455,8 +455,8 @@ Numbered 1–300 for this round. Sections sized 25 each.
 106. **Shape tools** — rect/ellipse outline + filled modes. ✓ (Ellipse shipped: baker outline, EllipseShape preview, Shift → circle)
 107. **Highlighter** — 50 % alpha stroke. ✓ (was already shipped)
 108. **Step tool** — auto-numbered badges that renumber on delete. ✓ (was already shipped)
-109. **Spotlight** — dim outside a rect.
-110. **Measure tool** — px distance + angle readout.
+109. **Spotlight** — dim outside a rect. ✓ (same as round-2 #29)
+110. **Measure tool** — px distance + angle readout. ✓ (same as round-2 #43 — label shows "N px · θ°")
 111. **In-place text editing** — click canvas, type there; no separate field. ✓ (was already shipped — `text_edit_at` Area)
 112. **Text background chip** — filled label look with padding + radius. ✓ (was already shipped — OVERLAY_LABEL pill)
 113. **Annotation color palette** — 6 swatch row + custom hex. ✓ (red/amber/green/blue/white/black swatches in BRUSH + custom color editor)

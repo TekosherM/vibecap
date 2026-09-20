@@ -102,6 +102,7 @@ pub fn show_region_selector(
     window_pick: Option<&(String, i32, i32, i32, i32)>,
     aspect_lock: &mut Option<f32>,
     window_pick_cycle: &mut usize,
+    dim_alpha: u8,
 ) -> RegionHudResult {
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
@@ -139,7 +140,8 @@ pub fn show_region_selector(
             let panel_frame = Frame::none().fill(if backdrop.is_some() {
                 Color32::BLACK
             } else {
-                theme::OVERLAY_DIM()
+                // E24 — dim intensity is a session setting.
+                Color32::from_black_alpha(dim_alpha)
             });
             egui::CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
                 let (response, painter) =
@@ -152,6 +154,9 @@ pub fn show_region_selector(
                         Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                         Color32::WHITE,
                     );
+                    // E24 — dim the frozen desktop; the selection punches
+                    // back through at full brightness below.
+                    painter.rect_filled(screen, 0.0, Color32::from_black_alpha(dim_alpha));
                 }
                 // Pre-warm stamp: the shown backdrop is the previous pick's
                 // snap — the fresh one is in flight behind it.
@@ -282,7 +287,46 @@ pub fn show_region_selector(
 
                 if let (Some(start), Some(end)) = (*region_start, *region_end) {
                     let rect = Rect::from_two_pos(start, end);
-                    paint_selection_hud(&painter, rect, ctx.pixels_per_point());
+                    // Punch the hole: re-draw the backdrop crop inside the
+                    // selection so it reads full-bright against the dim.
+                    if let Some(tex) = backdrop {
+                        let uv = Rect::from_min_max(
+                            Pos2::new(
+                                ((rect.min.x - screen.min.x) / screen.width()).clamp(0.0, 1.0),
+                                ((rect.min.y - screen.min.y) / screen.height()).clamp(0.0, 1.0),
+                            ),
+                            Pos2::new(
+                                ((rect.max.x - screen.min.x) / screen.width()).clamp(0.0, 1.0),
+                                ((rect.max.y - screen.min.y) / screen.height()).clamp(0.0, 1.0),
+                            ),
+                        );
+                        painter.image(tex.id(), rect, uv, Color32::WHITE);
+                    }
+                    let plate = paint_selection_hud(&painter, rect, ctx.pixels_per_point());
+                    // E91 — click the W×H plate to copy `x,y,w,h` (pixels).
+                    let pr = ui.interact(
+                        plate,
+                        egui::Id::new("region_wh_plate"),
+                        Sense::click(),
+                    );
+                    if pr.hovered() {
+                        painter.rect_stroke(
+                            plate,
+                            4.0,
+                            Stroke::new(1.0_f32, theme::ON_SOLID()),
+                        );
+                    }
+                    if pr.clicked() {
+                        let ppp = ctx.pixels_per_point();
+                        ctx.copy_text(format!(
+                            "{},{},{},{}",
+                            (rect.min.x * ppp) as i32,
+                            (rect.min.y * ppp) as i32,
+                            (rect.width() * ppp) as i32,
+                            (rect.height() * ppp) as i32
+                        ));
+                    }
+                    pr.on_hover_text("Click to copy x,y,w,h");
                 }
 
                 // Cursor loupe (samples backdrop pixels when frozen)
@@ -443,6 +487,26 @@ pub fn show_region_selector(
                                                 *aspect_lock = ratio;
                                             }
                                         }
+                                        // E21 — centered-box presets in *pixels*
+                                        // for README/demo captures.
+                                        for (label, (pw, ph)) in
+                                            [("1080p", (1920.0_f32, 1080.0)), ("720p", (1280.0, 720.0))]
+                                        {
+                                            if ui
+                                                .button(RichText::new(label).size(11.0))
+                                                .on_hover_text("Centered pixel-size box — Enter captures")
+                                                .clicked()
+                                            {
+                                                let ppp = ctx.pixels_per_point().max(1.0);
+                                                let size = Vec2::new(
+                                                    (pw / ppp).min(screen.width()),
+                                                    (ph / ppp).min(screen.height()),
+                                                );
+                                                let min = screen.center() - size / 2.0;
+                                                *region_start = Some(min);
+                                                *region_end = Some(min + size);
+                                            }
+                                        }
                                     }
                                     if !pick_mode
                                         && ui.button(RichText::new("Capture").strong()).clicked()
@@ -480,7 +544,8 @@ fn aspect_clamped(rect: Rect, ratio: f32) -> Rect {
     Rect::from_min_size(rect.min, Vec2::new(w, w / ratio.max(f32::EPSILON)))
 }
 
-fn paint_selection_hud(painter: &egui::Painter, rect: Rect, ppp: f32) {
+/// Returns the W×H plate rect so the caller can attach click-to-copy (E91).
+fn paint_selection_hud(painter: &egui::Painter, rect: Rect, ppp: f32) -> Rect {
     painter.rect_filled(rect, 0.0, Color32::TRANSPARENT);
     painter.rect_stroke(rect, 0.0, Stroke::new(2.0_f32, theme::ACCENT()));
 
@@ -550,6 +615,7 @@ fn paint_selection_hud(painter: &egui::Painter, rect: Rect, ppp: f32) {
     };
     painter.rect_filled(plate, 4.0, theme::ACCENT());
     painter.galley(plate.min + pad, galley, theme::ON_SOLID());
+    plate
 }
 
 /// Pre-record countdown bubble (3 / 5 s). Returns true if Esc cancelled.

@@ -165,6 +165,20 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .color(theme::TEXT_DIM()),
                 );
                 ui.add_space(theme::SP_2);
+                setting_row(ui, "Region dim", |ui| {
+                    if ui
+                        .add(egui::Slider::new(&mut app.region_dim, 0..=200))
+                        .changed()
+                    {
+                        app.persist_session();
+                    }
+                });
+                ui.label(
+                    RichText::new("How dark the frozen desktop goes while picking a region.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
+                ui.add_space(theme::SP_2);
                 if btn_secondary(ui, "Bug report pack") {
                     app.bug_report_pack(ctx);
                 }

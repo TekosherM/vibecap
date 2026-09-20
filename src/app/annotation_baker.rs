@@ -14,6 +14,10 @@ pub enum AnnotationTool {
     Text,
     Blur,
     StepBadge,
+    /// Dim everything outside the dragged rect (E29/E109).
+    Spotlight,
+    /// Drag a line; bakes the segment + a "N px" label (E43/E110).
+    Measure,
     /// Pasted bitmap anchored at `points[0]` (E119) — not a draw tool.
     Sticker,
 }
@@ -165,6 +169,28 @@ pub fn bake_annotations(
                 fill_circle(&mut rgba, cx, cy, badge_r, bg_color);
                 draw_badge_number(&mut rgba, cx, cy, action.badge_number, badge_r);
             }
+            AnnotationTool::Spotlight => {
+                if action.points.len() >= 2 {
+                    let (x0, y0) = map_pos(action.points[0]);
+                    let (x1, y1) = map_pos(*action.points.last().unwrap());
+                    let min_x = x0.min(x1).clamp(0, rgba.width() as i32) as u32;
+                    let max_x = x0.max(x1).clamp(0, rgba.width() as i32) as u32;
+                    let min_y = y0.min(y1).clamp(0, rgba.height() as i32) as u32;
+                    let max_y = y0.max(y1).clamp(0, rgba.height() as i32) as u32;
+                    darken_outside(&mut rgba, min_x, max_x, min_y, max_y, 0.45);
+                }
+            }
+            AnnotationTool::Measure => {
+                let draw_color = image::Rgba([color.r(), color.g(), color.b(), color.a()]);
+                if action.points.len() >= 2 {
+                    let (x0, y0) = map_pos(action.points[0]);
+                    let (x1, y1) = map_pos(*action.points.last().unwrap());
+                    draw_line_thick(&mut rgba, x0, y0, x1, y1, stroke_px, draw_color);
+                    let dist = ((x1 - x0).pow(2) + (y1 - y0).pow(2)) as f32;
+                    let label = format!("{} px", dist.sqrt() as i32);
+                    draw_text_box(&mut rgba, x1 + 8, y1 - 20, &label, color, iw / cw);
+                }
+            }
             AnnotationTool::Text => {
                 let (x, y) = map_pos(action.points[0]);
                 draw_text_box(&mut rgba, x, y, &action.text_content, color, iw / cw);
@@ -196,11 +222,65 @@ pub fn snap_annotation_point(tool: AnnotationTool, start: Pos2, pos: Pos2) -> Po
             let ang = (d.y.atan2(d.x) / step).round() * step;
             start + Vec2::angled(ang) * len
         }
-        AnnotationTool::Rectangle | AnnotationTool::Blur | AnnotationTool::Ellipse => {
+        AnnotationTool::Rectangle
+        | AnnotationTool::Blur
+        | AnnotationTool::Ellipse
+        | AnnotationTool::Spotlight => {
             let s = d.x.abs().max(d.y.abs());
             start + Vec2::new(d.x.signum() * s, d.y.signum() * s)
         }
         _ => pos,
+    }
+}
+
+/// Collapse a near-straight freehand stroke to its two endpoints (E32).
+/// Returns true when the stroke was straightened. Deviation threshold:
+/// 6 % of the chord length, min 4 px, chord itself must be ≥ 24 px.
+pub fn straighten_if_near_line(points: &mut Vec<Pos2>) -> bool {
+    if points.len() < 4 {
+        return false;
+    }
+    let (a, b) = (points[0], *points.last().unwrap());
+    let chord = b - a;
+    let len = chord.length();
+    if len < 24.0 {
+        return false;
+    }
+    let max_dev = points[1..points.len() - 1]
+        .iter()
+        .map(|p| {
+            // Perpendicular distance from p to the a→b line.
+            ((p.x - a.x) * chord.y - (p.y - a.y) * chord.x).abs() / len
+        })
+        .fold(0.0_f32, f32::max);
+    if max_dev <= (len * 0.06).max(4.0) {
+        *points = vec![a, b];
+        true
+    } else {
+        false
+    }
+}
+
+/// Multiply every pixel outside `[min_x,max_x) × [min_y,max_y)` by `factor`
+/// — the spotlight bake (E29).
+fn darken_outside(
+    rgba: &mut image::RgbaImage,
+    min_x: u32,
+    max_x: u32,
+    min_y: u32,
+    max_y: u32,
+    factor: f32,
+) {
+    let (w, h) = (rgba.width(), rgba.height());
+    for y in 0..h {
+        for x in 0..w {
+            if x < min_x || x >= max_x || y < min_y || y >= max_y {
+                let p = rgba.get_pixel_mut(x, y);
+                p.0[0] = (p.0[0] as f32 * factor) as u8;
+                p.0[1] = (p.0[1] as f32 * factor) as u8;
+                p.0[2] = (p.0[2] as f32 * factor) as u8;
+            }
+        }
     }
 }
 
@@ -511,5 +591,34 @@ mod tests {
         assert_eq!(acts[0].badge_number, 1);
         assert_eq!(acts[1].badge_number, 2);
         assert_eq!(next, 3);
+    }
+
+    #[test]
+    fn straighten_collapses_a_wobbly_line() {
+        let mut pts = vec![
+            Pos2::new(0.0, 0.0),
+            Pos2::new(50.0, 2.0),
+            Pos2::new(100.0, -1.5),
+            Pos2::new(160.0, 1.0),
+            Pos2::new(200.0, 0.0),
+        ];
+        assert!(straighten_if_near_line(&mut pts));
+        assert_eq!(pts.len(), 2);
+        assert_eq!(pts[0], Pos2::new(0.0, 0.0));
+        assert_eq!(pts[1], Pos2::new(200.0, 0.0));
+    }
+
+    #[test]
+    fn straighten_keeps_a_real_curve() {
+        // L-shaped stroke: the corner deviates far from the chord.
+        let mut pts = vec![
+            Pos2::new(0.0, 0.0),
+            Pos2::new(50.0, 0.0),
+            Pos2::new(100.0, 0.0),
+            Pos2::new(100.0, 50.0),
+            Pos2::new(100.0, 100.0),
+        ];
+        assert!(!straighten_if_near_line(&mut pts));
+        assert_eq!(pts.len(), 5);
     }
 }

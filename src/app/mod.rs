@@ -23,7 +23,8 @@ pub mod thumbs;
 pub mod update;
 
 pub use annotation_baker::{
-    bake_annotations, renumber_step_badges, snap_annotation_point, AnnotationAction, AnnotationTool,
+    bake_annotations, renumber_step_badges, snap_annotation_point, straighten_if_near_line,
+    AnnotationAction, AnnotationTool,
 };
 
 pub use budget::{
