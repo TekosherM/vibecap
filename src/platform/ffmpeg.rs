@@ -61,6 +61,41 @@ pub fn ffmpeg_command() -> Result<Command, String> {
     }
 }
 
+/// F126 — pull a clip's audio track to a temp WAV for the preview player.
+/// `None` when the clip has no audio stream or extraction fails. Capped at
+/// 120 s so long recordings don't balloon memory; the WAV loops with the
+/// filmstrip, so beyond that the tail simply goes quiet on loop.
+pub fn extract_preview_wav(src: &Path) -> Option<PathBuf> {
+    let out = ffmpeg_command()
+        .ok()?
+        .args(["-hide_banner", "-i"])
+        .arg(src)
+        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .output()
+        .ok()?;
+    if !String::from_utf8_lossy(&out.stderr).contains("Audio:") {
+        return None;
+    }
+    let wav = std::env::temp_dir().join("vibecap_preview_audio.wav");
+    let ok = ffmpeg_command()
+        .ok()?
+        .args(["-y", "-t", "120", "-i"])
+        .arg(src)
+        .args(["-vn", "-ac", "1", "-ar", "22050", "-f", "wav"])
+        .arg(&wav)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?
+        .success();
+    if ok && wav.exists() {
+        Some(wav)
+    } else {
+        None
+    }
+}
+
 /// Run ffmpeg without inheriting the GUI's null stdio (release Windows subsystem).
 pub fn run_ffmpeg(mut cmd: Command, what: &str) -> Result<(), String> {
     silence_console(&mut cmd);

@@ -71,6 +71,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             }
         }
+        // E119 — Ctrl+V pastes a clipboard image as a movable sticker.
+        if !keyboard_taken
+            && (i.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND,
+                egui::Key::V,
+            )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+                egui::Modifiers::CTRL,
+                egui::Key::V,
+            )))
+        {
+            app.paste_sticker_from_clipboard(ctx);
+        }
         if i.consume_shortcut(&egui::KeyboardShortcut::new(
             egui::Modifiers::COMMAND,
             egui::Key::Z,
@@ -184,6 +196,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.copy_still_original_to_clipboard();
                         ui.close_menu();
                     }
+                    if ui.button("Paste image onto canvas").clicked() {
+                        app.paste_sticker_from_clipboard(ctx);
+                        ui.close_menu();
+                    }
                     if ui.button("Open in default app").clicked() {
                         let _ = crate::platform::open_path(&p);
                         ui.close_menu();
@@ -212,6 +228,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.img_preview_params.clear();
                         app.annotation_push_undo();
                         app.annotation_actions.clear();
+                        app.annotation_selected = None;
                         app.step_counter = 1;
                         ui.close_menu();
                     }
@@ -325,7 +342,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
             let scale = fit * app.still_zoom;
             let img_rect = Rect::from_min_size(response.rect.min + app.still_pan, size * scale);
-            app.annotation_canvas_rect = Some(img_rect);
+            app.sync_annotation_canvas(img_rect);
 
             painter.image(
                 tex.id(),
@@ -427,6 +444,28 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             theme::ACCENT_INK(),
                         );
                     }
+                    AnnotationTool::Sticker => {} // drawn below via texture cache
+                }
+            };
+
+            // E119 — stickers carry their own texture; no cache indirection.
+            let draw_sticker = |painter: &egui::Painter, idx: usize, action: &AnnotationAction| {
+                let Some(sticker) = &action.sticker else { return };
+                // Native pixel size projected onto the canvas.
+                let scale = img_rect.width() / (app.img_src_wh.0.max(1) as f32);
+                let disp = Vec2::new(
+                    sticker.rgba.width() as f32 * scale,
+                    sticker.rgba.height() as f32 * scale,
+                );
+                let r = Rect::from_min_size(action.points[0], disp);
+                painter.image(
+                    sticker.tex.id(),
+                    r,
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    theme::ON_SOLID(),
+                );
+                if app.annotation_selected == Some(idx) {
+                    painter.rect_stroke(r, 4.0, Stroke::new(1.5_f32, theme::ACCENT()));
                 }
             };
 
@@ -436,8 +475,12 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
             // Render existing annotations
             if !peek_original {
-                for action in &app.annotation_actions {
-                    draw_action(&painter, action);
+                for (i, action) in app.annotation_actions.iter().enumerate() {
+                    if action.tool == AnnotationTool::Sticker {
+                        draw_sticker(&painter, i, action);
+                    } else {
+                        draw_action(&painter, action);
+                    }
                 }
 
                 // Render active shape being drawn
@@ -485,6 +528,23 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.text_edit_at = Some(pos);
                     }
                 }
+            } else if app.selected_sticker().is_some()
+                && (response.drag_started() || response.dragged())
+            {
+                // E119 — a selected sticker is a movable layer: drag repositions.
+                if response.drag_started() {
+                    app.annotation_push_undo();
+                }
+                let d = response.drag_delta();
+                if let Some(si) = app.selected_sticker() {
+                    if let Some(p) = app
+                        .annotation_actions
+                        .get_mut(si)
+                        .and_then(|a| a.points.first_mut())
+                    {
+                        *p += d;
+                    }
+                }
             } else if response.drag_started() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     app.annotation_push_undo();
@@ -495,6 +555,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         points: vec![pos],
                         text_content: app.pending_text.clone(),
                         badge_number: app.step_counter,
+                        sticker: None,
                     };
                     if app.current_tool == AnnotationTool::StepBadge {
                         app.step_counter += 1;
@@ -543,6 +604,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 points: vec![pos],
                                 text_content: app.pending_text.clone(),
                                 badge_number: app.step_counter,
+                                sticker: None,
                             });
                             app.text_edit_at = None;
                         }
@@ -688,7 +750,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         )
                                         .clicked()
                                     {
-                                        app.annotation_selected = Some(i);
+                                        // Toggle — click again to drop selection
+                                        // (a selected sticker owns canvas drags).
+                                        app.annotation_selected =
+                                            if app.annotation_selected == Some(i) {
+                                                None
+                                            } else {
+                                                Some(i)
+                                            };
                                     }
                                     if ui
                                         .add(
@@ -852,6 +921,7 @@ fn annotation_label(n: usize, a: &AnnotationAction) -> String {
             format!("{n} · Text \"{t}\"")
         }
         AnnotationTool::StepBadge => format!("{n} · Step {}", a.badge_number),
+        AnnotationTool::Sticker => format!("{n} · Pasted image"),
         t => {
             let name = match t {
                 AnnotationTool::Pen => "Pen",

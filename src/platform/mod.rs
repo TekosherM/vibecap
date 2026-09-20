@@ -26,10 +26,26 @@ pub use capture::{
     LiveFormat, ScreenRect,
 };
 pub use ffmpeg::{
-    ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path, ffmpeg_recheck,
-    format_timecode, list_audio_input_devices, parse_timecode, probe_duration, run_ffmpeg,
+    extract_preview_wav, ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path,
+    ffmpeg_recheck, format_timecode, list_audio_input_devices, parse_timecode, probe_duration,
+    run_ffmpeg,
 };
 pub use notify::notify_agent_question;
+
+/// F126 — loop the extracted preview WAV while the clip flipbook plays.
+/// Windows uses winmm `PlaySoundW`; other platforms stay silent for now.
+pub fn play_audio_preview(path: &std::path::Path) {
+    #[cfg(windows)]
+    win32::play_wav_loop(path);
+    #[cfg(not(windows))]
+    let _ = path;
+}
+
+/// Stop any looping preview audio.
+pub fn stop_audio_preview() {
+    #[cfg(windows)]
+    win32::stop_sound();
+}
 pub use paths::{config_dir, live_dir, live_session_dir, media_dir, media_dir_display};
 pub use process::{cont_process, pause_supported, stop_process};
 #[cfg(windows)]

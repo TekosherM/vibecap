@@ -762,6 +762,14 @@ pub(crate) struct VibecapApp {
     annotation_selected: Option<usize>,
     /// Corner-watermark text field (E121).
     watermark_text: String,
+    /// Filmstrip indices marked for removal on export (F136).
+    filmstrip_cut: std::collections::HashSet<usize>,
+    /// Clip in/out frame compare split (F146).
+    clip_compare: bool,
+    /// Extracted preview WAV for the loaded clip (F126).
+    preview_audio_path: Option<PathBuf>,
+    preview_audio_rx: Option<crossbeam_channel::Receiver<Option<PathBuf>>>,
+    preview_audio_playing: bool,
 
     // Feedback arrival polling & richer replies
     feedback_last_poll: Option<Instant>,
@@ -926,6 +934,11 @@ impl VibecapApp {
             export_pad_color: egui::Color32::WHITE,
             annotation_selected: None,
             watermark_text: String::new(),
+            filmstrip_cut: std::collections::HashSet::new(),
+            clip_compare: false,
+            preview_audio_path: None,
+            preview_audio_rx: None,
+            preview_audio_playing: false,
             allow_exit: false,
             start_hidden: false,
             recording_arming: false,
@@ -1956,6 +1969,98 @@ impl VibecapApp {
         };
     }
 
+    /// Keep strokes glued to image content when the canvas rect moves
+    /// (zoom, pan, layout splits): points live in canvas coordinates, so a
+    /// moved rect re-projects them through the old→new mapping.
+    pub(crate) fn sync_annotation_canvas(&mut self, new_rect: Rect) {
+        if let Some(old) = self.annotation_canvas_rect {
+            let moved = (old.min.x - new_rect.min.x).abs() > 0.5
+                || (old.min.y - new_rect.min.y).abs() > 0.5
+                || (old.width() - new_rect.width()).abs() > 0.5
+                || (old.height() - new_rect.height()).abs() > 0.5;
+            if moved {
+                let map = |p: Pos2| -> Pos2 {
+                    let u = (p.x - old.min.x) / old.width().max(1.0);
+                    let v = (p.y - old.min.y) / old.height().max(1.0);
+                    Pos2::new(
+                        new_rect.min.x + u * new_rect.width(),
+                        new_rect.min.y + v * new_rect.height(),
+                    )
+                };
+                for a in self
+                    .annotation_actions
+                    .iter_mut()
+                    .chain(self.current_action.iter_mut())
+                {
+                    for p in &mut a.points {
+                        *p = map(*p);
+                    }
+                }
+                if let Some(p) = self.text_edit_at {
+                    self.text_edit_at = Some(map(p));
+                }
+            }
+        }
+        self.annotation_canvas_rect = Some(new_rect);
+    }
+
+    /// E119 — paste the system clipboard image onto the canvas as a movable
+    /// sticker. Anchored center; drag to move while it's the selected stroke.
+    pub fn paste_sticker_from_clipboard(&mut self, ctx: &egui::Context) {
+        let Ok(mut board) = arboard::Clipboard::new() else {
+            self.show_toast("❌ Clipboard unavailable");
+            return;
+        };
+        let img = match board.get_image() {
+            Ok(i) => i,
+            Err(_) => {
+                self.show_toast("Clipboard has no image");
+                return;
+            }
+        };
+        let Some(rgba) =
+            image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned())
+        else {
+            self.show_toast("❌ Could not decode clipboard image");
+            return;
+        };
+        let rect = self
+            .annotation_canvas_rect
+            .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0)));
+        // Display at native image-pixel size: canvas px per source px.
+        let scale = rect.width() / (self.img_src_wh.0.max(1) as f32);
+        let disp = Vec2::new(rgba.width() as f32 * scale, rgba.height() as f32 * scale);
+        let anchor = rect.center() - disp / 2.0;
+        let size = [rgba.width() as usize, rgba.height() as usize];
+        let ci = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+        let tex = ctx.load_texture("sticker", ci, egui::TextureOptions::LINEAR);
+        self.annotation_push_undo();
+        self.annotation_actions.push(AnnotationAction {
+            tool: AnnotationTool::Sticker,
+            color: self.current_color,
+            stroke_width: 1.0,
+            points: vec![anchor],
+            text_content: String::new(),
+            badge_number: 0,
+            sticker: Some(app::annotation_baker::Sticker {
+                rgba: std::sync::Arc::new(rgba),
+                tex,
+            }),
+        });
+        self.annotation_selected = Some(self.annotation_actions.len() - 1);
+        self.show_toast("📋 Image pasted — drag it while selected, Del removes");
+    }
+
+    /// Selected stroke is a movable sticker?
+    pub(crate) fn selected_sticker(&self) -> Option<usize> {
+        self.annotation_selected.filter(|&i| {
+            self.annotation_actions
+                .get(i)
+                .map(|a| a.tool == AnnotationTool::Sticker)
+                .unwrap_or(false)
+        })
+    }
+
     /// E121 — drop the watermark text as a Text annotation in the canvas'
     /// bottom-right corner, in the current brush color.
     pub fn add_watermark(&mut self) {
@@ -1982,6 +2087,7 @@ impl VibecapApp {
             points: vec![pos],
             text_content: text,
             badge_number: 0,
+            sticker: None,
         });
         self.annotation_selected = Some(self.annotation_actions.len() - 1);
         self.show_toast("Watermark added");
@@ -2958,6 +3064,7 @@ impl VibecapApp {
                 Some(ctx.load_texture("screenshot", color_image, Default::default()));
         }
         self.annotation_actions.clear();
+        self.annotation_selected = None;
         self.step_counter = 1;
     }
 
@@ -3233,6 +3340,21 @@ impl VibecapApp {
         self.player_playing = false;
         self.player_pos = 0.0;
         self.player_last_time = None;
+        self.filmstrip_cut.clear();
+        // F126 — stop any playing preview audio and re-extract for this clip.
+        if self.preview_audio_playing {
+            crate::platform::stop_audio_preview();
+            self.preview_audio_playing = false;
+        }
+        self.preview_audio_path = None;
+        {
+            let (atx, arx) = crossbeam_channel::bounded(1);
+            self.preview_audio_rx = Some(arx);
+            let audio_src = file.clone();
+            std::thread::spawn(move || {
+                let _ = atx.send(crate::platform::extract_preview_wav(&audio_src));
+            });
+        }
         self.record_markers = load_marker_sidecar(&file);
         self.clip_notes =
             std::fs::read_to_string(file.with_extension("notes.txt")).unwrap_or_default();
@@ -3265,6 +3387,13 @@ impl VibecapApp {
         if let Some(prx) = self.filmstrip_progress_rx.as_ref() {
             while let Ok(p) = prx.try_recv() {
                 self.filmstrip_progress = p;
+            }
+        }
+        // Preview-audio extraction result (F126) lands independently.
+        if let Some(arx) = self.preview_audio_rx.as_ref() {
+            if let Ok(res) = arx.try_recv() {
+                self.preview_audio_path = res;
+                self.preview_audio_rx = None;
             }
         }
         let Some(rx) = self.filmstrip_rx.as_ref() else {
@@ -3309,6 +3438,79 @@ impl VibecapApp {
         }
         self.filmstrip_loading = false;
     }
+    /// F136 — re-encode the clip with the right-click-marked filmstrip
+    /// sections dropped (`select` on time windows; audio mirrors via
+    /// `aselect`). GIF sources re-encode to GIF, everything else to MP4.
+    pub fn export_without_cuts(&mut self, file: &std::path::Path) {
+        if self.filmstrip_cut.is_empty() || self.filmstrip_fps <= 0.0 {
+            return;
+        }
+        let mut idx: Vec<usize> = self.filmstrip_cut.iter().copied().collect();
+        idx.sort_unstable();
+        // Merge adjacent marks into contiguous time ranges.
+        let fps = self.filmstrip_fps;
+        let mut ranges: Vec<(f64, f64)> = Vec::new();
+        for i in idx {
+            let (s, e) = (i as f64 / fps, (i as f64 + 1.0) / fps);
+            match ranges.last_mut() {
+                Some(last) if s <= last.1 + 0.001 => last.1 = e,
+                _ => ranges.push((s, e)),
+            }
+        }
+        let expr = ranges
+            .iter()
+            .map(|(a, b)| format!("between(t,{a:.3},{b:.3})"))
+            .collect::<Vec<_>>()
+            .join("+");
+        let name = file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("clip.mp4");
+        let is_gif = file
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("gif"))
+            .unwrap_or(false);
+        let vf = format!("select='not({expr})',setpts=N/FRAME_RATE/TB");
+        let args = if is_gif {
+            let out = file.with_file_name(format!("cut_{name}"));
+            (
+                vec![
+                    "-i".into(),
+                    file.to_str().unwrap_or_default().into(),
+                    "-vf".into(),
+                    format!("{vf},fps=15,scale=480:-1:flags=lanczos"),
+                    "-y".into(),
+                    out.to_str().unwrap_or_default().into(),
+                ],
+                "GIF re-encoded without cuts",
+            )
+        } else {
+            let out = file.with_file_name(format!("cut_{name}"));
+            (
+                vec![
+                    "-i".into(),
+                    file.to_str().unwrap_or_default().into(),
+                    "-vf".into(),
+                    vf,
+                    "-af".into(),
+                    format!("aselect='not({expr})',asetpts=N/SR/TB"),
+                    "-c:v".into(),
+                    "libx264".into(),
+                    "-crf".into(),
+                    "23".into(),
+                    "-c:a".into(),
+                    "aac".into(),
+                    "-y".into(),
+                    out.to_str().unwrap_or_default().into(),
+                ],
+                "Exported without cut sections",
+            )
+        };
+        self.spawn_ffmpeg_job(args.0, args.1);
+        self.filmstrip_cut.clear();
+    }
+
     fn arm_recording(&mut self, ctx: &egui::Context) {
         if self.is_recording || self.recording_arming || self.recording_finalizing {
             return;
@@ -4289,6 +4491,7 @@ impl VibecapApp {
             if ui.button("🗑 Clear").clicked() {
                 self.annotation_push_undo();
                 self.annotation_actions.clear();
+                self.annotation_selected = None;
                 self.step_counter = 1;
             }
 
@@ -4493,6 +4696,7 @@ impl VibecapApp {
                             theme::ACCENT_INK(),
                         );
                     }
+                    AnnotationTool::Sticker => {} // modal: paste lives in Still tab
                 }
             };
 
@@ -4514,6 +4718,7 @@ impl VibecapApp {
                         points: vec![pos],
                         text_content: self.pending_text.clone(),
                         badge_number: self.step_counter,
+                        sticker: None,
                     };
 
                     if self.current_tool == AnnotationTool::Text
@@ -4706,6 +4911,24 @@ impl eframe::App for VibecapApp {
         self.drain_window_list();
         self.drain_region_snap(ctx);
         self.drain_filmstrip(ctx);
+        // F126 — preview audio follows the flipbook: plays while the clip
+        // preview runs, stops on pause / tab switch / clip unload.
+        if self.preview_audio_playing
+            && (!self.player_playing
+                || self.current_tab != AppTab::Clip
+                || self.preview_audio_path.is_none())
+        {
+            crate::platform::stop_audio_preview();
+            self.preview_audio_playing = false;
+        } else if self.player_playing
+            && self.current_tab == AppTab::Clip
+            && !self.preview_audio_playing
+        {
+            if let Some(wav) = self.preview_audio_path.clone() {
+                crate::platform::play_audio_preview(&wav);
+                self.preview_audio_playing = true;
+            }
+        }
         if self.pending_arm_record {
             self.pending_arm_record = false;
             self.begin_recording(ctx);

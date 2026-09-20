@@ -141,3 +141,11 @@ Job records, walks Lumen Cart (coupon 422 → tax 500 → pay 402, 3 stills), in
 ## Save rule for this repo
 
 Commit and push to `master` **before** the turn ends. Chat is not durable. If a turn dies, clone `TekosherM/vibecap` @ `master` and continue from this file.
+
+### Clip/Still final tranche (in progress → pending commit)
+- Sticker annotation (#119): `StickerAction { img: Arc<RgbaImage>, tex: TextureHandle, w, h }` owned by `AnnotationAction` — no cache, undo-safe via cheap Arc clone. Paste via Ctrl+V or ⋯ menu. Drag-on-canvas moves while selected.
+- `sync_annotation_canvas()` remaps all stroke points (and sticker pos) when the canvas rect reflows — no more floating marks on panel resize.
+- Clip compare mode (#146): transport "I|O" splits the preview canvas into in/out panes with timecode chips.
+- Cut marks (#136 partial): right-click a filmstrip thumb marks its slice; "Export without cuts" re-encodes via `select`/`aselect` `not(between())`.
+- Preview audio (#126): parallel `extract_preview_wav` → temp WAV; `play_audio_loop`/`stop_audio` winmm FFI follows `player_playing`. Windows-only, ≤120s.
+- #144 verified already shipped (SPEED chips → setpts/atempo); dead `clip_speed` field removed.

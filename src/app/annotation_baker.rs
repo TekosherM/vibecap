@@ -14,9 +14,19 @@ pub enum AnnotationTool {
     Text,
     Blur,
     StepBadge,
+    /// Pasted bitmap anchored at `points[0]` (E119) — not a draw tool.
+    Sticker,
 }
 
-#[derive(Debug, Clone)]
+/// Pasted bitmap layer (E119): pixels for baking + the uploaded texture for
+/// the live preview. Both halves are Arc-backed so undo snapshots stay cheap.
+#[derive(Clone)]
+pub struct Sticker {
+    pub rgba: std::sync::Arc<image::RgbaImage>,
+    pub tex: eframe::egui::TextureHandle,
+}
+
+#[derive(Clone)]
 pub struct AnnotationAction {
     pub tool: AnnotationTool,
     pub color: Color32,
@@ -24,6 +34,27 @@ pub struct AnnotationAction {
     pub points: Vec<Pos2>,
     pub text_content: String,
     pub badge_number: usize,
+    pub sticker: Option<Sticker>,
+}
+
+impl std::fmt::Debug for AnnotationAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnnotationAction")
+            .field("tool", &self.tool)
+            .field("color", &self.color)
+            .field("stroke_width", &self.stroke_width)
+            .field("points", &self.points)
+            .field("text_content", &self.text_content)
+            .field("badge_number", &self.badge_number)
+            .field(
+                "sticker",
+                &self
+                    .sticker
+                    .as_ref()
+                    .map(|s| format!("{}×{}", s.rgba.width(), s.rgba.height())),
+            )
+            .finish()
+    }
 }
 
 /// Software rasterize all annotation shapes onto `img` based on normalized canvas coordinates.
@@ -137,6 +168,14 @@ pub fn bake_annotations(
             AnnotationTool::Text => {
                 let (x, y) = map_pos(action.points[0]);
                 draw_text_box(&mut rgba, x, y, &action.text_content, color, iw / cw);
+            }
+            AnnotationTool::Sticker => {
+                // Paste lands at native pixel size — canvas↔image scale only
+                // moves the anchor, matching how text badges bake.
+                if let Some(sticker) = &action.sticker {
+                    let (x, y) = map_pos(action.points[0]);
+                    image::imageops::overlay(&mut rgba, sticker.rgba.as_ref(), x as i64, y as i64);
+                }
             }
         }
     }
@@ -460,6 +499,7 @@ mod tests {
             points: vec![Pos2::new(1.0, 1.0)],
             text_content: String::new(),
             badge_number: n,
+            sticker: None,
         }
     }
 

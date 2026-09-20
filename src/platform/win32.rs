@@ -1025,6 +1025,41 @@ pub fn set_run_at_login_native(enable: bool, cmdline: &str) -> Result<(), String
     }
 }
 
+// ── Preview audio (F126) — winmm PlaySoundW loops the extracted WAV. ──
+
+const SND_ASYNC: u32 = 0x0001;
+const SND_LOOP: u32 = 0x0008;
+const SND_FILENAME: u32 = 0x0002_0000;
+
+#[link(name = "winmm")]
+extern "system" {
+    fn PlaySoundW(psz_sound: *const u16, hmod: *mut c_void, fdw_sound: u32) -> i32;
+}
+
+/// Loop `path` (a WAV file) in the background. Replaces any current sound.
+pub fn play_wav_loop(path: &std::path::Path) {
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        PlaySoundW(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            SND_FILENAME | SND_ASYNC | SND_LOOP,
+        );
+    }
+}
+
+/// Stop whatever PlaySoundW is currently playing.
+pub fn stop_sound() {
+    unsafe {
+        PlaySoundW(std::ptr::null(), std::ptr::null_mut(), 0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{pickable_at, top_window_at, EnumWindow};

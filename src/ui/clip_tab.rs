@@ -33,7 +33,51 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
     painter.rect_filled(rect, theme::rounding_md(), egui::Color32::BLACK);
 
     let n = app.filmstrip.len();
-    if n > 0 {
+    if n > 0 && app.clip_compare {
+        // F146 — in/out split: see both cut points before committing a trim.
+        let in_s = parse_timecode(&app.trim_start).unwrap_or(0.0);
+        let out_s = parse_timecode(&app.trim_end)
+            .filter(|v| *v > 0.05)
+            .unwrap_or(duration);
+        let gap = 6.0;
+        let pane_w = ((rect.width() - gap) / 2.0).max(40.0);
+        for (k, (t, tag)) in [(in_s, "IN"), (out_s, "OUT")].iter().enumerate() {
+            let pane = Rect::from_min_size(
+                Pos2::new(rect.left() + k as f32 * (pane_w + gap), rect.top()),
+                Vec2::new(pane_w, rect.height()),
+            );
+            let idx = ((t * app.filmstrip_fps).floor() as usize).min(n - 1);
+            let tex = &app.filmstrip[idx];
+            let fw = pane.width().min(pane.height() * 16.0 / 9.0);
+            let fh = fw * 9.0 / 16.0;
+            let fit = Rect::from_center_size(pane.center(), Vec2::new(fw, fh));
+            painter.image(
+                tex.id(),
+                fit,
+                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+            painter.rect_stroke(
+                pane,
+                theme::rounding_md(),
+                Stroke::new(1.0_f32, theme::BORDER()),
+            );
+            // Label chip pinned to the pane's top-left.
+            let label = format!("{tag} {}", format_timecode(*t));
+            let chip = Rect::from_min_size(
+                pane.min + Vec2::new(6.0, 6.0),
+                Vec2::new(label.len() as f32 * 7.0 + 12.0, 18.0),
+            );
+            painter.rect_filled(chip, 4.0, theme::OVERLAY_LABEL());
+            painter.text(
+                chip.center(),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::proportional(11.0),
+                theme::ON_SOLID(),
+            );
+        }
+    } else if n > 0 {
         let idx = ((app.player_pos * app.filmstrip_fps).floor() as usize).min(n - 1);
         let tex = &app.filmstrip[idx];
         // Fit 16:9 frame inside the canvas.
@@ -182,9 +226,13 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         "Click or Space = play/pause · ←/→ frame · J/K ×10 · I/O trim · L loop (preview flipbook, no audio)",
     );
     ui.label(
-        RichText::new("Preview (no audio) — Open for full-fidelity playback")
-            .small()
-            .color(theme::TEXT_DIM()),
+        RichText::new(if app.preview_audio_path.is_some() {
+            "Preview · audio on — flipbook fidelity, Open for the real thing"
+        } else {
+            "Preview (no audio) — Open for full-fidelity playback"
+        })
+        .small()
+        .color(theme::TEXT_DIM()),
     );
 
     // Transport bar: play/pause · scrubber · timecode · open externally.
@@ -237,6 +285,10 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         if btn_small(ui, "Open") {
             open_external(app);
         }
+        // F146 — split the canvas into in-point / out-point frames.
+        if n > 0 && btn_small(ui, if app.clip_compare { "I|O ●" } else { "I|O" }) {
+            app.clip_compare = !app.clip_compare;
+        }
         // Frame-grab — current preview frame → a new still next to the clip.
         if n > 0 && btn_small(ui, "Grab frame") {
             if let Some(f) = &app.edit_file {
@@ -274,6 +326,7 @@ fn timeline(
     start_s: f64,
     end_s: f64,
     markers: &[f64],
+    cut: &mut std::collections::HashSet<usize>,
 ) -> (f64, f64) {
     let (rect, resp) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), 56.0),
@@ -298,6 +351,30 @@ fn timeline(
                 Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                 egui::Color32::WHITE,
             );
+            // F136 — cut marks: red tint + ✕ so a marked frame reads at a glance.
+            if cut.contains(&i) {
+                painter.rect_filled(
+                    r,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(255, 60, 60, 90),
+                );
+                painter.text(
+                    r.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "✕",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
+        // Right-click a thumb to mark/unmark it for the cut-export.
+        if resp.secondary_clicked() {
+            if let Some(pos) = resp.interact_pointer_pos() {
+                let i = (((pos.x - rect.left()) / tw).floor() as usize).min(n - 1);
+                if !cut.remove(&i) {
+                    cut.insert(i);
+                }
+            }
         }
     }
 
@@ -980,7 +1057,15 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .unwrap_or(duration.min(5.0))
                         .clamp(0.0, duration);
                     let markers = app.record_markers.clone();
-                    let (ns, ne) = timeline(ui, &app.filmstrip, duration, start_s, end_s, &markers);
+                    let (ns, ne) = timeline(
+                        ui,
+                        &app.filmstrip,
+                        duration,
+                        start_s,
+                        end_s,
+                        &markers,
+                        &mut app.filmstrip_cut,
+                    );
                     if (ns - start_s).abs() > 0.4 {
                         app.trim_start = format_timecode(ns);
                     }
@@ -1001,12 +1086,39 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
-                                RichText::new("drag split lines to trim · preview is silent")
-                                    .size(10.0)
-                                    .color(theme::TEXT_DIM()),
+                                RichText::new(
+                                    "drag split lines to trim · right-click a thumb to mark a cut",
+                                )
+                                .size(10.0)
+                                .color(theme::TEXT_DIM()),
                             );
                         });
                     });
+                    // F136 — cut-marked thumbs: drop those sections on export.
+                    if !app.filmstrip_cut.is_empty() {
+                        ui.add_space(theme::SP_1);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "✂ {} section{} marked",
+                                    app.filmstrip_cut.len(),
+                                    if app.filmstrip_cut.len() == 1 {
+                                        ""
+                                    } else {
+                                        "s"
+                                    }
+                                ))
+                                .size(10.0)
+                                .color(theme::WARN()),
+                            );
+                            if btn_small(ui, "Export without cuts") {
+                                app.export_without_cuts(&file);
+                            }
+                            if btn_small(ui, "Clear") {
+                                app.filmstrip_cut.clear();
+                            }
+                        });
+                    }
                     // Marker list — click a chapter tick to jump the playhead.
                     if !markers.is_empty() {
                         ui.add_space(theme::SP_1);

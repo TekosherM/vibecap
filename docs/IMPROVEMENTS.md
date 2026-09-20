@@ -465,7 +465,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 116. **Save-as-copy default** — never silently overwrite the source still. ✓ (was already shipped — "Save as copy" + explicit overwrite)
 117. **Export format picker** — PNG/JPEG/WebP + quality slider. ✓ (EXPORT group: JPG/PNG/WebP segmented + JPG quality slider → save dialog, explicit encoders)
 118. **Resize-on-export** — % or max-width field with pixel preview. ✓ (was already shipped — Resize % slider in the pipeline; added "→ WxH px output" readout)
-119. **Paste-onto-canvas** — clipboard image becomes a movable layer.
+119. **Paste-onto-canvas** — clipboard image becomes a movable layer. ✓ (`AnnotationTool::Sticker` carries `Arc<RgbaImage>`+TextureHandle; Ctrl+V or ⋯ "Paste image onto canvas"; drag to move while selected, Del removes, bakes at native px)
 120. **Before/after hold** — hold Space to peek the un-annotated original. ✓ (hold B — Space stays pan; annotations skipped while peeking)
 121. **Watermark preset** — corner text/logo with opacity. ✓ (WATERMARK group: text field → "Add to corner" drops a Text stroke at bottom-right in the brush color, undoable)
 122. **Canvas padding** — add uniform border pixels with fill color on export. ✓ (Pad px slider + color swatch in EXPORT; applied post-bake so annotations stay aligned)
@@ -484,7 +484,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 ## F · Clip review, video & GIF (126–150)
 
-126. **Preview audio** — extract audio track alongside filmstrip; play in sync.
+126. **Preview audio** — extract audio track alongside filmstrip; play in sync. ✓ (`extract_preview_wav` → temp WAV ≤120s; winmm `PlaySoundW` SND_LOOP follows player_playing; stops on pause/tab-switch/unload; Windows-only)
 127. **Determinate extract progress** — "frame i/n" bar instead of indeterminate label. ✓ (progress channel streams decoded/total)
 128. **Scrub-bar seek** — click/drag the ruler moves the preview head. ✓ (transport slider + click canvas; Space/Home/End added)
 129. **Frame-step keys** — ←/→ one frame, J/K 10 frames. ✓ (←/→ existed; J/K ±10 + I/O trim-at-playhead added)
@@ -494,7 +494,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 133. **Export preset chips** — Discord 8 MB / README 480p / lossless. ✓ (was already shipped — PRESETS group)
 134. **GIF settings dialog** — fps, width, loop mode, size estimate pre-encode. ✓ (was already shipped — sliders + ~KB estimate)
 135. **GIF ping-pong** — boomerang loop toggle. ✓ ("Ping-pong ↺" checkbox → split/reverse/concat filtergraph, estimate doubles)
-136. **GIF frame ops** — delete frames, per-frame delay in filmstrip.
+136. **GIF frame ops** — delete frames, per-frame delay in filmstrip. ✓ partially — right-click a filmstrip thumb marks its time slice (red ✕); "Export without cuts" re-encodes via `select='not(between(...))'` + `aselect` audio mirror. Per-frame delay still open.
 137. **Re-GIF existing MP4** — new settings without re-recording. ✓ (was already shipped — GIF group + presets encode from the loaded file)
 138. **WebM/AV1 export** — codec picker on the export row. ✓ (ENCODE group: "WebM (VP9)" libvpx-vp9+libopus → .webm, "AV1 (SVT)" libsvtav1 → .mp4)
 139. **Extract audio** — one-click `.m4a` from clip. ✓ (was already shipped — AUDIO group)
@@ -502,9 +502,9 @@ background chip (112), save-as-copy (116), Esc depth (125).
 141. **Chapter markers** — marker hotkey during record; ticks on the ruler. ✓ (was already shipped — sidecar + ruler ticks)
 142. **Marker list** — click a marker to jump the preview. ✓ (clickable timecode chips under the ruler)
 143. **Auto-trim dead air** — detect frozen head/tail, offer trim. ✓ (`dead_air_bounds` on filmstrip RGBA; "Trim to content" banner)
-144. **Speed ramp** — 0.5×/2× segments (stretch goal, simple `-setpts`).
+144. **Speed ramp** — 0.5×/2× segments (stretch goal, simple `-setpts`). ✓ (was already shipped — SPEED chips + "Apply N× speed" → `setpts=PTS/x` + `atempo=x`)
 145. **Clip notes** — text sidecar shown under the player. ✓ (NOTES group → `<file>.notes.txt`, Save/clear; loaded on filmstrip open)
-146. **Compare mode** — split-screen before/after trim preview.
+146. **Compare mode** — split-screen before/after trim preview. ✓ (transport "I|O" toggles split canvas: left = in-point frame, right = out-point frame, each with a timecode chip)
 147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error. ✓ (transport bar)
 148. **Preview quality toggle** — half-res filmstrip for long clips. ✓ (Settings → "Low-res clip preview" → 240px filmstrip via session `filmstrip_low_res`)
 149. **Auto-play setting** — the autoplay we shipped becomes a Settings toggle. ✓ (session-persisted `clip_autoplay`)
