@@ -53,3 +53,103 @@ pub fn take_pending_still() -> Option<Result<PathBuf, String>> {
         Some(Err(format!("Capture file missing: {}", path.display())))
     }
 }
+
+/// D68 — `file:///…` URI for a capture path (percent-encoded, forward slashes).
+pub fn file_uri(path: &Path) -> String {
+    let mut s = path.to_string_lossy().replace('\\', "/");
+    if !s.starts_with('/') {
+        s.insert(0, '/');
+    }
+    let mut out = String::with_capacity(s.len() + 8);
+    out.push_str("file://");
+    for c in s.chars() {
+        match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '/' | ':' | '.' | '-' | '_' | '~' => out.push(c),
+            _ => {
+                let mut buf = [0u8; 4];
+                for b in c.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("%{b:02X}"));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// D68 — minimal base64 (no dep) for data-URI copies.
+pub fn base64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// D68 — `data:<mime>;base64,…` for a capture. Capped so a 200 MB clip never
+/// lands on the clipboard.
+pub fn data_uri(path: &Path, max_bytes: u64) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!(
+            "too large for a data URI ({:.1} MB — cap is {} MB)",
+            bytes.len() as f64 / 1e6,
+            max_bytes / 1_000_000
+        ));
+    }
+    let mime = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "wav" => "audio/wav",
+        "m4a" => "audio/mp4",
+        _ => "application/octet-stream",
+    };
+    Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_uri_encodes_spaces_and_backslashes() {
+        let p = PathBuf::from("C:\\Dev\\vibecap shots\\a b.png");
+        assert_eq!(file_uri(&p), "file:///C:/Dev/vibecap%20shots/a%20b.png");
+    }
+
+    #[test]
+    fn base64_known_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+}

@@ -66,7 +66,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 ## 4 · Shutter UX & post-capture
 
 31. **Post-capture toast must not steal the still tab** if the user is mid-annotate. Today success always `open_still_from_path`. ✓ (was already shipped — `is_annotating` guard keeps the still you're editing; toast says 'finish this markup first')
-32. **Copy path / Copy image / Reveal / Annotate / Discard** on the toast (Discard = undo trash). Copy image exists on Still (⌘C); toast should offer it.
+32. **Copy path / Copy image / Reveal / Annotate / Discard** on the toast (Discard = undo trash). Copy image exists on Still (⌘C); toast should offer it. ✓ (was already shipped — all five actions on the capture card)
 33. **Naming tokens** `{app}-{date}-{seq}` with a live preview in Settings. Default `screenshot_YYYY-MM-DD_HH-MM-SS.jpg` is unreadable in a folder of 200.
 34. **Save-to last folder vs default media dir.** Agents pass `--output-dir`; GUI always uses `save_dir`. Add “set as agent default” so GUI and CLI agree (`VIBECAP_OUTPUT_DIR`).
 35. **GIF as a first-class shutter action** (still / record / GIF). Today GIF is an export from Clip or `--gif` on stop.
@@ -261,13 +261,13 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 
 ## D · Clipboard & destinations
 
-66. **Clipboard history** — last 10 captures in a tray submenu + palette.
+66. **Clipboard history** — last 10 captures in a tray submenu + palette. (tray "Recent captures" shipped — 5 slots; palette half still open)
 67. **Copy as Markdown image** — `![](path)` for docs. ✓
-68. **Copy file URI / data URI** for devs. (path copy shipped via Ctrl+C, toast, palette; URI variant open)
+68. **Copy file URI / data URI** for devs. ✓ (Still ⋯ menu — file:// + data: URI with in-house base64, 8 MB cap)
 69. **Copy + reveal combo** action on the toast card.
-70. **Auto-open editor** toggle (some flows never want Review).
+70. **Auto-open editor** toggle (some flows never want Review). ✓ ("Open captures in Review" switch, default on; off stages the editor silently without the tab jump)
 71. **OS drag-out** of the capture card thumbnail into Explorer/Slack (open item).
-72. **Size guard hint** — warn + auto-shrink offer when a still exceeds Discord's 8 MB.
+72. **Size guard hint** — warn + auto-shrink offer when a still exceeds Discord's 8 MB. ✓ (>8 MB toast warns + points at "Export for Discord" — iterative q85 JPEG / 0.8× shrink until under)
 73. **Post-capture actions menu** — copy path / reveal / open / delete right on the card. ✓ (was already shipped: Annotate · Copy Image · Copy Path · Reveal · Discard)
 
 ## E · Library

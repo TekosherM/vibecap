@@ -587,6 +587,8 @@ pub(crate) struct VibecapApp {
     clip_autoplay: bool,
     /// B54 — auto-apply detected dead-air bounds to the trim on clip load.
     auto_dead_air: bool,
+    /// D70 — jump to Review after a capture lands (off = toast only).
+    auto_open_review: bool,
     /// B52 — remembered REC bar window position (screen px).
     rec_bar_pos: Option<(i32, i32)>,
     /// Half-width filmstrip — faster extraction, softer preview.
@@ -1225,6 +1227,7 @@ impl VibecapApp {
         self.inbox_quiet = s.inbox_quiet;
         self.clip_autoplay = s.clip_autoplay;
         self.auto_dead_air = s.auto_dead_air;
+        self.auto_open_review = s.auto_open_review;
         self.rec_bar_pos = s.rec_bar_pos.and_then(|[x, y]| {
             // Reject stale/off-screen positions (monitor unplugged etc.).
             (-8000..=16000)
@@ -1292,6 +1295,7 @@ impl VibecapApp {
             inbox_quiet: self.inbox_quiet,
             clip_autoplay: self.clip_autoplay,
             auto_dead_air: self.auto_dead_air,
+            auto_open_review: self.auto_open_review,
             rec_bar_pos: self.rec_bar_pos.map(|(x, y)| [x, y]),
             filmstrip_low_res: self.filmstrip_low_res,
             region_dim: self.region_dim,
@@ -1302,15 +1306,21 @@ impl VibecapApp {
 
     /// Load a still into Still studio and select that tab.
     fn open_still_from_path(&mut self, path: PathBuf) {
-        self.img_src_wh = image::image_dimensions(&path).unwrap_or((0, 0));
-        self.img_source_dims = image::image_dimensions(&path)
+        self.load_still_from_path(&path);
+        self.current_tab = AppTab::Still;
+    }
+
+    /// Load-only half of `open_still_from_path` — D70 lets a capture stage
+    /// the editor without yanking the user over to it.
+    fn load_still_from_path(&mut self, path: &PathBuf) {
+        self.img_src_wh = image::image_dimensions(path).unwrap_or((0, 0));
+        self.img_source_dims = image::image_dimensions(path)
             .map(|(w, h)| format!("{}×{}", w, h))
             .unwrap_or_default();
         self.img_preview_params.clear();
         self.img_preview_on = true;
         self.img_edit_file = Some(path.clone());
-        self.latest_screenshot = Some(path);
-        self.current_tab = AppTab::Still;
+        self.latest_screenshot = Some(path.clone());
     }
 
     pub fn save_current_still(&mut self) {
@@ -1460,6 +1470,97 @@ impl VibecapApp {
                     dest.file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_else(|| dest.display().to_string())
+                ));
+                self.refresh_library();
+            }
+            Err(e) => self.show_toast(&format!("❌ Export failed: {e}")),
+        }
+    }
+
+    /// D68 — `file:///…` URI for the loaded still.
+    pub fn copy_still_file_uri(&mut self) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded");
+            return;
+        };
+        match arboard::Clipboard::new().and_then(|mut b| b.set_text(app::file_uri(&path))) {
+            Ok(_) => self.show_toast("file:// URI copied"),
+            Err(e) => self.show_toast(&format!("❌ Clipboard: {e}")),
+        }
+    }
+
+    /// D68 — `data:<mime>;base64,…` for the loaded still (capped at 8 MB).
+    pub fn copy_still_data_uri(&mut self) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded");
+            return;
+        };
+        match app::data_uri(&path, 8_000_000) {
+            Ok(uri) => match arboard::Clipboard::new().and_then(|mut b| b.set_text(uri)) {
+                Ok(_) => self.show_toast("data: URI copied"),
+                Err(e) => self.show_toast(&format!("❌ Clipboard: {e}")),
+            },
+            Err(e) => self.show_toast(&format!("⚠ {e}")),
+        }
+    }
+
+    /// D72 — JPEG q85 re-encode, shrinking 0.8× per pass until under
+    /// Discord's 8 MB. Writes `<stem>_discord.jpg` beside the original.
+    pub fn export_still_for_discord(&mut self) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded to export");
+            return;
+        };
+        let img = match self.edited_baked_image() {
+            Ok(i) => i,
+            Err(e) => {
+                self.show_toast(&format!("❌ {e}"));
+                return;
+            }
+        };
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "still".into());
+        let dest = path.with_file_name(format!("{stem}_discord.jpg"));
+        const CAP: u64 = 8_000_000;
+        use image::ImageEncoder;
+        let mut cur = img.clone();
+        let mut scale = 1.0f32;
+        let mut out_bytes = Vec::new();
+        for _ in 0..6 {
+            let rgba = cur.to_rgba8();
+            let (w, h) = (rgba.width(), rgba.height());
+            let mut buf = std::io::Cursor::new(Vec::new());
+            if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
+                .write_image(cur.to_rgb8().as_raw(), w, h, image::ExtendedColorType::Rgb8)
+                .is_err()
+            {
+                self.show_toast("❌ Encode failed");
+                return;
+            }
+            out_bytes = buf.into_inner();
+            if out_bytes.len() as u64 <= CAP {
+                break;
+            }
+            scale *= 0.8;
+            let nw = ((img.width() as f32 * scale).round() as u32).max(1);
+            let nh = ((img.height() as f32 * scale).round() as u32).max(1);
+            cur = img.resize(nw, nh, image::imageops::FilterType::Lanczos3);
+        }
+        match std::fs::write(&dest, &out_bytes) {
+            Ok(_) => {
+                let mb = out_bytes.len() as f64 / 1e6;
+                let over = if out_bytes.len() as u64 > CAP {
+                    " — still over 8 MB"
+                } else {
+                    ""
+                };
+                self.show_toast(format!(
+                    "💾 {mb:.1} MB{over} · {}",
+                    dest.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default()
                 ));
                 self.refresh_library();
             }
@@ -3469,8 +3570,12 @@ impl VibecapApp {
             }
             let bytes = std::fs::metadata(&mp4).map(|m| m.len()).unwrap_or(0);
             self.edit_file = Some(mp4.clone());
-            self.current_tab = AppTab::Clip;
+            // Load the preview either way — D70 only gates the tab jump;
+            // visiting Review later must not find an empty player.
             self.load_filmstrip(ctx, mp4.clone());
+            if self.auto_open_review {
+                self.current_tab = AppTab::Clip;
+            }
             self.refresh_library();
             if bytes < 512 {
                 self.show_toast(format!(
@@ -4555,8 +4660,15 @@ impl VibecapApp {
                     });
                     return;
                 }
+                // D70 — auto-open in Review is opt-out; off means the
+                // capture lands silently (toast still fires). The editor is
+                // staged either way so a later visit finds it loaded.
                 if !self.is_annotating {
-                    self.open_still_from_path(shot_file.clone());
+                    if self.auto_open_review {
+                        self.open_still_from_path(shot_file.clone());
+                    } else {
+                        self.load_still_from_path(&shot_file);
+                    }
                 }
                 self.refresh_library();
                 self.toast_message = None;
@@ -4572,7 +4684,17 @@ impl VibecapApp {
                 if self.is_annotating {
                     self.show_toast("Screenshot saved — finish this markup first");
                 } else {
-                    self.show_toast(ready);
+                    // D72 — warn when a still can't go straight into Discord.
+                    let mb = std::fs::metadata(&shot_file)
+                        .map(|m| m.len() as f64 / 1e6)
+                        .unwrap_or(0.0);
+                    if mb > 8.0 {
+                        self.show_toast(format!(
+                            "⚠ {mb:.1} MB — over Discord's 8 MB limit · Still ⋯ → Export for Discord"
+                        ));
+                    } else {
+                        self.show_toast(ready);
+                    }
                 }
             }
             Err(e) => {

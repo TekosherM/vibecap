@@ -74,6 +74,10 @@ pub struct SessionState {
     /// B54 — auto-apply detected dead-air bounds to the trim on clip load.
     #[serde(default)]
     pub auto_dead_air: bool,
+    /// D70 — jump to Review after a capture lands. Off = toast only, for
+    /// flows that never want the editor.
+    #[serde(default = "default_clip_autoplay")]
+    pub auto_open_review: bool,
     /// Half-width (240px) filmstrip preview — faster extraction, less GPU memory.
     #[serde(default)]
     pub filmstrip_low_res: bool,
@@ -163,6 +167,7 @@ impl Default for SessionState {
             inbox_quiet: false,
             clip_autoplay: true,
             auto_dead_air: false,
+            auto_open_review: true,
             filmstrip_low_res: false,
             region_dim: default_region_dim(),
             library_favorites: Vec::new(),

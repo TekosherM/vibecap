@@ -196,6 +196,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.copy_still_original_to_clipboard();
                         ui.close_menu();
                     }
+                    if ui.button("Copy file URI").clicked() {
+                        app.copy_still_file_uri();
+                        ui.close_menu();
+                    }
+                    if ui.button("Copy data URI").clicked() {
+                        app.copy_still_data_uri();
+                        ui.close_menu();
+                    }
+                    if ui.button("Export for Discord (<8 MB)").clicked() {
+                        app.export_still_for_discord();
+                        ui.close_menu();
+                    }
                     if ui.button("Paste image onto canvas").clicked() {
                         app.paste_sticker_from_clipboard(ctx);
                         ui.close_menu();

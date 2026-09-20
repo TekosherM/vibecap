@@ -91,6 +91,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                if switch(ui, "Open captures in Review", &mut app.auto_open_review) {
+                    app.persist_session();
+                }
+                ui.label(
+                    RichText::new("Off = captures land silently in Library + clipboard.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
                 if switch(ui, "Auto-trim dead air", &mut app.auto_dead_air) {
                     app.persist_session();
                 }
