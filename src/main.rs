@@ -126,6 +126,36 @@ enum LastCapture {
     Clip(PathBuf),
 }
 
+/// Still export encoder — drives the EXPORT group (format chips + quality).
+#[derive(PartialEq, Clone, Copy, Default)]
+pub(crate) enum StillExportFmt {
+    #[default]
+    Jpg,
+    Png,
+    WebP,
+}
+
+impl StillExportFmt {
+    pub(crate) fn ext(self) -> &'static str {
+        match self {
+            StillExportFmt::Jpg => "jpg",
+            StillExportFmt::Png => "png",
+            StillExportFmt::WebP => "webp",
+        }
+    }
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            StillExportFmt::Jpg => "JPG",
+            StillExportFmt::Png => "PNG",
+            StillExportFmt::WebP => "WebP",
+        }
+    }
+    /// Lossy formats expose a quality slider; PNG/WebP are lossless here.
+    pub(crate) fn lossy(self) -> bool {
+        matches!(self, StillExportFmt::Jpg)
+    }
+}
+
 #[derive(PartialEq, Clone, Copy)]
 pub(crate) enum RegionPickKind {
     Screenshot,
@@ -721,6 +751,13 @@ pub(crate) struct VibecapApp {
     img_crop_y: String,
     img_crop_w: String,
     img_crop_h: String,
+    /// Source pixel dims of the loaded still (for the export size readout).
+    img_src_wh: (u32, u32),
+    /// Export surface: format / quality / uniform pad (F117, F118, F122).
+    export_fmt: StillExportFmt,
+    export_quality: u8,
+    export_pad_px: u32,
+    export_pad_color: egui::Color32,
 
     // Feedback arrival polling & richer replies
     feedback_last_poll: Option<Instant>,
@@ -878,6 +915,11 @@ impl VibecapApp {
             budget_minutes_input: "0".to_string(),
             budget_tier: "standard".to_string(),
             img_resize_pct: 100,
+            img_src_wh: (0, 0),
+            export_fmt: StillExportFmt::Jpg,
+            export_quality: 90,
+            export_pad_px: 0,
+            export_pad_color: egui::Color32::WHITE,
             allow_exit: false,
             start_hidden: false,
             recording_arming: false,
@@ -1198,6 +1240,7 @@ impl VibecapApp {
 
     /// Load a still into Still studio and select that tab.
     fn open_still_from_path(&mut self, path: PathBuf) {
+        self.img_src_wh = image::image_dimensions(&path).unwrap_or((0, 0));
         self.img_source_dims = image::image_dimensions(&path)
             .map(|(w, h)| format!("{}×{}", w, h))
             .unwrap_or_default();
@@ -1225,27 +1268,156 @@ impl VibecapApp {
         self.save_still_to(Some(dest));
     }
 
-    fn save_still_to(&mut self, dest: Option<PathBuf>) {
+    /// Edited pixels with annotations baked in — shared by save/copy/export.
+    fn edited_baked_image(&self) -> Result<image::DynamicImage, String> {
         let Some(path) = self.img_edit_file.clone() else {
-            self.show_toast("No image loaded to save");
-            return;
+            return Err("No image loaded".into());
         };
-        let out = dest.unwrap_or_else(|| path.clone());
         let mut dyn_img = match self.compute_edited_image() {
             Ok(img) => img,
-            Err(_) => match image::open(&path) {
-                Ok(img) => img,
-                Err(e) => {
-                    self.show_toast(&format!("❌ Could not read image: {e}"));
-                    return;
-                }
-            },
+            Err(_) => image::open(&path).map_err(|e| format!("Could not read image: {e}"))?,
         };
         app::bake_annotations(
             &mut dyn_img,
             &self.annotation_actions,
             self.annotation_canvas_rect,
         );
+        Ok(dyn_img)
+    }
+
+    /// Final pixel dims after crop/rotate/resize/pad — the EXPORT readout (F118).
+    pub(crate) fn edited_output_dims(&self) -> Option<(u32, u32)> {
+        let (mut w, mut h) = self.img_src_wh;
+        if w == 0 || h == 0 {
+            return None;
+        }
+        if let (Ok(cx), Ok(cy), Ok(cw), Ok(ch)) = (
+            self.img_crop_x.parse::<u32>(),
+            self.img_crop_y.parse::<u32>(),
+            self.img_crop_w.parse::<u32>(),
+            self.img_crop_h.parse::<u32>(),
+        ) {
+            if cw > 0 && ch > 0 && cx + cw <= w && cy + ch <= h {
+                w = cw;
+                h = ch;
+            }
+        }
+        if self.img_rotate == 90 || self.img_rotate == 270 {
+            std::mem::swap(&mut w, &mut h);
+        }
+        if self.img_resize_pct != 100 && self.img_resize_pct > 0 {
+            w = (w as f32 * self.img_resize_pct as f32 / 100.0).max(1.0) as u32;
+            h = (h as f32 * self.img_resize_pct as f32 / 100.0).max(1.0) as u32;
+        }
+        Some((w, h))
+    }
+
+    /// Export dims include the uniform pad (F122) — pad is export-only, applied
+    /// post-bake so annotation mapping stays aligned.
+    pub(crate) fn export_output_dims(&self) -> Option<(u32, u32)> {
+        self.edited_output_dims().map(|(w, h)| {
+            let pad = self.export_pad_px.saturating_mul(2);
+            (w.saturating_add(pad), h.saturating_add(pad))
+        })
+    }
+
+    /// F117/F122 — export with explicit format, quality and uniform pad.
+    pub fn export_still_as(&mut self) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded to export");
+            return;
+        };
+        let mut img = match self.edited_baked_image() {
+            Ok(i) => i,
+            Err(e) => {
+                self.show_toast(&format!("❌ {e}"));
+                return;
+            }
+        };
+        if self.export_pad_px > 0 {
+            let pad = self.export_pad_px;
+            let c = self.export_pad_color;
+            let mut canvas = image::RgbaImage::from_pixel(
+                img.width() + pad * 2,
+                img.height() + pad * 2,
+                image::Rgba([c.r(), c.g(), c.b(), 255]),
+            );
+            image::imageops::overlay(&mut canvas, &img.to_rgba8(), pad.into(), pad.into());
+            img = image::DynamicImage::ImageRgba8(canvas);
+        }
+        let ext = self.export_fmt.ext();
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "still".into());
+        let Some(dest) = rfd::FileDialog::new()
+            .set_file_name(format!("{stem}.{ext}"))
+            .add_filter(self.export_fmt.label(), &[ext])
+            .set_directory(path.parent().unwrap_or_else(|| std::path::Path::new("")))
+            .save_file()
+        else {
+            return;
+        };
+        let dest = if dest.extension().is_some() {
+            dest
+        } else {
+            dest.with_extension(ext)
+        };
+        let rgba = img.to_rgba8();
+        let (w, h) = (rgba.width(), rgba.height());
+        use image::ImageEncoder;
+        let encoded: Result<Vec<u8>, image::ImageError> = (|| {
+            let mut buf = std::io::Cursor::new(Vec::new());
+            match self.export_fmt {
+                StillExportFmt::Jpg => image::codecs::jpeg::JpegEncoder::new_with_quality(
+                    &mut buf,
+                    self.export_quality,
+                )
+                .write_image(
+                    img.to_rgb8().as_raw(),
+                    w,
+                    h,
+                    image::ExtendedColorType::Rgb8,
+                ),
+                StillExportFmt::Png => image::codecs::png::PngEncoder::new(&mut buf).write_image(
+                    rgba.as_raw(),
+                    w,
+                    h,
+                    image::ExtendedColorType::Rgba8,
+                ),
+                StillExportFmt::WebP => image::codecs::webp::WebPEncoder::new_lossless(&mut buf)
+                    .write_image(rgba.as_raw(), w, h, image::ExtendedColorType::Rgba8),
+            }
+            .map(|_| buf.into_inner())
+        })();
+        match encoded.and_then(|b| std::fs::write(&dest, b).map_err(image::ImageError::IoError)) {
+            Ok(_) => {
+                self.show_toast(format!(
+                    "Exported {} · {}",
+                    self.export_fmt.label(),
+                    dest.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| dest.display().to_string())
+                ));
+                self.refresh_library();
+            }
+            Err(e) => self.show_toast(&format!("❌ Export failed: {e}")),
+        }
+    }
+
+    fn save_still_to(&mut self, dest: Option<PathBuf>) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded to save");
+            return;
+        };
+        let out = dest.unwrap_or_else(|| path.clone());
+        let dyn_img = match self.edited_baked_image() {
+            Ok(img) => img,
+            Err(e) => {
+                self.show_toast(&format!("❌ {e}"));
+                return;
+            }
+        };
         match dyn_img.save(&out) {
             Ok(_) => {
                 if out == path {
@@ -1266,25 +1438,17 @@ impl VibecapApp {
     }
 
     pub fn copy_current_still_to_clipboard(&mut self) {
-        let Some(path) = self.img_edit_file.clone() else {
+        if self.img_edit_file.is_none() {
             self.show_toast("No image loaded to copy");
             return;
-        };
-        let mut dyn_img = match self.compute_edited_image() {
+        }
+        let dyn_img = match self.edited_baked_image() {
             Ok(img) => img,
-            Err(_) => match image::open(&path) {
-                Ok(img) => img,
-                Err(e) => {
-                    self.show_toast(&format!("❌ Could not read image: {e}"));
-                    return;
-                }
-            },
+            Err(e) => {
+                self.show_toast(&format!("❌ {e}"));
+                return;
+            }
         };
-        app::bake_annotations(
-            &mut dyn_img,
-            &self.annotation_actions,
-            self.annotation_canvas_rect,
-        );
 
         let rgba = dyn_img.to_rgba8();
         let (w, h) = (rgba.width() as usize, rgba.height() as usize);

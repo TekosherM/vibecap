@@ -687,6 +687,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     });
                     ui.label(RichText::new("Resize %").size(11.0).color(theme::TEXT_DIM()));
                     ui.add(egui::Slider::new(&mut app.img_resize_pct, 10..=200).show_value(false));
+                    if let Some((w, h)) = app.edited_output_dims() {
+                        ui.label(
+                            RichText::new(format!("→ {}×{} px output", w, h))
+                                .size(10.0)
+                                .color(theme::TEXT_MUTED()),
+                        );
+                    }
                     ui.label(RichText::new("Crop px — x · y · w · h").size(11.0).color(theme::TEXT_DIM()));
                     ui.horizontal(|ui| {
                         for field in [
@@ -696,6 +703,51 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             &mut app.img_crop_h,
                         ] {
                             ui.add(egui::TextEdit::singleline(field).desired_width(44.0));
+                        }
+                    });
+
+                    ui.add_space(theme::SP_2);
+                    ui.separator();
+                    ui.add_space(theme::SP_2);
+
+                    group(ui, "EXPORT", |ui| {
+                        segmented(
+                            ui,
+                            &mut app.export_fmt,
+                            &[
+                                (crate::StillExportFmt::Jpg, "JPG"),
+                                (crate::StillExportFmt::Png, "PNG"),
+                                (crate::StillExportFmt::WebP, "WebP"),
+                            ],
+                        );
+                        if app.export_fmt.lossy() {
+                            ui.label(
+                                RichText::new("Quality").size(11.0).color(theme::TEXT_DIM()),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut app.export_quality, 1..=100)
+                                    .show_value(false),
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Pad px").size(11.0).color(theme::TEXT_DIM()),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut app.export_pad_px, 0..=64)
+                                    .show_value(false),
+                            );
+                            ui.color_edit_button_srgba(&mut app.export_pad_color);
+                        });
+                        if let Some((w, h)) = app.export_output_dims() {
+                            ui.label(
+                                RichText::new(format!("Exports at {}×{} px", w, h))
+                                    .size(10.0)
+                                    .color(theme::TEXT_MUTED()),
+                            );
+                        }
+                        if btn_primary(ui, "Export as…") {
+                            app.export_still_as();
                         }
                     });
 

@@ -463,12 +463,12 @@ Numbered 1–300 for this round. Sections sized 25 each.
 114. **Stroke width presets** — 2/4/8 chips + slider. ✓ (2/4/8 px chips + 1–12 slider)
 115. **Copy original vs annotated** — explicit choice in the copy menu. ✓ ("Copy original (no markup)" in the Still ⋯ menu)
 116. **Save-as-copy default** — never silently overwrite the source still. ✓ (was already shipped — "Save as copy" + explicit overwrite)
-117. **Export format picker** — PNG/JPEG/WebP + quality slider.
-118. **Resize-on-export** — % or max-width field with pixel preview.
+117. **Export format picker** — PNG/JPEG/WebP + quality slider. ✓ (EXPORT group: JPG/PNG/WebP segmented + JPG quality slider → save dialog, explicit encoders)
+118. **Resize-on-export** — % or max-width field with pixel preview. ✓ (was already shipped — Resize % slider in the pipeline; added "→ WxH px output" readout)
 119. **Paste-onto-canvas** — clipboard image becomes a movable layer.
 120. **Before/after hold** — hold Space to peek the un-annotated original. ✓ (hold B — Space stays pan; annotations skipped while peeking)
 121. **Watermark preset** — corner text/logo with opacity.
-122. **Canvas padding** — add uniform border pixels with fill color on export.
+122. **Canvas padding** — add uniform border pixels with fill color on export. ✓ (Pad px slider + color swatch in EXPORT; applied post-bake so annotations stay aligned)
 123. **Annotation list panel** — side list of strokes; click selects, Del removes.
 124. **Snap annotations** — arrows/shapes snap to 15° angles and edges. ✓ (Shift-drag: arrows → 15°, rect/blur → square)
 125. **Esc depth-fix** — Esc exits annotate → Still → Capture, never a blank tab. ✓ (was already shipped)
