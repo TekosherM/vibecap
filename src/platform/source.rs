@@ -21,6 +21,9 @@ pub struct CaptureOpts {
     pub draw_mouse: bool,
     /// 0-based monitor index on the virtual desktop (Windows/Linux).
     pub monitor: Option<u32>,
+    /// Real-time libx264 quality for recordings (`-crf`). `None` keeps the
+    /// ffmpeg default (23).
+    pub crf: Option<u8>,
 }
 
 impl CaptureOpts {
@@ -30,6 +33,7 @@ impl CaptureOpts {
             window: empty_to_none(window),
             draw_mouse: false,
             monitor: None,
+            crf: None,
         }
     }
 
@@ -40,6 +44,11 @@ impl CaptureOpts {
 
     pub fn with_monitor(mut self, monitor: Option<u32>) -> Self {
         self.monitor = monitor;
+        self
+    }
+
+    pub fn with_crf(mut self, crf: u8) -> Self {
+        self.crf = Some(crf);
         self
     }
 

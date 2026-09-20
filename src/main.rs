@@ -456,6 +456,8 @@ pub(crate) struct VibecapApp {
     capture_target: CaptureTarget,
     capture_audio: bool,
     fps_target: u32,
+    /// C55 — recording quality (libx264 `-crf`): 18 sharp / 23 balanced / 28 small.
+    record_crf: u8,
     draw_mouse: bool,
     capture_monitor: Option<u32>,
     name_pattern: String,
@@ -890,6 +892,7 @@ impl VibecapApp {
             capture_target: CaptureTarget::Fullscreen,
             capture_audio: false, // video-only by default; user can enable audio
             fps_target: 30,
+            record_crf: 23,
             draw_mouse: false,
             name_pattern: app::DEFAULT_PATTERN.to_string(),
             inbox_snippets: vec![
@@ -1194,6 +1197,10 @@ impl VibecapApp {
         if s.fps == 24 || s.fps == 30 || s.fps == 60 {
             self.fps_target = s.fps;
         }
+        self.record_crf = match s.record_crf {
+            15..=40 => s.record_crf,
+            _ => 23,
+        };
         self.capture_monitor = s.monitor;
         if !s.inbox_snippets.is_empty() {
             self.inbox_snippets = s.inbox_snippets;
@@ -1258,6 +1265,7 @@ impl VibecapApp {
             last_screen_rect: self.selected_screen_rect.map(|(w, h, x, y)| [w, h, x, y]),
             draw_mouse: self.draw_mouse,
             fps: self.fps_target,
+            record_crf: self.record_crf,
             monitor: self.capture_monitor,
             inbox_snippets: self.inbox_snippets.clone(),
             hotkey_shot_digit: self.hotkey_shot_digit,
@@ -3264,6 +3272,43 @@ impl VibecapApp {
         (self.accumulated_duration + current).as_secs()
     }
 
+    /// E51 — one-line "what am I recording" for the REC bar caption.
+    fn record_source_line(&self) -> String {
+        let target = match self.capture_target {
+            CaptureTarget::Fullscreen => self
+                .capture_monitor
+                .map(|m| format!("Display {}", m + 1))
+                .unwrap_or_else(|| "Full screen".to_string()),
+            CaptureTarget::Region => self
+                .selected_screen_rect
+                .map(|(w, h, _, _)| format!("Region {w}×{h}"))
+                .unwrap_or_else(|| "Region".to_string()),
+            CaptureTarget::Window => {
+                let name = self.window_app.trim();
+                let name = if name.is_empty() {
+                    self.last_front_app.as_deref().unwrap_or("window")
+                } else {
+                    name
+                };
+                let short: String = name.chars().take(18).collect();
+                format!("Window: {short}")
+            }
+        };
+        // Audio flag only shows where recording actually honors it —
+        // gdigrab ignores `with_audio` on Windows today.
+        let audio = if cfg!(target_os = "macos") && self.capture_audio {
+            " · mic"
+        } else {
+            ""
+        };
+        let marks = if self.record_markers.is_empty() {
+            String::new()
+        } else {
+            format!(" · ⚑ {}", self.record_markers.len())
+        };
+        format!("{target}{audio}{marks}")
+    }
+
     fn toggle_pause(&mut self) {
         if !self.is_recording {
             return;
@@ -3653,7 +3698,8 @@ impl VibecapApp {
             )
             .with_monitor(self.capture_monitor),
             _ => CaptureOpts::default().with_monitor(self.capture_monitor),
-        };
+        }
+        .with_crf(self.record_crf);
 
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.record_spawn_rx = Some(rx);
@@ -5337,7 +5383,7 @@ impl eframe::App for VibecapApp {
                 .with_title("Vibecap Recorder")
                 .with_decorations(false)
                 .with_always_on_top()
-                .with_inner_size([320.0, 52.0])
+                .with_inner_size([340.0, 68.0])
                 .with_resizable(false)
                 .with_transparent(!cfg!(target_os = "windows"))
                 .with_visible(true);
@@ -5355,104 +5401,146 @@ impl eframe::App for VibecapApp {
                         egui::CentralPanel::default()
                             .frame(bar_frame)
                             .show(ctx, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(6.0);
+                                ui.vertical(|ui| {
+                                    ui.add_space(2.0);
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(6.0);
 
-                                    let pulse = (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
-                                    let dot_color =
-                                        if self.recording_arming || self.recording_finalizing {
-                                            theme::ACCENT()
-                                        } else if self.is_paused {
-                                            theme::WARN()
+                                        let pulse =
+                                            (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
+                                        let dot_color =
+                                            if self.recording_arming || self.recording_finalizing {
+                                                theme::ACCENT()
+                                            } else if self.is_paused {
+                                                theme::WARN()
+                                            } else {
+                                                theme::danger_pulse(pulse)
+                                            };
+                                        ui.colored_label(dot_color, "●");
+
+                                        if self.recording_arming {
+                                            ui.label(
+                                                RichText::new("Starting…")
+                                                    .strong()
+                                                    .color(theme::TEXT()),
+                                            );
+                                        } else if self.recording_finalizing {
+                                            ui.label(
+                                                RichText::new("Saving…")
+                                                    .strong()
+                                                    .color(theme::TEXT()),
+                                            );
                                         } else {
-                                            theme::danger_pulse(pulse)
-                                        };
-                                    ui.colored_label(dot_color, "●");
-
-                                    if self.recording_arming {
-                                        ui.label(
-                                            RichText::new("Starting…")
+                                            let elapsed = self.recording_elapsed_secs();
+                                            let mins = elapsed / 60;
+                                            let secs = elapsed % 60;
+                                            let status_text =
+                                                if self.is_paused { "PAUSED" } else { "REC" };
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} {:02}:{:02}",
+                                                    status_text, mins, secs
+                                                ))
                                                 .strong()
                                                 .color(theme::TEXT()),
-                                        );
-                                    } else if self.recording_finalizing {
-                                        ui.label(
-                                            RichText::new("Saving…").strong().color(theme::TEXT()),
-                                        );
-                                    } else {
-                                        let elapsed = self.recording_elapsed_secs();
-                                        let mins = elapsed / 60;
-                                        let secs = elapsed % 60;
-                                        let status_text =
-                                            if self.is_paused { "PAUSED" } else { "REC" };
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{} {:02}:{:02}",
-                                                status_text, mins, secs
-                                            ))
-                                            .strong()
-                                            .color(theme::TEXT()),
-                                        );
-                                    }
+                                            );
+                                        }
 
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            ui.add_space(4.0);
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                ui.add_space(4.0);
 
-                                            if ui
-                                                .button(
-                                                    RichText::new("✖")
-                                                        .color(theme::DANGER())
-                                                        .strong(),
-                                                )
-                                                .on_hover_text("Cancel Recording")
-                                                .clicked()
-                                            {
-                                                self.cancel_recording(ctx);
-                                            }
-
-                                            if !self.recording_arming && !self.recording_finalizing
-                                            {
                                                 if ui
                                                     .button(
-                                                        RichText::new("⏹")
-                                                            .color(theme::ON_SOLID())
+                                                        RichText::new("✖")
+                                                            .color(theme::DANGER())
                                                             .strong(),
                                                     )
-                                                    .on_hover_text("Stop & Save")
+                                                    .on_hover_text("Cancel Recording")
                                                     .clicked()
                                                 {
-                                                    self.stop_recording(ctx);
+                                                    self.cancel_recording(ctx);
                                                 }
 
-                                                if crate::platform::pause_supported() {
-                                                    let pause_icon =
-                                                        if self.is_paused { "▶" } else { "⏸" };
-                                                    let pause_color = if self.is_paused {
-                                                        theme::SUCCESS()
-                                                    } else {
-                                                        theme::WARN()
-                                                    };
+                                                if !self.recording_arming
+                                                    && !self.recording_finalizing
+                                                {
                                                     if ui
                                                         .button(
-                                                            RichText::new(pause_icon)
-                                                                .color(pause_color)
+                                                            RichText::new("⏹")
+                                                                .color(theme::ON_SOLID())
                                                                 .strong(),
                                                         )
-                                                        .on_hover_text(if self.is_paused {
-                                                            "Resume"
-                                                        } else {
-                                                            "Pause"
-                                                        })
+                                                        .on_hover_text("Stop & Save")
                                                         .clicked()
                                                     {
-                                                        self.toggle_pause();
+                                                        self.stop_recording(ctx);
+                                                    }
+
+                                                    if crate::platform::pause_supported() {
+                                                        let pause_icon = if self.is_paused {
+                                                            "▶"
+                                                        } else {
+                                                            "⏸"
+                                                        };
+                                                        let pause_color = if self.is_paused {
+                                                            theme::SUCCESS()
+                                                        } else {
+                                                            theme::WARN()
+                                                        };
+                                                        if ui
+                                                            .button(
+                                                                RichText::new(pause_icon)
+                                                                    .color(pause_color)
+                                                                    .strong(),
+                                                            )
+                                                            .on_hover_text(if self.is_paused {
+                                                                "Resume"
+                                                            } else {
+                                                                "Pause"
+                                                            })
+                                                            .clicked()
+                                                        {
+                                                            self.toggle_pause();
+                                                        }
+                                                    }
+
+                                                    // E53 — chapter marker that works while the
+                                                    // studio is parked; written to
+                                                    // <clip>.markers.txt on finalize.
+                                                    if ui
+                                                        .button(
+                                                            RichText::new("⚑")
+                                                                .color(theme::ACCENT())
+                                                                .strong(),
+                                                        )
+                                                        .on_hover_text(
+                                                            "Drop a chapter marker at this moment",
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        let t =
+                                                            self.recording_elapsed_secs() as f64;
+                                                        self.record_markers.push(t);
+                                                        self.show_toast(format!(
+                                                            "Marker @ {t:.1}s"
+                                                        ));
                                                     }
                                                 }
-                                            }
-                                        },
-                                    );
+                                            },
+                                        );
+                                    });
+
+                                    // E51 — what is being captured, at a glance.
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            RichText::new(self.record_source_line())
+                                                .size(9.5)
+                                                .color(theme::TEXT_MUTED()),
+                                        );
+                                    });
                                 });
                             });
                     }

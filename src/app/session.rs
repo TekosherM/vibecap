@@ -42,6 +42,9 @@ pub struct SessionState {
     pub draw_mouse: bool,
     #[serde(default = "default_fps")]
     pub fps: u32,
+    /// C55 — recording quality (libx264 `-crf`): 18 sharp / 23 balanced / 28 small.
+    #[serde(default = "default_crf")]
+    pub record_crf: u8,
     #[serde(default)]
     pub monitor: Option<u32>,
     #[serde(default)]
@@ -92,6 +95,10 @@ fn default_name_pattern() -> String {
     crate::app::naming::DEFAULT_PATTERN.to_string()
 }
 
+fn default_crf() -> u8 {
+    23
+}
+
 fn default_fps() -> u32 {
     30
 }
@@ -135,6 +142,7 @@ impl Default for SessionState {
             last_screen_rect: None,
             draw_mouse: false,
             fps: 30,
+            record_crf: 23,
             monitor: None,
             inbox_snippets: vec![
                 "Looks good".into(),

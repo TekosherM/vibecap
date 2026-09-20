@@ -159,6 +159,15 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.persist_session();
                     }
                 });
+                setting_row(ui, "Record quality", |ui| {
+                    if segmented(
+                        ui,
+                        &mut app.record_crf,
+                        &[(18u8, "Sharp"), (23, "Balanced"), (28, "Small file")],
+                    ) {
+                        app.persist_session();
+                    }
+                });
                 ui.label(
                     RichText::new("Big-number bubble before record starts (Esc cancels).")
                         .size(11.0)

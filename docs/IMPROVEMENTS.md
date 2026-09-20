@@ -72,7 +72,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 35. **GIF as a first-class shutter action** (still / record / GIF). Today GIF is an export from Clip or `--gif` on stop.
 36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies.
 37. **Disable or warn the audio switch** on Windows until a device is detected (`ffmpeg -list_devices`).
-38. **FPS 24/30/60 + custom.** Segmented 30/60 only (`settings_tab.rs`). 24 is enough for bug clips and half the disk.
+38. **FPS 24/30/60 + custom.** Segmented 30/60 only (`settings_tab.rs`). 24 is enough for bug clips and half the disk. ✓ (was already shipped — 24/30/60 chips in Settings)
 39. **Cursor draw toggle** for stills (`-draw_mouse 0` hardcoded). Demos want the pointer; bug stills often don’t. ✓ (was already shipped — 'Draw cursor on stills' switch → `draw_mouse` session field → `-draw_mouse`)
 40. **Self-capture guard.** If the only “window” match is Vibecap, refuse Window target (Fullscreen already tries `last_front_app`).
 
@@ -144,10 +144,10 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 82. **S/R in-app vs global.** Document on the Capture card is right; wizard shortcuts step should show **Windows** keys (Ctrl+Shift), not macOS glyphs only.
 83. **Wizard: ffmpeg + Windows capture test.** Today welcome → save dir → budget → shortcuts. On Windows the failure mode is missing ffmpeg / GPU window. Add a one-click test still.
 84. **Wizard: MCP client detect** (Cursor / Claude Desktop / Codex config paths) with a copyable snippet. Highest activation ROI; still missing.
-85. **Settings ffmpeg hint is Homebrew-only** (`brew install ffmpeg`). Windows should say `winget install Gyan.FFmpeg` (the error in `ffmpeg.rs` already does — Settings UI does not).
+85. **Settings ffmpeg hint is Homebrew-only** (`brew install ffmpeg`). Windows should say `winget install Gyan.FFmpeg` (the error in `ffmpeg.rs` already does — Settings UI does not). ✓ (was already shipped — platform-conditional hint)
 86. **Windows permissions card.** macOS has Screen Recording; Windows needs “can gdigrab?” + “mic/loopback device” + “tray allowed”. Empty Settings on Windows looks unfinished.
-87. **Close-to-tray copy is macOS** (“menu bar icon”). On Windows say “notification area / system tray”.
-88. **Tray “Hide to Menu Bar”** label (`tray_ui.rs`) — Windows users do not have a menu bar. “Hide to tray”.
+87. **Close-to-tray copy is macOS** (“menu bar icon”). On Windows say “notification area / system tray”. ✓ (was already shipped — platform-conditional)
+88. **Tray “Hide to Menu Bar”** label (`tray_ui.rs`) — Windows users do not have a menu bar. “Hide to tray”. ✓ (was already shipped — platform-conditional)
 89. **Single-instance optional.** Docs celebrate multi-process (GUI + MCP). GUI+GUI is confusing (two trays, two hotkeys). Second GUI should focus the first unless `--mcp` / `--screenshot`.
 90. **Update checker** against GitHub Releases (opt-in). `0.3.0` tag vs months of unreleased master is how users run stale capture code.
 
@@ -204,7 +204,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 15. **PrtScn capture** — optional single-key still via a dedicated hotkey slot.
 16. **Z-cycle in window-pick** — scroll wheel steps through overlapping windows under the cursor. ✓
 17. **Pick card shows process + monitor** under the window title.
-18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test).
+18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test). ✓ (was already shipped — `show_countdown_bubble` is its own always-on-top viewport)
 19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu.
 20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %. ✓
 21. **Named size presets** — 1920×1080 / 1280×720 centered-box buttons in the HUD. ✓ ("1080p"/"720p" chips drop a centered pixel-size box; nudge + Enter captures)
@@ -243,21 +243,21 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 48. **Webcam bubble** — second gdigrab/dshow source composited corner-overlay (big).
 49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters.
 50. **Pause/resume hotkey** — dedicated digit.
-51. **REC bar source line** — shows target rect/monitor + audio state.
+51. **REC bar source line** — shows target rect/monitor + audio state. ✓ (caption row under the timer: "Display 2" / "Region 800×600" / "Window: app" + ⚑ count; audio flag only where capture honors it)
 52. **REC bar position memory** — draggable, persists.
-53. **Marker hotkey during record** — drops a chapter at press.
+53. **Marker hotkey during record** — drops a chapter at press. ✓ (⚑ button on the REC bar works while parked; M key when focused; → .markers.txt on finalize)
 54. **Auto-trim dead air** — drop frames <N fps-change at head/tail on finalize.
-55. **Output presets** — CRF, fps, codec (H264/H265/VP9) in Settings.
-56. **GIF ping-pong loop** toggle.
-57. **GIF frame delete** in the filmstrip.
+55. **Output presets** — CRF, fps, codec (H264/H265/VP9) in Settings. ✓ (CRF Sharp/Balanced/Small chips → -crf 18/23/28 via `CaptureOpts::crf`; fps already in Settings; live codec stays libx264 — export-side codec picker covers H264/VP9/AV1)
+56. **GIF ping-pong loop** toggle. ✓ (was already shipped — "Ping-pong ↺" on the GIF export)
+57. **GIF frame delete** in the filmstrip. ✓ (cut marks on thumbs + "Export without cuts" — per-frame delay editing stays open)
 58. **GIF per-frame delay** editor.
-59. **Re-export GIF** from an existing MP4 at new fps/width (no re-record).
-60. **WebM / AV1 output** option.
-61. **Stream-copy trim** — no re-encode when only cutting ends.
-62. **Clip audio in preview** — today's player is silent.
-63. **Frame → still** — grab the current preview frame as a new screenshot.
+59. **Re-export GIF** from an existing MP4 at new fps/width (no re-record). ✓ (was already shipped — GIF group encodes from the loaded clip)
+60. **WebM / AV1 output** option. ✓ (was already shipped — ENCODE group chips)
+61. **Stream-copy trim** — no re-encode when only cutting ends. ✓ (was already shipped — `-ss/-to -c copy`)
+62. **Clip audio in preview** — today's player is silent. ✓ (was already shipped — preview WAV + winmm loop follows play/pause)
+63. **Frame → still** — grab the current preview frame as a new screenshot. ✓ (was already shipped — transport "Grab frame" → jpg beside the clip)
 64. **Batch re-export** selection from Library.
-65. **Recording countdown styles** — 3 / 5 / none setting.
+65. **Recording countdown styles** — 3 / 5 / none setting. ✓ (was already shipped — 0/3/5 segmented + own viewport bubble)
 
 ## D · Clipboard & destinations
 

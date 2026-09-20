@@ -882,6 +882,10 @@ pub fn spawn_screen_recorder_opts(
     // Real-time screen capture: the default "medium" preset saturates a core on
     // laptops and drops gdigrab frames — veryfast keeps up at 30-60fps.
     cmd.arg("-preset").arg("veryfast");
+    // C55 — GUI exposes 18/23/28; None keeps the libx264 default (23).
+    if let Some(crf) = opts.crf {
+        cmd.arg("-crf").arg(crf.clamp(0, 51).to_string());
+    }
     cmd.arg("-pix_fmt").arg("yuv420p");
     if frag_mp4 {
         // Kill-safe fragments; remuxed to a regular MP4 on stop.
