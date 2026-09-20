@@ -154,6 +154,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         q.is_empty()
             || r.question.to_ascii_lowercase().contains(&q)
             || r.id.to_ascii_lowercase().contains(&q)
+            || r.media_path.to_ascii_lowercase().contains(&q)
     };
     let snoozed_now = |r: &FeedbackRequest| {
         app.feedback_snooze_until
@@ -183,13 +184,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             1
         }
     });
-    let closed: Vec<FeedbackRequest> = app
+    // E182 — closed threads also match on the recorded answer text;
+    // `inbox_matches` lazy-loads each response file once into the cache.
+    let closed_all: Vec<FeedbackRequest> = app
         .feedback_requests
         .iter()
         .filter(|r| r.status != "pending")
-        .filter(|r| matches_q(r))
         .cloned()
         .collect();
+    let closed: Vec<FeedbackRequest> = if q.is_empty() {
+        closed_all
+    } else {
+        closed_all
+            .into_iter()
+            .filter(|r| app.inbox_matches(r, &q))
+            .collect()
+    };
 
     // Filter chips — which buckets the list shows.
     let show_p = matches!(app.inbox_filter, InboxFilter::All | InboxFilter::Pending);
@@ -213,6 +223,21 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             ) {
                 app.inbox_filter = filter;
             }
+        }
+        // E190 — one click clears a queue of choice-chip approvals;
+        // scoped to the visible (search-filtered) pending set.
+        let approvable: Vec<String> = pending
+            .iter()
+            .filter(|r| !r.options.is_empty())
+            .map(|r| r.id.clone())
+            .collect();
+        if approvable.len() >= 2
+            && ui
+                .small_button(format!("Approve all {}", approvable.len()))
+                .on_hover_text("Answers each choice thread with its first option")
+                .clicked()
+        {
+            app.approve_all_pending(&approvable);
         }
     });
     ui.add_space(theme::SP_2);
@@ -260,15 +285,48 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .id_source("inbox_list")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                if show_p && !pending.is_empty() {
+                                // E189 — pending threads filed after the
+                                // last Inbox visit get their own section.
+                                let (new_pending, rest_pending): (Vec<_>, Vec<_>) =
+                                    if app.inbox_seen_stamp.is_empty() {
+                                        (Vec::new(), pending.iter().collect())
+                                    } else {
+                                        pending.iter().partition(|r| {
+                                            r.created_at.as_str() > app.inbox_seen_stamp.as_str()
+                                        })
+                                    };
+                                if show_p && !new_pending.is_empty() {
                                     ui.label(
-                                        RichText::new(format!("Waiting ({})", pending.len()))
-                                            .strong()
-                                            .size(12.0)
-                                            .color(theme::ACCENT()),
+                                        RichText::new(format!(
+                                            "New since last visit ({})",
+                                            new_pending.len()
+                                        ))
+                                        .strong()
+                                        .size(12.0)
+                                        .color(theme::ACCENT()),
                                     );
                                     ui.add_space(theme::SP_2);
-                                    for req in &pending {
+                                    for req in &new_pending {
+                                        thread_row(app, ui, req, true);
+                                        ui.add_space(4.0);
+                                    }
+                                }
+                                if show_p && !rest_pending.is_empty() {
+                                    if !new_pending.is_empty() {
+                                        ui.add_space(theme::SP_2);
+                                    }
+                                    ui.label(
+                                        RichText::new(format!("Waiting ({})", rest_pending.len()))
+                                            .strong()
+                                            .size(12.0)
+                                            .color(if new_pending.is_empty() {
+                                                theme::ACCENT()
+                                            } else {
+                                                theme::TEXT_MUTED()
+                                            }),
+                                    );
+                                    ui.add_space(theme::SP_2);
+                                    for req in &rest_pending {
                                         thread_row(app, ui, req, true);
                                         ui.add_space(4.0);
                                     }

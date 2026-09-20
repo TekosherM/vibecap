@@ -48,10 +48,10 @@ use app::session::{density_from_str, density_to_str, load_session, save_session,
 use app::{
     budget_exceeded_reason, default_live_dir, default_media_dir, extract_filmstrip_rgba,
     feedback_requests_dir, feedback_responses_dir, filter_items, finalize_recorder,
-    get_dir_size_bytes, kill_recorder, live_usage_snapshot, load_budget, mcp_live_dir, parse_args,
-    run_headless, run_mcp_server, scan_media_dir, take_pending_still, write_json_atomic,
-    write_pending_still, write_pending_still_error, CliAction, FeedbackRequest, FeedbackResponse,
-    MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
+    format_feedback_answer, get_dir_size_bytes, kill_recorder, live_usage_snapshot, load_budget,
+    mcp_live_dir, parse_args, run_headless, run_mcp_server, scan_media_dir, take_pending_still,
+    write_json_atomic, write_pending_still, write_pending_still_error, CliAction, FeedbackRequest,
+    FeedbackResponse, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
 };
 
 /// Cached live-dir stats for the Capture tab's proof-of-life row.
@@ -589,6 +589,9 @@ pub(crate) struct VibecapApp {
     region_dim: u8,
     /// E154 — favorited library file names (session-backed).
     library_favorites: std::collections::HashSet<String>,
+    /// E189 — Inbox "new since last visit" watermark (`%Y-%m-%d %H:%M:%S`,
+    /// lexicographically comparable to `created_at`).
+    inbox_seen_stamp: String,
     /// Filmstrip decode progress `(done, total)` for the determinate label.
     filmstrip_progress: (usize, usize),
     filmstrip_progress_rx: Option<Receiver<(usize, usize)>>,
@@ -1209,6 +1212,7 @@ impl VibecapApp {
         self.filmstrip_low_res = s.filmstrip_low_res;
         self.region_dim = s.region_dim.min(200);
         self.library_favorites = s.library_favorites.iter().cloned().collect();
+        self.inbox_seen_stamp = s.inbox_seen_at.clone();
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
         // never unconditionally, so granted users are not re-asked on cold start.
@@ -1266,6 +1270,7 @@ impl VibecapApp {
             filmstrip_low_res: self.filmstrip_low_res,
             region_dim: self.region_dim,
             library_favorites: self.library_favorites.iter().cloned().collect(),
+            inbox_seen_at: self.inbox_seen_stamp.clone(),
         });
     }
 
@@ -2876,6 +2881,79 @@ impl VibecapApp {
         self.feedback_user_picked = false;
         self.scan_feedback_requests();
         self.show_toast("✅ Feedback submitted — the agent can pick it up now!");
+    }
+
+    /// E190 — approve the given pending threads using each thread's first
+    /// choice-chip option. Callers pass the currently visible set so an
+    /// active search filter scopes the bulk action. Text-only threads are
+    /// skipped — bulk approval never fabricates a free-form answer.
+    pub(crate) fn approve_all_pending(&mut self, ids: &[String]) {
+        let picks: Vec<(String, String)> = ids
+            .iter()
+            .filter_map(|id| {
+                self.feedback_requests
+                    .iter()
+                    .find(|r| &r.id == id && r.status == "pending" && !r.options.is_empty())
+                    .map(|r| (r.id.clone(), r.options[0].clone()))
+            })
+            .collect();
+        if picks.is_empty() {
+            self.show_toast("No pending choice threads to approve");
+            return;
+        }
+        let n = picks.len();
+        let stamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        for (id, opt) in picks {
+            let response = FeedbackResponse {
+                id: id.clone(),
+                feedback_text: opt.clone(),
+                voice_note_path: String::new(),
+                annotated_media_path: String::new(),
+                answered_at: stamp.clone(),
+                selected_option: opt,
+            };
+            let resp_path = feedback_responses_dir().join(format!("{id}.json"));
+            if serde_json::to_string_pretty(&response)
+                .ok()
+                .and_then(|s| write_json_atomic(&resp_path, &s).ok())
+                .is_some()
+            {
+                self.mark_feedback_status(&id, "answered");
+            }
+        }
+        self.feedback_selected = None;
+        self.scan_feedback_requests();
+        self.show_toast(format!("✅ Approved {n} thread(s)"));
+    }
+
+    /// E182 — search matches the question, id, media filename, and (for
+    /// closed threads) the recorded answer text.
+    pub(crate) fn inbox_matches(&mut self, r: &FeedbackRequest, q: &str) -> bool {
+        if q.is_empty() {
+            return true;
+        }
+        if r.question.to_ascii_lowercase().contains(q)
+            || r.id.to_ascii_lowercase().contains(q)
+            || r.media_path.to_ascii_lowercase().contains(q)
+        {
+            return true;
+        }
+        if r.status != "pending" {
+            if !self.feedback_reply_cache.contains_key(&r.id) {
+                if let Ok(s) =
+                    std::fs::read_to_string(feedback_responses_dir().join(format!("{}.json", r.id)))
+                {
+                    if let Ok(resp) = serde_json::from_str::<FeedbackResponse>(&s) {
+                        self.feedback_reply_cache
+                            .insert(r.id.clone(), format_feedback_answer(&r.id, &resp));
+                    }
+                }
+            }
+            if let Some(reply) = self.feedback_reply_cache.get(&r.id) {
+                return reply.to_ascii_lowercase().contains(q);
+            }
+        }
+        false
     }
 
     fn dismiss_feedback_request(&mut self, request_id: &str) {
@@ -4844,6 +4922,10 @@ impl VibecapApp {
 impl eframe::App for VibecapApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         app::thumbs::cleanup_frames_temp(&self.save_dir);
+        // E189 — quitting on the Inbox also advances the seen watermark.
+        if self.current_tab == AppTab::Feedback {
+            self.inbox_seen_stamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        }
         self.persist_session();
         app::instance::release_gui_lock();
     }
@@ -4870,6 +4952,12 @@ impl eframe::App for VibecapApp {
         // Feed the back stack on any tab change (rail, palette, tray,
         // auto-advance). Direct nav sets prev_tab itself so it isn't re-pushed.
         if self.current_tab != self.prev_tab {
+            // E189 — leaving the Inbox advances the "new since last visit"
+            // watermark so arrivals seen this visit don't stay new forever.
+            if self.prev_tab == AppTab::Feedback {
+                self.inbox_seen_stamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                self.persist_session();
+            }
             self.tab_back.push(self.prev_tab);
             if self.tab_back.len() > 32 {
                 self.tab_back.remove(0);

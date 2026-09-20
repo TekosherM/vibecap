@@ -78,6 +78,10 @@ pub struct SessionState {
     /// Favorited library file *names* (not paths — survives a moved media dir).
     #[serde(default)]
     pub library_favorites: Vec<String>,
+    /// E189 — "new since last visit" watermark for the Inbox (same
+    /// `%Y-%m-%d %H:%M:%S` format as `FeedbackRequest::created_at`).
+    #[serde(default)]
+    pub inbox_seen_at: String,
 }
 
 fn default_theme_dark() -> String {
@@ -147,6 +151,7 @@ impl Default for SessionState {
             filmstrip_low_res: false,
             region_dim: default_region_dim(),
             library_favorites: Vec::new(),
+            inbox_seen_at: String::new(),
         }
     }
 }
