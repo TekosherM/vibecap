@@ -486,9 +486,9 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 126. **Preview audio** — extract audio track alongside filmstrip; play in sync.
 127. **Determinate extract progress** — "frame i/n" bar instead of indeterminate label.
-128. **Scrub-bar seek** — click/drag the ruler moves the preview head.
-129. **Frame-step keys** — ←/→ one frame, J/K 10 frames.
-130. **In/out loop** — preview loops the marked range.
+128. **Scrub-bar seek** — click/drag the ruler moves the preview head. ✓ (transport slider + click canvas; Space/Home/End added)
+129. **Frame-step keys** — ←/→ one frame, J/K 10 frames. ✓ (←/→ existed; J/K ±10 + I/O trim-at-playhead added)
+130. **In/out loop** — preview loops the marked range. ✓ (was already shipped — `L` toggles)
 131. **Trim-verify export** — assert ffmpeg `-ss/-to` equals the ruler seconds.
 132. **Stream-copy trim** — `-c copy` when codec allows; instant cut.
 133. **Export preset chips** — Discord 8 MB / README 480p / lossless.
@@ -499,7 +499,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 138. **WebM/AV1 export** — codec picker on the export row.
 139. **Extract audio** — one-click `.m4a` from clip.
 140. **Frame-grab** — current preview frame → new still in Library.
-141. **Chapter markers** — marker hotkey during record; ticks on the ruler.
+141. **Chapter markers** — marker hotkey during record; ticks on the ruler. ✓ (was already shipped — sidecar + ruler ticks)
 142. **Marker list** — click a marker to jump the preview.
 143. **Auto-trim dead air** — detect frozen head/tail, offer trim.
 144. **Speed ramp** — 0.5×/2× segments (stretch goal, simple `-setpts`).
@@ -540,10 +540,10 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 ## H · Inbox & HITL (176–200)
 
-176. **j/k thread nav** — keyboard-first list traversal.
-177. **a = first chip** — one-key approve for choice requests.
-178. **Esc returns to list** — consistent back-depth.
-179. **Snooze + pin** — thread-level controls with restore.
+176. **j/k thread nav** — keyboard-first list traversal. ✓ (was already shipped)
+177. **a = first chip** — one-key approve for choice requests. ✓
+178. **Esc returns to list** — consistent back-depth. ✓ (clears selection; auto-reselect suppressed)
+179. **Snooze + pin** — thread-level controls with restore. ✓ (pin existed; snooze now a 15m/1h/4h menu)
 180. **Tray quick-reply** — approve/deny from tray without showing window.
 181. **Poll age readout** — "agent polled 12 s ago" per thread.
 182. **Answered-history search** — find past Q&A + attached media.
@@ -564,7 +564,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 197. **Request cost** — budget spent by this thread's session so far.
 198. **One-click resolve** — mark done without a reply.
 199. **Inbox filter chips** — pending / answered / snoozed / expired.
-200. **Keyboard composer send** — Ctrl+Enter sends; documented hint in-field.
+200. **Keyboard composer send** — Ctrl+Enter sends; documented hint in-field. ✓
 
 ## I · Tray, hotkeys & OS integration (201–225)
 

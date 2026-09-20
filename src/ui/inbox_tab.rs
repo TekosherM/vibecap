@@ -34,6 +34,27 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             0
         }
     });
+    // Esc returns from a thread detail to the list; `a` picks the first
+    // choice chip so a reply can be driven entirely from the keyboard.
+    if !typing && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.feedback_selected = None;
+        // Mark as an explicit user choice so auto-select doesn't immediately
+        // re-pick the first pending thread underneath the deselect.
+        app.feedback_user_picked = true;
+        app.feedback_new_arrived = false;
+    }
+    if !typing && ctx.input(|i| i.key_pressed(egui::Key::A)) {
+        if let Some(id) = &app.feedback_selected {
+            if let Some(req) = app.feedback_requests.iter().find(|r| &r.id == id) {
+                if let Some(opt) = req.options.first().cloned() {
+                    app.feedback_choice = opt.clone();
+                    if app.feedback_draft.trim().is_empty() {
+                        app.feedback_draft = opt;
+                    }
+                }
+            }
+        }
+    }
     if jump != 0 && !app.feedback_requests.is_empty() {
         let ids: Vec<String> = app.feedback_requests.iter().map(|r| r.id.clone()).collect();
         let cur = app
@@ -72,6 +93,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         .small()
         .color(theme::TEXT_MUTED()),
     );
+    ui.label(
+        RichText::new("j/k move · a picks first choice · Esc deselects · Ctrl+Enter sends")
+            .size(10.0)
+            .color(theme::TEXT_DIM()),
+    );
     ui.horizontal(|ui| {
         ui.label(RichText::new("Search").small().color(theme::TEXT_DIM()));
         ui.add(
@@ -108,7 +134,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 .map(|t| *t <= now)
                 .unwrap_or(true)
         })
-        .filter(|r| q.is_empty() || r.question.to_ascii_lowercase().contains(&q) || r.id.to_ascii_lowercase().contains(&q))
+        .filter(|r| {
+            q.is_empty()
+                || r.question.to_ascii_lowercase().contains(&q)
+                || r.id.to_ascii_lowercase().contains(&q)
+        })
         .cloned()
         .collect();
     let mut pending = pending;
@@ -292,16 +322,11 @@ fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pe
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
                 ui.painter().circle_filled(r.center(), 5.0, dot);
-                ui.label(
-                    RichText::new(agent)
-                        .strong()
-                        .size(12.0)
-                        .color(if pending {
-                            theme::TEXT()
-                        } else {
-                            theme::TEXT_MUTED()
-                        }),
-                );
+                ui.label(RichText::new(agent).strong().size(12.0).color(if pending {
+                    theme::TEXT()
+                } else {
+                    theme::TEXT_MUTED()
+                }));
                 if pending {
                     Frame::none()
                         .fill(match pri {
@@ -333,15 +358,11 @@ fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pe
             } else {
                 req.question.clone()
             };
-            ui.label(
-                RichText::new(q)
-                    .size(12.0)
-                    .color(if pending {
-                        theme::TEXT()
-                    } else {
-                        theme::TEXT_MUTED()
-                    }),
-            );
+            ui.label(RichText::new(q).size(12.0).color(if pending {
+                theme::TEXT()
+            } else {
+                theme::TEXT_MUTED()
+            }));
             ui.label(
                 RichText::new(&req.created_at)
                     .size(10.0)
@@ -465,12 +486,22 @@ fn show_conversation_detail(
                             app.feedback_pinned.insert(id.clone());
                         }
                     }
-                    if ui.small_button("Snooze 15m").clicked() {
-                        app.feedback_snooze_until.insert(
-                            id,
-                            std::time::Instant::now() + std::time::Duration::from_secs(15 * 60),
-                        );
-                    }
+                    egui::menu::menu_button(ui, "Snooze ▾", |ui| {
+                        for (label, secs) in [
+                            ("15 minutes", 15 * 60),
+                            ("1 hour", 3600),
+                            ("4 hours", 4 * 3600),
+                        ] {
+                            if ui.button(label).clicked() {
+                                app.feedback_snooze_until.insert(
+                                    id.clone(),
+                                    std::time::Instant::now()
+                                        + std::time::Duration::from_secs(secs),
+                                );
+                                ui.close_menu();
+                            }
+                        }
+                    });
                 });
             });
             ui.add_space(theme::SP_2);
@@ -508,9 +539,7 @@ fn show_conversation_detail(
                             .map(|f| f.to_string_lossy().to_string())
                             .unwrap_or_else(|| req.media_path.clone());
                         ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(fname).size(11.0).color(theme::TEXT_MUTED()),
-                            );
+                            ui.label(RichText::new(fname).size(11.0).color(theme::TEXT_MUTED()));
                             if ui.small_button("Open").clicked() {
                                 let _ = open_path(std::path::Path::new(&req.media_path));
                             }
@@ -584,9 +613,14 @@ fn show_conversation_detail(
             }
             ui.add(
                 egui::TextEdit::multiline(&mut app.feedback_draft)
-                    .hint_text("Reply to the agent… (`code`, https://link)")
+                    .hint_text("Reply to the agent… (`code`, https://link) — Ctrl+Enter sends")
                     .desired_width(f32::INFINITY),
             );
+            if ctx.input(|i| {
+                (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::Enter)
+            }) {
+                app.submit_feedback_response(&req.id);
+            }
             ui.label(
                 RichText::new("Markdown-lite: backticks and one URL are passed through as-is.")
                     .small()

@@ -5,9 +5,9 @@ use egui::{Frame, Margin, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use rfd::FileDialog;
 
 use crate::platform::{format_timecode, open_path, parse_timecode, reveal_in_file_manager};
+use crate::ui::empty_state;
 use crate::ui::icons::{self, Icon};
 use crate::ui::theme;
-use crate::ui::empty_state;
 use crate::ui::{btn_primary, btn_secondary, btn_small, group, segmented};
 use crate::VibecapApp;
 use chrono::Local;
@@ -94,22 +94,60 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         }
     }
     if !ctx.wants_keyboard_input() {
-    ctx.input(|i| {
-        if i.key_pressed(egui::Key::ArrowLeft) {
-            app.player_pos = (app.player_pos - 1.0 / app.filmstrip_fps.max(1.0)).max(0.0);
-            app.player_playing = false;
-        }
-        if i.key_pressed(egui::Key::ArrowRight) {
-            app.player_pos = (app.player_pos + 1.0 / app.filmstrip_fps.max(1.0)).min(duration);
-            app.player_playing = false;
-        }
-        if i.key_pressed(egui::Key::L) {
-            app.clip_loop = !app.clip_loop;
-        }
-    });
+        ctx.input(|i| {
+            let frame = 1.0 / app.filmstrip_fps.max(1.0);
+            if i.key_pressed(egui::Key::ArrowLeft) {
+                app.player_pos = (app.player_pos - frame).max(0.0);
+                app.player_playing = false;
+            }
+            if i.key_pressed(egui::Key::ArrowRight) {
+                app.player_pos = (app.player_pos + frame).min(duration);
+                app.player_playing = false;
+            }
+            if i.key_pressed(egui::Key::J) {
+                app.player_pos = (app.player_pos - 10.0 * frame).max(0.0);
+                app.player_playing = false;
+            }
+            if i.key_pressed(egui::Key::K) {
+                app.player_pos = (app.player_pos + 10.0 * frame).min(duration);
+                app.player_playing = false;
+            }
+            if i.key_pressed(egui::Key::Home) {
+                app.player_pos = 0.0;
+                app.player_playing = false;
+            }
+            if i.key_pressed(egui::Key::End) {
+                app.player_pos = duration;
+                app.player_playing = false;
+            }
+            if i.key_pressed(egui::Key::Space) {
+                if app.player_playing {
+                    app.player_playing = false;
+                } else if n > 0 {
+                    if app.player_pos >= duration {
+                        app.player_pos = 0.0;
+                    }
+                    app.player_playing = true;
+                }
+            }
+            if i.key_pressed(egui::Key::L) {
+                app.clip_loop = !app.clip_loop;
+            }
+            // NLE-style trim: I/O drop the in/out points at the playhead.
+            if i.key_pressed(egui::Key::I) {
+                let out = parse_timecode(&app.trim_end).unwrap_or(duration);
+                app.trim_start = format_timecode(app.player_pos.min((out - 0.5).max(0.0)));
+            }
+            if i.key_pressed(egui::Key::O) {
+                let start = parse_timecode(&app.trim_start).unwrap_or(0.0);
+                app.trim_end = format_timecode(app.player_pos.max(start + 0.5).min(duration));
+            }
+        });
     }
     let in_s = parse_timecode(&app.trim_start).unwrap_or(0.0);
-    let out_s = parse_timecode(&app.trim_end).unwrap_or(duration).min(duration);
+    let out_s = parse_timecode(&app.trim_end)
+        .unwrap_or(duration)
+        .min(duration);
     if app.clip_loop && app.player_playing {
         if app.player_pos < in_s {
             app.player_pos = in_s;
@@ -132,7 +170,9 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
             theme::PRIMARY(),
         );
     }
-    resp.on_hover_text("Click to play / pause (preview flipbook, no audio)");
+    resp.on_hover_text(
+        "Click or Space = play/pause · ←/→ frame · J/K ×10 · I/O trim · L loop (preview flipbook, no audio)",
+    );
     ui.label(
         RichText::new("Preview (no audio) — Open for full-fidelity playback")
             .small()
@@ -148,7 +188,11 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         icons::paint_icon(
             ui,
             Rect::from_center_size(r.center(), Vec2::splat(16.0)),
-            if app.player_playing { Icon::Pause } else { Icon::Play },
+            if app.player_playing {
+                Icon::Pause
+            } else {
+                Icon::Play
+            },
             theme::PRIMARY_INK(),
         );
         if pr.clicked() {
@@ -224,14 +268,20 @@ fn timeline(
 
     if xs > rect.left() {
         painter.rect_filled(
-            Rect::from_min_max(Pos2::new(rect.left(), rect.top()), Pos2::new(xs, rect.bottom())),
+            Rect::from_min_max(
+                Pos2::new(rect.left(), rect.top()),
+                Pos2::new(xs, rect.bottom()),
+            ),
             egui::Rounding::ZERO,
             theme::OVERLAY_DIM(),
         );
     }
     if xe < rect.right() {
         painter.rect_filled(
-            Rect::from_min_max(Pos2::new(xe, rect.top()), Pos2::new(rect.right(), rect.bottom())),
+            Rect::from_min_max(
+                Pos2::new(xe, rect.top()),
+                Pos2::new(rect.right(), rect.bottom()),
+            ),
             egui::Rounding::ZERO,
             theme::OVERLAY_DIM(),
         );
@@ -320,7 +370,12 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
         segmented(
             ui,
             &mut speed,
-            &[("0.5", "0.5×"), ("1.0", "1×"), ("1.5", "1.5×"), ("2.0", "2×")],
+            &[
+                ("0.5", "0.5×"),
+                ("1.0", "1×"),
+                ("1.5", "1.5×"),
+                ("2.0", "2×"),
+            ],
         );
         app.export_speed = speed.to_string();
     });
@@ -341,126 +396,126 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
     ui.add(egui::Slider::new(&mut app.gif_width, 320..=1280).show_value(true));
     ui.add_space(theme::SP_2);
     group(ui, "PRESETS", |ui| {
-            let file_clone = file.to_path_buf();
-            if btn_small(ui, "Discord 8 MB") {
-                let out = file_clone.with_file_name(format!(
-                    "discord_{}",
-                    file_clone.file_name().unwrap().to_str().unwrap()
-                ));
-                app.spawn_ffmpeg_job(
-                    vec![
-                        "-y".into(),
-                        "-i".into(),
-                        file_clone.to_str().unwrap().into(),
-                        "-fs".into(),
-                        "8000000".into(),
-                        "-c:v".into(),
-                        "libx264".into(),
-                        "-crf".into(),
-                        "28".into(),
-                        "-preset".into(),
-                        "fast".into(),
-                        "-vf".into(),
-                        "scale=1280:-2".into(),
-                        "-c:a".into(),
-                        "aac".into(),
-                        "-b:a".into(),
-                        "96k".into(),
-                        out.to_str().unwrap().into(),
-                    ],
-                    "Discord 8 MB export",
-                );
-            }
-            if btn_small(ui, "README 480p 3s") {
-                let out = file_clone.with_file_name("readme_480p.gif");
-                app.spawn_ffmpeg_job(
-                    vec![
-                        "-y".into(),
-                        "-t".into(),
-                        "3".into(),
-                        "-i".into(),
-                        file_clone.to_str().unwrap().into(),
-                        "-vf".into(),
-                        "fps=12,scale=854:-1:flags=lanczos".into(),
-                        out.to_str().unwrap().into(),
-                    ],
-                    "README 480p 3s GIF",
-                );
-            }
-            if btn_small(ui, "Full lossless") {
-                let out = file_clone.with_file_name(format!(
-                    "lossless_{}",
-                    file_clone.file_name().unwrap().to_str().unwrap()
-                ));
-                app.spawn_ffmpeg_job(
-                    vec![
-                        "-y".into(),
-                        "-i".into(),
-                        file_clone.to_str().unwrap().into(),
-                        "-c:v".into(),
-                        "libx264".into(),
-                        "-crf".into(),
-                        "0".into(),
-                        "-c:a".into(),
-                        "copy".into(),
-                        out.to_str().unwrap().into(),
-                    ],
-                    "Lossless copy",
-                );
-            }
-        });
-        ui.add_space(theme::SP_3);
-        ui.horizontal_wrapped(|ui| {
-            let file_clone = file.to_path_buf();
-            if btn_primary(ui, "Trim video") {
-                let out = file_clone.with_file_name(format!(
-                    "trimmed_{}",
-                    file_clone.file_name().unwrap().to_str().unwrap()
-                ));
-                app.spawn_ffmpeg_job(
-                    vec![
-                        "-y".into(),
-                        "-i".into(),
-                        file_clone.to_str().unwrap().into(),
-                        "-ss".into(),
-                        app.trim_start.clone(),
-                        "-to".into(),
-                        app.trim_end.clone(),
-                        "-c".into(),
-                        "copy".into(),
-                        out.to_str().unwrap().into(),
-                    ],
-                    "Video trimmed",
-                );
-            }
-            if btn_secondary(ui, "Export GIF") {
-                let timestamp = Local::now().format("%H-%M-%S").to_string();
-                let gif_out = file_clone.with_file_name(format!(
-                    "clip_{}_{}.gif",
-                    app.trim_start.replace(':', "-"),
-                    timestamp
-                ));
-                app.spawn_ffmpeg_job(
-                    vec![
-                        "-ss".into(),
-                        app.trim_start.clone(),
-                        "-to".into(),
-                        app.trim_end.clone(),
-                        "-i".into(),
-                        file_clone.to_str().unwrap().into(),
-                        "-vf".into(),
-                        format!(
-                            "fps={},scale={}:-1:flags=lanczos",
-                            app.gif_fps.clamp(4, 30),
-                            app.gif_width.clamp(160, 1920)
-                        ),
-                        "-y".into(),
-                        gif_out.to_str().unwrap().into(),
-                    ],
-                    "GIF exported",
-                );
-            }
-        });
+        let file_clone = file.to_path_buf();
+        if btn_small(ui, "Discord 8 MB") {
+            let out = file_clone.with_file_name(format!(
+                "discord_{}",
+                file_clone.file_name().unwrap().to_str().unwrap()
+            ));
+            app.spawn_ffmpeg_job(
+                vec![
+                    "-y".into(),
+                    "-i".into(),
+                    file_clone.to_str().unwrap().into(),
+                    "-fs".into(),
+                    "8000000".into(),
+                    "-c:v".into(),
+                    "libx264".into(),
+                    "-crf".into(),
+                    "28".into(),
+                    "-preset".into(),
+                    "fast".into(),
+                    "-vf".into(),
+                    "scale=1280:-2".into(),
+                    "-c:a".into(),
+                    "aac".into(),
+                    "-b:a".into(),
+                    "96k".into(),
+                    out.to_str().unwrap().into(),
+                ],
+                "Discord 8 MB export",
+            );
+        }
+        if btn_small(ui, "README 480p 3s") {
+            let out = file_clone.with_file_name("readme_480p.gif");
+            app.spawn_ffmpeg_job(
+                vec![
+                    "-y".into(),
+                    "-t".into(),
+                    "3".into(),
+                    "-i".into(),
+                    file_clone.to_str().unwrap().into(),
+                    "-vf".into(),
+                    "fps=12,scale=854:-1:flags=lanczos".into(),
+                    out.to_str().unwrap().into(),
+                ],
+                "README 480p 3s GIF",
+            );
+        }
+        if btn_small(ui, "Full lossless") {
+            let out = file_clone.with_file_name(format!(
+                "lossless_{}",
+                file_clone.file_name().unwrap().to_str().unwrap()
+            ));
+            app.spawn_ffmpeg_job(
+                vec![
+                    "-y".into(),
+                    "-i".into(),
+                    file_clone.to_str().unwrap().into(),
+                    "-c:v".into(),
+                    "libx264".into(),
+                    "-crf".into(),
+                    "0".into(),
+                    "-c:a".into(),
+                    "copy".into(),
+                    out.to_str().unwrap().into(),
+                ],
+                "Lossless copy",
+            );
+        }
+    });
+    ui.add_space(theme::SP_3);
+    ui.horizontal_wrapped(|ui| {
+        let file_clone = file.to_path_buf();
+        if btn_primary(ui, "Trim video") {
+            let out = file_clone.with_file_name(format!(
+                "trimmed_{}",
+                file_clone.file_name().unwrap().to_str().unwrap()
+            ));
+            app.spawn_ffmpeg_job(
+                vec![
+                    "-y".into(),
+                    "-i".into(),
+                    file_clone.to_str().unwrap().into(),
+                    "-ss".into(),
+                    app.trim_start.clone(),
+                    "-to".into(),
+                    app.trim_end.clone(),
+                    "-c".into(),
+                    "copy".into(),
+                    out.to_str().unwrap().into(),
+                ],
+                "Video trimmed",
+            );
+        }
+        if btn_secondary(ui, "Export GIF") {
+            let timestamp = Local::now().format("%H-%M-%S").to_string();
+            let gif_out = file_clone.with_file_name(format!(
+                "clip_{}_{}.gif",
+                app.trim_start.replace(':', "-"),
+                timestamp
+            ));
+            app.spawn_ffmpeg_job(
+                vec![
+                    "-ss".into(),
+                    app.trim_start.clone(),
+                    "-to".into(),
+                    app.trim_end.clone(),
+                    "-i".into(),
+                    file_clone.to_str().unwrap().into(),
+                    "-vf".into(),
+                    format!(
+                        "fps={},scale={}:-1:flags=lanczos",
+                        app.gif_fps.clamp(4, 30),
+                        app.gif_width.clamp(160, 1920)
+                    ),
+                    "-y".into(),
+                    gif_out.to_str().unwrap().into(),
+                ],
+                "GIF exported",
+            );
+        }
+    });
 }
 
 // ── Tools inspector groups ─────────────────────────────────────────
@@ -605,10 +660,8 @@ fn tools_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path)
                 );
             }
             if btn_small(ui, "Frame @ playhead") {
-                let out = file_clone.with_file_name(format!(
-                    "frame_{}.jpg",
-                    app.trim_start.replace(':', "-")
-                ));
+                let out = file_clone
+                    .with_file_name(format!("frame_{}.jpg", app.trim_start.replace(':', "-")));
                 app.spawn_ffmpeg_job(
                     vec![
                         "-ss".into(),
@@ -766,70 +819,70 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     let body_h = ui.available_height().max(360.0);
 
     ui.horizontal_top(|ui| {
-    ui.allocate_ui_with_layout(
-        Vec2::new(player_w, body_h),
-        egui::Layout::top_down(egui::Align::Min),
-        |ui| {
-
-    // ── Player card (big screen + transport) ─────────────────────
-    card(ui, "", |ui| {
-        player(app, ui, ctx, duration);
-        ui.add_space(theme::SP_3);
-        let start_s = parse_timecode(&app.trim_start).unwrap_or(0.0).clamp(0.0, duration);
-        let end_s = parse_timecode(&app.trim_end)
-            .unwrap_or(duration.min(5.0))
-            .clamp(0.0, duration);
-        let markers = app.record_markers.clone();
-        let (ns, ne) = timeline(ui, &app.filmstrip, duration, start_s, end_s, &markers);
-        if (ns - start_s).abs() > 0.4 {
-            app.trim_start = format_timecode(ns);
-        }
-        if (ne - end_s).abs() > 0.4 {
-            app.trim_end = format_timecode(ne);
-        }
-        ui.add_space(theme::SP_1);
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(format!(
-                    "In {} · Out {} · span {}",
-                    format_timecode(ns),
-                    format_timecode(ne),
-                    format_timecode(ne - ns)
-                ))
-                .size(11.0)
-                .color(theme::TEXT_DIM()),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    RichText::new("drag split lines to trim · preview is silent")
-                        .size(10.0)
-                        .color(theme::TEXT_DIM()),
-                );
-            });
-        });
-    });
-
-        },
-    ); // left column
-
-    ui.add_space(theme::SP_3);
-    // ── Inspector (right rail — trim, export, tools) ─────────────────
-    ui.allocate_ui_with_layout(
-        Vec2::new(INSPECTOR_W, body_h),
-        egui::Layout::top_down(egui::Align::Min),
-        |ui| {
-            egui::ScrollArea::vertical()
-                .id_source("clip_inspector")
-                .auto_shrink([false; 2])
-                .show(ui, |ui| {
-                    ui.set_max_width(INSPECTOR_W - 8.0);
-                    export_groups(ui, app, &file);
-                    ui.add_space(theme::SP_2);
-                    ui.separator();
-                    ui.add_space(theme::SP_2);
-                    tools_groups(ui, app, &file);
+        ui.allocate_ui_with_layout(
+            Vec2::new(player_w, body_h),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                // ── Player card (big screen + transport) ─────────────────────
+                card(ui, "", |ui| {
+                    player(app, ui, ctx, duration);
+                    ui.add_space(theme::SP_3);
+                    let start_s = parse_timecode(&app.trim_start)
+                        .unwrap_or(0.0)
+                        .clamp(0.0, duration);
+                    let end_s = parse_timecode(&app.trim_end)
+                        .unwrap_or(duration.min(5.0))
+                        .clamp(0.0, duration);
+                    let markers = app.record_markers.clone();
+                    let (ns, ne) = timeline(ui, &app.filmstrip, duration, start_s, end_s, &markers);
+                    if (ns - start_s).abs() > 0.4 {
+                        app.trim_start = format_timecode(ns);
+                    }
+                    if (ne - end_s).abs() > 0.4 {
+                        app.trim_end = format_timecode(ne);
+                    }
+                    ui.add_space(theme::SP_1);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "In {} · Out {} · span {}",
+                                format_timecode(ns),
+                                format_timecode(ne),
+                                format_timecode(ne - ns)
+                            ))
+                            .size(11.0)
+                            .color(theme::TEXT_DIM()),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                RichText::new("drag split lines to trim · preview is silent")
+                                    .size(10.0)
+                                    .color(theme::TEXT_DIM()),
+                            );
+                        });
+                    });
                 });
-        },
-    );
+            },
+        ); // left column
+
+        ui.add_space(theme::SP_3);
+        // ── Inspector (right rail — trim, export, tools) ─────────────────
+        ui.allocate_ui_with_layout(
+            Vec2::new(INSPECTOR_W, body_h),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                egui::ScrollArea::vertical()
+                    .id_source("clip_inspector")
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.set_max_width(INSPECTOR_W - 8.0);
+                        export_groups(ui, app, &file);
+                        ui.add_space(theme::SP_2);
+                        ui.separator();
+                        ui.add_space(theme::SP_2);
+                        tools_groups(ui, app, &file);
+                    });
+            },
+        );
     }); // horizontal split
 }
