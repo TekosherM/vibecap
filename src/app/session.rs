@@ -68,6 +68,9 @@ pub struct SessionState {
     /// Auto-play the clip preview when filmstrip frames land.
     #[serde(default = "default_clip_autoplay")]
     pub clip_autoplay: bool,
+    /// Half-width (240px) filmstrip preview — faster extraction, less GPU memory.
+    #[serde(default)]
+    pub filmstrip_low_res: bool,
 }
 
 fn default_theme_dark() -> String {
@@ -130,6 +133,7 @@ impl Default for SessionState {
             rail_open: false,
             inbox_quiet: false,
             clip_autoplay: true,
+            filmstrip_low_res: false,
         }
     }
 }

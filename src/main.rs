@@ -547,6 +547,8 @@ pub(crate) struct VibecapApp {
     player_last_time: Option<f64>,
     /// Auto-play the preview when filmstrip frames land (Settings toggle).
     clip_autoplay: bool,
+    /// Half-width filmstrip — faster extraction, softer preview.
+    filmstrip_low_res: bool,
     /// Filmstrip decode progress `(done, total)` for the determinate label.
     filmstrip_progress: (usize, usize),
     filmstrip_progress_rx: Option<Receiver<(usize, usize)>>,
@@ -643,6 +645,8 @@ pub(crate) struct VibecapApp {
     feedback_pinned: std::collections::HashSet<String>,
     feedback_snooze_until: std::collections::HashMap<String, Instant>,
     inbox_search: String,
+    /// Which thread buckets the Inbox list shows (#199).
+    inbox_filter: crate::ui::inbox_tab::InboxFilter,
     budget_warned: bool,
     update_status: String,
     hotkey_shot_digit: u8,
@@ -1099,6 +1103,7 @@ impl VibecapApp {
         self.rail_open = s.rail_open;
         self.inbox_quiet = s.inbox_quiet;
         self.clip_autoplay = s.clip_autoplay;
+        self.filmstrip_low_res = s.filmstrip_low_res;
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
         // never unconditionally, so granted users are not re-asked on cold start.
@@ -1153,6 +1158,7 @@ impl VibecapApp {
             rail_open: self.rail_open,
             inbox_quiet: self.inbox_quiet,
             clip_autoplay: self.clip_autoplay,
+            filmstrip_low_res: self.filmstrip_low_res,
         });
     }
 
@@ -2603,6 +2609,17 @@ impl VibecapApp {
     /// Runs ffmpeg on a background thread and reports the REAL outcome via channel —
     /// success toasts only fire after a verified exit status (no fabricated success).
     fn spawn_ffmpeg_job(&mut self, args: Vec<String>, ok_msg: &str) {
+        self.spawn_ffmpeg_job_ex(args, ok_msg, None);
+    }
+
+    /// ffmpeg job with an optional post-run verifier — returns a warning
+    /// string appended to the success toast (e.g. trim duration drift).
+    fn spawn_ffmpeg_job_ex(
+        &mut self,
+        args: Vec<String>,
+        ok_msg: &str,
+        verify: Option<Box<dyn FnOnce() -> Option<String> + Send>>,
+    ) {
         let Some(tx) = self.ffmpeg_tx.clone() else {
             return;
         };
@@ -2618,7 +2635,14 @@ impl VibecapApp {
                         .stderr(std::process::Stdio::piped())
                         .output();
                     match result {
-                        Ok(out) if out.status.success() => (true, ok_msg),
+                        Ok(out) if out.status.success() => {
+                            let extra = verify.and_then(|v| v());
+                            let msg = match extra {
+                                Some(w) => format!("{ok_msg} — ⚠ {w}"),
+                                None => ok_msg,
+                            };
+                            (true, msg)
+                        }
                         Ok(out) => {
                             let err = String::from_utf8_lossy(&out.stderr);
                             let tail = err
@@ -2948,6 +2972,7 @@ impl VibecapApp {
         self.filmstrip_rx = Some(rx);
         self.filmstrip_progress_rx = Some(prx);
         let ctx_clone = ctx.clone();
+        let low_res = self.filmstrip_low_res;
         std::thread::spawn(move || {
             // Let ffmpeg finish the moov atom before probing / extracting.
             std::thread::sleep(Duration::from_millis(200));
@@ -2956,6 +2981,7 @@ impl VibecapApp {
                 Some(&|i, n| {
                     let _ = ptx.send((i, n));
                 }),
+                low_res,
             );
             let _ = tx.send(result);
             ctx_clone.request_repaint();

@@ -510,7 +510,13 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
                 "trimmed_{}",
                 file_clone.file_name().unwrap().to_str().unwrap()
             ));
-            app.spawn_ffmpeg_job(
+            // Verify the cut actually produced the ruler span — `-c copy`
+            // snaps to keyframes, so the output can drift by seconds.
+            let expected = (parse_timecode(&app.trim_end).unwrap_or(0.0)
+                - parse_timecode(&app.trim_start).unwrap_or(0.0))
+            .max(0.0);
+            let out_probe = out.clone();
+            app.spawn_ffmpeg_job_ex(
                 vec![
                     "-y".into(),
                     "-i".into(),
@@ -524,6 +530,18 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
                     out.to_str().unwrap().into(),
                 ],
                 "Video trimmed",
+                Some(Box::new(move || {
+                    let got = crate::platform::probe_duration(&out_probe)?;
+                    let drift = (got - expected).abs();
+                    if drift > 1.5 {
+                        Some(format!(
+                            "output is {:.1}s, expected {:.1}s (keyframe snap — re-encode for exact cut)",
+                            got, expected
+                        ))
+                    } else {
+                        None
+                    }
+                })),
             );
         }
         if btn_secondary(ui, "Export GIF") {

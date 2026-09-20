@@ -41,7 +41,11 @@ pub fn kill_recorder(mut child: Child, was_paused: bool) {
 ///
 /// The fps is chosen so ~`TARGET` frames span the full duration, which lets the
 /// in-app player flipbook at a known rate and the timeline align to real time.
-pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>, f64), String> {
+/// `max_w` = filmstrip frame width (480 full, 240 for the low-res mode).
+fn extract_filmstrip_thumbs_scaled(
+    file: &Path,
+    max_w: u32,
+) -> Result<(PathBuf, Vec<PathBuf>, f64), String> {
     if !file.exists() {
         return Err(format!("Video file missing: {}", file.display()));
     }
@@ -83,7 +87,7 @@ pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>, f
         "-i",
         file_s,
         "-vf",
-        &format!("fps={fps},scale=480:-2:flags=fast_bilinear"),
+        &format!("fps={fps},scale={max_w}:-2:flags=fast_bilinear"),
         "-vframes",
         &vframes.to_string(),
         &out_s,
@@ -111,26 +115,67 @@ pub fn extract_filmstrip_thumbs(file: &Path) -> Result<(PathBuf, Vec<PathBuf>, f
 /// UI can show a determinate "i/n" label instead of a spinner.
 pub fn extract_filmstrip_rgba(
     file: &Path,
-    progress: Option<&dyn Fn(usize, usize)>,
+    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
+    low_res: bool,
 ) -> Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String> {
     let duration = crate::platform::probe_duration(file).unwrap_or(0.0);
-    let (_out_dir, thumbs, fps) = extract_filmstrip_thumbs(file)?;
+    let (_out_dir, thumbs, fps) =
+        extract_filmstrip_thumbs_scaled(file, if low_res { 240 } else { 480 })?;
     let total = thumbs.len();
-    let mut frames = Vec::with_capacity(total);
-    for (i, thumb_path) in thumbs.iter().enumerate() {
-        match image::open(thumb_path) {
-            Ok(img) => {
-                let rgba = img.to_rgba8();
-                let (w, h) = rgba.dimensions();
-                if w > 0 && h > 0 {
-                    frames.push((w, h, rgba.into_raw()));
+
+    // Decode JPEGs in parallel — up to 96 image opens + RGBA converts is the
+    // slow part of preview load; scoped threads keep it on the worker anyway.
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get().min(8))
+        .unwrap_or(4)
+        .min(total.max(1));
+    let decoded = std::sync::atomic::AtomicUsize::new(0);
+    let mut slots: Vec<Option<(u32, u32, Vec<u8>)>> = Vec::with_capacity(total);
+    slots.resize_with(total, || None);
+    let mut chunks: Vec<Vec<Option<(u32, u32, Vec<u8>)>>> =
+        (0..workers).map(|_| Vec::new()).collect();
+    for (i, slot) in slots.into_iter().enumerate() {
+        chunks[i % workers].push(slot);
+    }
+
+    let decoded_ref = &decoded;
+    std::thread::scope(|s| {
+        for (w, chunk) in chunks.iter_mut().enumerate() {
+            let thumbs_w: Vec<&PathBuf> = thumbs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| i % workers == w)
+                .map(|(_, p)| p)
+                .collect();
+            let progress = &progress;
+            s.spawn(move || {
+                for (slot, path) in chunk.iter_mut().zip(thumbs_w) {
+                    if let Ok(img) = image::open(path) {
+                        let rgba = img.to_rgba8();
+                        let (w, h) = rgba.dimensions();
+                        if w > 0 && h > 0 {
+                            *slot = Some((w, h, rgba.into_raw()));
+                        }
+                    }
+                    let done = decoded_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    if let Some(p) = progress {
+                        p(done, total);
+                    }
                 }
-            }
-            Err(_) => {}
+            });
         }
-        if let Some(p) = progress {
-            p(i + 1, total);
+    });
+
+    let mut frames = Vec::with_capacity(total);
+    // Reassemble in order — chunks are round-robin, slot j of worker w is
+    // thumb index w + j*workers.
+    for idx in 0..total {
+        let slot = chunks[idx % workers][idx / workers].take();
+        if let Some(f) = slot {
+            frames.push(f);
         }
+    }
+    for thumb_path in &thumbs {
         let _ = std::fs::remove_file(thumb_path);
     }
     let _ = std::fs::remove_dir_all(&_out_dir);

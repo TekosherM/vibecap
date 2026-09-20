@@ -489,7 +489,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 128. **Scrub-bar seek** — click/drag the ruler moves the preview head. ✓ (transport slider + click canvas; Space/Home/End added)
 129. **Frame-step keys** — ←/→ one frame, J/K 10 frames. ✓ (←/→ existed; J/K ±10 + I/O trim-at-playhead added)
 130. **In/out loop** — preview loops the marked range. ✓ (was already shipped — `L` toggles)
-131. **Trim-verify export** — assert ffmpeg `-ss/-to` equals the ruler seconds.
+131. **Trim-verify export** — assert ffmpeg `-ss/-to` equals the ruler seconds. ✓ (`spawn_ffmpeg_job_ex` post-job verifier probes output duration vs ruler span; >1.5 s drift warns "keyframe snap — re-encode for exact cut")
 132. **Stream-copy trim** — `-c copy` when codec allows; instant cut. ✓ (was already shipped — Trim video uses `-ss/-to -c copy`)
 133. **Export preset chips** — Discord 8 MB / README 480p / lossless. ✓ (was already shipped — PRESETS group)
 134. **GIF settings dialog** — fps, width, loop mode, size estimate pre-encode. ✓ (was already shipped — sliders + ~KB estimate)
@@ -506,7 +506,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 145. **Clip notes** — text sidecar shown under the player.
 146. **Compare mode** — split-screen before/after trim preview.
 147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error. ✓ (transport bar)
-148. **Preview quality toggle** — half-res filmstrip for long clips.
+148. **Preview quality toggle** — half-res filmstrip for long clips. ✓ (Settings → "Low-res clip preview" → 240px filmstrip via session `filmstrip_low_res`)
 149. **Auto-play setting** — the autoplay we shipped becomes a Settings toggle. ✓ (session-persisted `clip_autoplay`)
 150. **Clip deletion guard** — deleting a recording with unsaved trims asks once.
 
@@ -563,7 +563,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 196. **Agent identity** — which harness/model filed the request, in the header. ✓ (was already shipped — `agent_label` in thread row + detail header)
 197. **Request cost** — budget spent by this thread's session so far.
 198. **One-click resolve** — mark done without a reply. ✓ (was already shipped — "Dismiss" in the composer)
-199. **Inbox filter chips** — pending / answered / snoozed / expired.
+199. **Inbox filter chips** — pending / answered / snoozed / expired. ✓ (All/Pending/Snoozed/Closed chips with counts; Snoozed bucket is now visible — it was hidden entirely before)
 200. **Keyboard composer send** — Ctrl+Enter sends; documented hint in-field. ✓
 
 ## I · Tray, hotkeys & OS integration (201–225)
@@ -598,7 +598,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 226. **Thumb decode off-thread** — `egui_extras` loader already async; verify no decode on UI thread for large files.
 227. **Thumb disk cache** — `.vibecap/thumbs` exists; add LRU cap (e.g. 500 MB) + stale sweep.
-228. **Filmstrip parallel extract** — ffmpeg `-vsync` batch or threaded frame pull.
+228. **Filmstrip parallel extract** — ffmpeg `-vsync` batch or threaded frame pull. ✓ (JPEG decode + RGBA convert spread across up to 8 scoped threads, round-robin slots, ordered reassembly; progress callback still fires per-frame)
 229. **Lazy library page** — only render visible tiles; 1000-file folders shouldn't instantiate 1000 widgets.
 230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old.
 231. **DPI-aware texture cache** — don't re-rasterize icons on scale change storms.

@@ -91,6 +91,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                if switch(ui, "Low-res clip preview", &mut app.filmstrip_low_res) {
+                    app.persist_session();
+                }
+                ui.label(
+                    RichText::new("Half-width filmstrip — extracts ~4× faster, softer preview.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
                 if switch(ui, "Inbox quiet mode", &mut app.inbox_quiet) {
                     app.persist_session();
                 }

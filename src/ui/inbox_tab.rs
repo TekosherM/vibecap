@@ -15,6 +15,17 @@ use crate::VibecapApp;
 
 const LIST_WIDTH: f32 = 280.0;
 
+/// Which bucket the thread list shows. Snoozed requests are their own bucket —
+/// without this they vanished from the UI entirely until the snooze expired.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum InboxFilter {
+    #[default]
+    All,
+    Pending,
+    Snoozed,
+    Closed,
+}
+
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     if !app.feedback_scanned {
         app.scan_feedback_requests();
@@ -139,21 +150,29 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
     let q = app.inbox_search.trim().to_ascii_lowercase();
     let now = std::time::Instant::now();
+    let matches_q = |r: &FeedbackRequest| {
+        q.is_empty()
+            || r.question.to_ascii_lowercase().contains(&q)
+            || r.id.to_ascii_lowercase().contains(&q)
+    };
+    let snoozed_now = |r: &FeedbackRequest| {
+        app.feedback_snooze_until
+            .get(&r.id)
+            .map(|t| *t > now)
+            .unwrap_or(false)
+    };
     let pending: Vec<FeedbackRequest> = app
         .feedback_requests
         .iter()
-        .filter(|r| r.status == "pending")
-        .filter(|r| {
-            app.feedback_snooze_until
-                .get(&r.id)
-                .map(|t| *t <= now)
-                .unwrap_or(true)
-        })
-        .filter(|r| {
-            q.is_empty()
-                || r.question.to_ascii_lowercase().contains(&q)
-                || r.id.to_ascii_lowercase().contains(&q)
-        })
+        .filter(|r| r.status == "pending" && !snoozed_now(r))
+        .filter(|r| matches_q(r))
+        .cloned()
+        .collect();
+    let snoozed: Vec<FeedbackRequest> = app
+        .feedback_requests
+        .iter()
+        .filter(|r| r.status == "pending" && snoozed_now(r))
+        .filter(|r| matches_q(r))
         .cloned()
         .collect();
     let mut pending = pending;
@@ -168,15 +187,37 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         .feedback_requests
         .iter()
         .filter(|r| r.status != "pending")
-        .filter(|r| {
-            q.is_empty()
-                || r.question.to_ascii_lowercase().contains(&q)
-                || r.id.to_ascii_lowercase().contains(&q)
-        })
+        .filter(|r| matches_q(r))
         .cloned()
         .collect();
 
-    if pending.is_empty() && closed.is_empty() {
+    // Filter chips — which buckets the list shows.
+    let show_p = matches!(app.inbox_filter, InboxFilter::All | InboxFilter::Pending);
+    let show_s = matches!(app.inbox_filter, InboxFilter::All | InboxFilter::Snoozed);
+    let show_c = matches!(app.inbox_filter, InboxFilter::All | InboxFilter::Closed);
+    ui.horizontal_wrapped(|ui| {
+        for (filter, label, count) in [
+            (
+                InboxFilter::All,
+                "All",
+                pending.len() + snoozed.len() + closed.len(),
+            ),
+            (InboxFilter::Pending, "Pending", pending.len()),
+            (InboxFilter::Snoozed, "Snoozed", snoozed.len()),
+            (InboxFilter::Closed, "Closed", closed.len()),
+        ] {
+            if crate::ui::components::chip(
+                ui,
+                &format!("{label} {count}"),
+                app.inbox_filter == filter,
+            ) {
+                app.inbox_filter = filter;
+            }
+        }
+    });
+    ui.add_space(theme::SP_2);
+
+    if pending.is_empty() && snoozed.is_empty() && closed.is_empty() {
         empty_state(
             ui,
             Icon::Inbox,
@@ -219,7 +260,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .id_source("inbox_list")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                if !pending.is_empty() {
+                                if show_p && !pending.is_empty() {
                                     ui.label(
                                         RichText::new(format!("Waiting ({})", pending.len()))
                                             .strong()
@@ -233,7 +274,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     }
                                 }
 
-                                if !closed.is_empty() {
+                                if show_s && !snoozed.is_empty() {
+                                    ui.add_space(theme::SP_2);
+                                    ui.label(
+                                        RichText::new(format!("Snoozed ({})", snoozed.len()))
+                                            .strong()
+                                            .size(12.0)
+                                            .color(theme::TEXT_MUTED()),
+                                    );
+                                    ui.add_space(theme::SP_2);
+                                    for req in &snoozed {
+                                        thread_row(app, ui, req, true);
+                                        ui.add_space(4.0);
+                                    }
+                                }
+
+                                if show_c && !closed.is_empty() {
                                     ui.add_space(theme::SP_2);
                                     ui.label(
                                         RichText::new(format!("Closed ({})", closed.len()))
@@ -271,8 +327,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .show(ui, |ui| {
                                 let sel = app.feedback_selected.clone();
                                 if let Some(sel_id) = sel {
-                                    if let Some(req) =
-                                        pending.iter().find(|r| r.id == sel_id).cloned()
+                                    if let Some(req) = pending
+                                        .iter()
+                                        .chain(snoozed.iter())
+                                        .find(|r| r.id == sel_id)
+                                        .cloned()
                                     {
                                         show_conversation_detail(app, ui, ctx, &req);
                                     } else if let Some(req) =
