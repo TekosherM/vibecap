@@ -134,6 +134,27 @@ pub fn bake_annotations(
     *img = image::DynamicImage::ImageRgba8(rgba);
 }
 
+/// Shift-drag snap: arrows lock to 15° angles, rectangles/blur become squares.
+pub fn snap_annotation_point(tool: AnnotationTool, start: Pos2, pos: Pos2) -> Pos2 {
+    let d = pos - start;
+    match tool {
+        AnnotationTool::Arrow => {
+            let len = d.length();
+            if len < 1.0 {
+                return pos;
+            }
+            let step = std::f32::consts::PI / 12.0; // 15°
+            let ang = (d.y.atan2(d.x) / step).round() * step;
+            start + Vec2::angled(ang) * len
+        }
+        AnnotationTool::Rectangle | AnnotationTool::Blur => {
+            let s = d.x.abs().max(d.y.abs());
+            start + Vec2::new(d.x.signum() * s, d.y.signum() * s)
+        }
+        _ => pos,
+    }
+}
+
 /// After deleting a badge, keep remaining numbers contiguous from 1.
 pub fn renumber_step_badges(actions: &mut [AnnotationAction]) -> usize {
     let mut n = 1usize;

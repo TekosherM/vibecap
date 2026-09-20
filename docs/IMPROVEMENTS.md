@@ -447,22 +447,22 @@ Numbered 1–300 for this round. Sections sized 25 each.
 
 ## E · Still review & annotation (101–125)
 
-101. **Undo/redo stack** — per-stroke Ctrl+Z/Ctrl+Y (open since round 1).
-102. **Real blur bake** — box-blur/mosaic into pixels on export, not a translucent overlay.
-103. **Drag-crop on canvas** — visual crop handles replace the four numeric fields.
-104. **Zoom/pan canvas** — wheel zoom, space-drag pan, Ctrl+0 fit, Ctrl+1 100 %.
-105. **Arrow tool** — with head size + color from the stroke state.
-106. **Shape tools** — rect/ellipse outline + filled modes.
-107. **Highlighter** — 50 % alpha stroke.
-108. **Step tool** — auto-numbered badges that renumber on delete.
+101. **Undo/redo stack** — per-stroke Ctrl+Z/Ctrl+Y (open since round 1). ✓ (snapshot stack now feeds Undo+Redo in both Still and the annotate modal; Clear/Reset are undoable)
+102. **Real blur bake** — box-blur/mosaic into pixels on export, not a translucent overlay. ✓ (was already shipped — `pixelate_rect` bakes real mosaic)
+103. **Drag-crop on canvas** — visual crop handles replace the four numeric fields. ✓ (was already shipped — crop_drag on the Still canvas)
+104. **Zoom/pan canvas** — wheel zoom, space-drag pan, Ctrl+0 fit, Ctrl+1 100 %. ✓ (was mostly shipped; this pass: scroll zoom is hover-gated, `1` = true 100 %)
+105. **Arrow tool** — with head size + color from the stroke state. ✓ (was already shipped)
+106. **Shape tools** — rect/ellipse outline + filled modes. ✓ partial (rect shipped; ellipse open)
+107. **Highlighter** — 50 % alpha stroke. ✓ (was already shipped)
+108. **Step tool** — auto-numbered badges that renumber on delete. ✓ (was already shipped)
 109. **Spotlight** — dim outside a rect.
 110. **Measure tool** — px distance + angle readout.
-111. **In-place text editing** — click canvas, type there; no separate field.
-112. **Text background chip** — filled label look with padding + radius.
+111. **In-place text editing** — click canvas, type there; no separate field. ✓ (was already shipped — `text_edit_at` Area)
+112. **Text background chip** — filled label look with padding + radius. ✓ (was already shipped — OVERLAY_LABEL pill)
 113. **Annotation color palette** — 6 swatch row + custom hex.
 114. **Stroke width presets** — 2/4/8 chips + slider.
-115. **Copy original vs annotated** — explicit choice in the copy menu.
-116. **Save-as-copy default** — never silently overwrite the source still.
+115. **Copy original vs annotated** — explicit choice in the copy menu. ✓ ("Copy original (no markup)" in the Still ⋯ menu)
+116. **Save-as-copy default** — never silently overwrite the source still. ✓ (was already shipped — "Save as copy" + explicit overwrite)
 117. **Export format picker** — PNG/JPEG/WebP + quality slider.
 118. **Resize-on-export** — % or max-width field with pixel preview.
 119. **Paste-onto-canvas** — clipboard image becomes a movable layer.
@@ -470,8 +470,17 @@ Numbered 1–300 for this round. Sections sized 25 each.
 121. **Watermark preset** — corner text/logo with opacity.
 122. **Canvas padding** — add uniform border pixels with fill color on export.
 123. **Annotation list panel** — side list of strokes; click selects, Del removes.
-124. **Snap annotations** — arrows/shapes snap to 15° angles and edges.
-125. **Esc depth-fix** — Esc exits annotate → Still → Capture, never a blank tab.
+124. **Snap annotations** — arrows/shapes snap to 15° angles and edges. ✓ (Shift-drag: arrows → 15°, rect/blur → square)
+125. **Esc depth-fix** — Esc exits annotate → Still → Capture, never a blank tab. ✓ (was already shipped)
+
+### Round-3 second cut (built this pass)
+
+Real undo **and** redo on a shared snapshot stack (101), Shift-snap for
+arrows/rects/blur (124), copy-original-without-markup (115), scroll-zoom
+gated to canvas hover + `1` for true 100 % (104). Verified shipped, now
+marked: real mosaic blur bake (102), drag-crop (103), zoom/pan (104),
+arrow/rect/highlight/step tools (105–108), in-place text (111), text
+background chip (112), save-as-copy (116), Esc depth (125).
 
 ## F · Clip review, video & GIF (126–150)
 

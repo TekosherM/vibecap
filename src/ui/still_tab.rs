@@ -63,24 +63,33 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         if i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Z))
             || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Z))
         {
-            if let Some(prev) = app.annotation_undo.pop() {
-                app.annotation_actions = prev;
-                app.step_counter = crate::app::renumber_step_badges(&mut app.annotation_actions);
-            }
+            app.annotation_do_undo();
+        }
+        if i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::Z,
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+            egui::Key::Z,
+        )) || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Y))
+            || i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Y))
+        {
+            app.annotation_do_redo();
         }
         if i.key_pressed(egui::Key::Num0) {
             app.still_zoom = 1.0;
             app.still_pan = Vec2::ZERO;
+        }
+        if i.key_pressed(egui::Key::Num1) {
+            app.still_zoom_to_100 = true;
         }
         if i.key_pressed(egui::Key::Escape) {
             app.text_edit_at = None;
             app.still_crop_mode = false;
             app.crop_drag = None;
         }
-        let scroll = i.raw_scroll_delta.y;
-        if scroll.abs() > 0.1 {
-            app.still_zoom = (app.still_zoom * (1.0 + scroll * 0.001)).clamp(0.25, 4.0);
-        }
+        // Scroll-zoom moved into the canvas block — it must not fire when
+        // the pointer is over the inspector or toolbar.
     });
 
     // ── Header Toolbar ──────────────────────────────────────────────
@@ -142,6 +151,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.save_current_still_copy();
                         ui.close_menu();
                     }
+                    if ui.button("Copy original (no markup)").clicked() {
+                        app.copy_still_original_to_clipboard();
+                        ui.close_menu();
+                    }
                     if ui.button("Open in default app").clicked() {
                         let _ = crate::platform::open_path(&p);
                         ui.close_menu();
@@ -168,6 +181,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.img_crop_w.clear();
                         app.img_crop_h.clear();
                         app.img_preview_params.clear();
+                        app.annotation_push_undo();
                         app.annotation_actions.clear();
                         app.step_counter = 1;
                         ui.close_menu();
@@ -227,7 +241,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             switch(ui, "Live preview", &mut app.img_preview_on);
             ui.label(
-                RichText::new("Drag to draw · Space+drag to pan · ⌘C copy · ⌘S save")
+                RichText::new(
+                    "Drag to draw · Shift = snap · Space+drag pan · scroll zoom · 0/1 fit/100% · ⌘Z undo",
+                )
                     .small()
                     .color(theme::TEXT_MUTED()),
             );
@@ -262,9 +278,23 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
         if let Some(tex) = tex_opt {
             let size = tex.size_vec2();
-            let scale = (max_w / size.x).min(max_h / size.y).min(1.0) * app.still_zoom;
+            let fit = (max_w / size.x).min(max_h / size.y).min(1.0);
+            if app.still_zoom_to_100 {
+                // `1` = true 100% — undo the fit scale, not just reset zoom.
+                app.still_zoom = (1.0 / fit.max(0.01)).clamp(0.25, 4.0);
+                app.still_zoom_to_100 = false;
+            }
             let canvas_size = Vec2::new(max_w, max_h);
             let (response, painter) = ui.allocate_painter(canvas_size, egui::Sense::drag());
+            // Wheel zooms only when the pointer is over the canvas.
+            if response.hovered() {
+                let scroll = ctx.input(|i| i.raw_scroll_delta.y);
+                if scroll.abs() > 0.1 {
+                    app.still_zoom =
+                        (app.still_zoom * (1.0 + scroll * 0.001)).clamp(0.25, 4.0);
+                }
+            }
+            let scale = fit * app.still_zoom;
             let img_rect = Rect::from_min_size(response.rect.min + app.still_pan, size * scale);
             app.annotation_canvas_rect = Some(img_rect);
 
@@ -410,10 +440,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             } else if response.drag_started() {
                 if let Some(pos) = response.interact_pointer_pos() {
-                    app.annotation_undo.push(app.annotation_actions.clone());
-                    if app.annotation_undo.len() > 40 {
-                        app.annotation_undo.remove(0);
-                    }
+                    app.annotation_push_undo();
                     let action = AnnotationAction {
                         tool: app.current_tool,
                         color: app.current_color,
@@ -433,6 +460,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             if !space && !app.still_crop_mode && response.dragged() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     if let Some(action) = &mut app.current_action {
+                        // Shift snaps arrows to 15° and rects/blur to squares.
+                        let pos = if ctx.input(|i| i.modifiers.shift) {
+                            crate::app::snap_annotation_point(
+                                action.tool,
+                                action.points[0],
+                                pos,
+                            )
+                        } else {
+                            pos
+                        };
                         action.points.push(pos);
                     }
                 }
@@ -451,7 +488,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         let r = ui.text_edit_singleline(&mut app.pending_text);
                         r.request_focus();
                         if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            app.annotation_undo.push(app.annotation_actions.clone());
+                            app.annotation_push_undo();
                             app.annotation_actions.push(AnnotationAction {
                                 tool: AnnotationTool::Text,
                                 color: app.current_color,

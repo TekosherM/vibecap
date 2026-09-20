@@ -48,7 +48,7 @@ default_live_dir, default_media_dir,
     write_pending_still_error, CliAction, FeedbackRequest,
     FeedbackResponse, MediaItem, LIBRARY_PAGE_SIZE,
 };
-use app::annotation_baker::{AnnotationAction, AnnotationTool};
+use app::annotation_baker::{snap_annotation_point, AnnotationAction, AnnotationTool};
 use app::io::vibecap_config_dir;
 use app::session::{
     density_from_str, density_to_str, load_session, save_session, SessionState,
@@ -430,7 +430,12 @@ pub(crate) struct VibecapApp {
     library_search: String,
     library_last_click: Option<PathBuf>,
     annotation_undo: Vec<Vec<AnnotationAction>>,
+    /// Redo stack — cleared whenever a new stroke begins.
+    annotation_redo: Vec<Vec<AnnotationAction>>,
     still_zoom: f32,
+    /// Set by the `1` key; resolved to true-100% inside the canvas block
+    /// where the fit scale is known.
+    still_zoom_to_100: bool,
     clip_loop: bool,
     gif_fps: u32,
     gif_width: u32,
@@ -799,6 +804,7 @@ impl VibecapApp {
                 "Re-record 16:9".into(),
             ],
             still_zoom: 1.0,
+            still_zoom_to_100: false,
             gif_fps: 15,
             gif_width: 800,
             hotkey_shot_digit: 3,
@@ -1588,6 +1594,62 @@ impl VibecapApp {
             }
         }
         self.persist_session();
+    }
+
+    /// Snapshot current strokes before a mutation (drag start / clear / text).
+    fn annotation_push_undo(&mut self) {
+        self.annotation_undo.push(self.annotation_actions.clone());
+        if self.annotation_undo.len() > 40 {
+            self.annotation_undo.remove(0);
+        }
+        self.annotation_redo.clear();
+    }
+
+    fn annotation_do_undo(&mut self) {
+        if let Some(prev) = self.annotation_undo.pop() {
+            self.annotation_redo
+                .push(std::mem::take(&mut self.annotation_actions));
+            self.annotation_actions = prev;
+            self.step_counter = app::renumber_step_badges(&mut self.annotation_actions);
+        }
+    }
+
+    fn annotation_do_redo(&mut self) {
+        if let Some(next) = self.annotation_redo.pop() {
+            self.annotation_undo
+                .push(std::mem::take(&mut self.annotation_actions));
+            self.annotation_actions = next;
+            self.step_counter = app::renumber_step_badges(&mut self.annotation_actions);
+        }
+    }
+
+    /// Copy the still to the clipboard without baked annotations (E115).
+    pub fn copy_still_original_to_clipboard(&mut self) {
+        let Some(path) = self.img_edit_file.clone() else {
+            self.show_toast("No image loaded to copy");
+            return;
+        };
+        match image::open(&path) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                if let Ok(mut board) = arboard::Clipboard::new() {
+                    if board
+                        .set_image(arboard::ImageData {
+                            width: w,
+                            height: h,
+                            bytes: std::borrow::Cow::Borrowed(rgba.as_raw()),
+                        })
+                        .is_ok()
+                    {
+                        self.show_toast("📋 Original copied (no markup)");
+                    } else {
+                        self.show_toast("❌ Could not copy the image");
+                    }
+                }
+            }
+            Err(e) => self.show_toast(format!("❌ Could not read image: {e}")),
+        }
     }
 
     fn flush_expired_undo(&mut self) {
@@ -3628,6 +3690,23 @@ impl VibecapApp {
             };
             return;
         }
+        // Ctrl+Z undo / Ctrl+Shift+Z or Ctrl+Y redo — skip while a text
+        // field owns the keyboard (its own undo should win).
+        if !ui.ctx().wants_keyboard_input() {
+            let (undo, redo) = ui.ctx().input(|i| {
+                let cmd = i.modifiers.command || i.modifiers.ctrl;
+                (
+                    cmd && !i.modifiers.shift && i.key_pressed(egui::Key::Z),
+                    (cmd && i.modifiers.shift && i.key_pressed(egui::Key::Z))
+                        || (cmd && i.key_pressed(egui::Key::Y)),
+                )
+            });
+            if undo {
+                self.annotation_do_undo();
+            } else if redo {
+                self.annotation_do_redo();
+            }
+        }
         ui.horizontal(|ui| {
             ui.heading(RichText::new("Annotation Studio").color(theme::ACCENT()).strong());
             ui.separator();
@@ -3650,11 +3729,22 @@ impl VibecapApp {
             }
             
             ui.separator();
-            if ui.button("↩ Undo").clicked() {
-                self.annotation_actions.pop();
-                self.step_counter = app::renumber_step_badges(&mut self.annotation_actions);
+            if ui
+                .button("↩ Undo")
+                .on_hover_text("Ctrl+Z")
+                .clicked()
+            {
+                self.annotation_do_undo();
+            }
+            if ui
+                .button("↪ Redo")
+                .on_hover_text("Ctrl+Shift+Z / Ctrl+Y")
+                .clicked()
+            {
+                self.annotation_do_redo();
             }
             if ui.button("🗑 Clear").clicked() {
+                self.annotation_push_undo();
                 self.annotation_actions.clear();
                 self.step_counter = 1;
             }
@@ -3816,10 +3906,7 @@ impl VibecapApp {
 
             if response.drag_started() {
                 if let Some(pos) = response.interact_pointer_pos() {
-                    self.annotation_undo.push(self.annotation_actions.clone());
-                    if self.annotation_undo.len() > 40 {
-                        self.annotation_undo.remove(0);
-                    }
+                    self.annotation_push_undo();
                     let action = AnnotationAction {
                         tool: self.current_tool,
                         color: self.current_color,
@@ -3842,6 +3929,12 @@ impl VibecapApp {
             if response.dragged() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     if let Some(action) = &mut self.current_action {
+                        // Shift snaps arrows to 15° and rects/blur to squares.
+                        let pos = if ui.input(|i| i.modifiers.shift) {
+                            snap_annotation_point(action.tool, action.points[0], pos)
+                        } else {
+                            pos
+                        };
                         action.points.push(pos);
                     }
                 }
