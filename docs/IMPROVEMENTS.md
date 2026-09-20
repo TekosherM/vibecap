@@ -467,9 +467,9 @@ Numbered 1–300 for this round. Sections sized 25 each.
 118. **Resize-on-export** — % or max-width field with pixel preview. ✓ (was already shipped — Resize % slider in the pipeline; added "→ WxH px output" readout)
 119. **Paste-onto-canvas** — clipboard image becomes a movable layer.
 120. **Before/after hold** — hold Space to peek the un-annotated original. ✓ (hold B — Space stays pan; annotations skipped while peeking)
-121. **Watermark preset** — corner text/logo with opacity.
+121. **Watermark preset** — corner text/logo with opacity. ✓ (WATERMARK group: text field → "Add to corner" drops a Text stroke at bottom-right in the brush color, undoable)
 122. **Canvas padding** — add uniform border pixels with fill color on export. ✓ (Pad px slider + color swatch in EXPORT; applied post-bake so annotations stay aligned)
-123. **Annotation list panel** — side list of strokes; click selects, Del removes.
+123. **Annotation list panel** — side list of strokes; click selects, Del removes. ✓ (STROKES group lists each action, click selects, ✕/Del removes via undoable `remove_annotation` + badge renumber)
 124. **Snap annotations** — arrows/shapes snap to 15° angles and edges. ✓ (Shift-drag: arrows → 15°, rect/blur → square)
 125. **Esc depth-fix** — Esc exits annotate → Still → Capture, never a blank tab. ✓ (was already shipped)
 

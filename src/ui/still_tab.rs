@@ -34,6 +34,9 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
+    // True when a TextEdit held focus last frame — Del/Backspace must reach
+    // the field, not the strokes panel (E123).
+    let keyboard_taken = ctx.wants_keyboard_input();
     // ── Keyboard Shortcuts (Cmd+C / Cmd+S) ──────────────────────────
     ctx.input_mut(|i| {
         if i.consume_shortcut(&egui::KeyboardShortcut::new(
@@ -103,6 +106,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             app.text_edit_at = None;
             app.still_crop_mode = false;
             app.crop_drag = None;
+            app.annotation_selected = None;
+        }
+        // E123 — Del/Backspace deletes the stroke selected in the panel.
+        if !keyboard_taken
+            && (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+            && app.text_edit_at.is_none()
+        {
+            if let Some(sel) = app.annotation_selected {
+                app.remove_annotation(sel);
+            }
         }
         // Scroll-zoom moved into the canvas block — it must not fire when
         // the pointer is over the inspector or toolbar.
@@ -644,13 +657,79 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     }
                     ui.horizontal(|ui| {
                         if btn_small(ui, "↩ Undo") {
-                            app.annotation_actions.pop();
-                            app.step_counter =
-                                crate::app::renumber_step_badges(&mut app.annotation_actions);
+                            app.annotation_do_undo();
+                        }
+                        if btn_small(ui, "↪ Redo") {
+                            app.annotation_do_redo();
                         }
                         if btn_small(ui, "Clear marks") {
-                            app.annotation_actions.clear();
-                            app.step_counter = 1;
+                            if !app.annotation_actions.is_empty() {
+                                app.annotation_push_undo();
+                                app.annotation_actions.clear();
+                                app.step_counter = 1;
+                            }
+                        }
+                    });
+
+                    // E123 — strokes list: click selects, ✕ or Del removes.
+                    if !app.annotation_actions.is_empty() {
+                        group(ui, "STROKES", |ui| {
+                            let mut remove: Option<usize> = None;
+                            let shown = app.annotation_actions.len().min(40);
+                            for (i, action) in
+                                app.annotation_actions.iter().enumerate().take(shown)
+                            {
+                                ui.horizontal(|ui| {
+                                    let label = annotation_label(i + 1, action);
+                                    if ui
+                                        .selectable_label(
+                                            app.annotation_selected == Some(i),
+                                            RichText::new(label).size(11.0),
+                                        )
+                                        .clicked()
+                                    {
+                                        app.annotation_selected = Some(i);
+                                    }
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new("✕")
+                                                    .size(10.0)
+                                                    .color(theme::DANGER_SOFT()),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .on_hover_text("Delete stroke (Del)")
+                                        .clicked()
+                                    {
+                                        remove = Some(i);
+                                    }
+                                });
+                            }
+                            if app.annotation_actions.len() > shown {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "…{} more",
+                                        app.annotation_actions.len() - shown
+                                    ))
+                                    .size(10.0)
+                                    .color(theme::TEXT_MUTED()),
+                                );
+                            }
+                            if let Some(i) = remove {
+                                app.remove_annotation(i);
+                            }
+                        });
+                    }
+
+                    // E121 — one-click corner watermark as a Text stroke.
+                    group(ui, "WATERMARK", |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut app.watermark_text)
+                                .hint_text("Watermark text…"),
+                        );
+                        if btn_small(ui, "Add to corner ⤵") {
+                            app.add_watermark();
                         }
                     });
 
@@ -763,4 +842,27 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         },
     );
     }); // horizontal split
+}
+
+/// Row label for the STROKES panel (E123): "3 · Text \"see this\"".
+fn annotation_label(n: usize, a: &AnnotationAction) -> String {
+    match a.tool {
+        AnnotationTool::Text => {
+            let t: String = a.text_content.trim().chars().take(14).collect();
+            format!("{n} · Text \"{t}\"")
+        }
+        AnnotationTool::StepBadge => format!("{n} · Step {}", a.badge_number),
+        t => {
+            let name = match t {
+                AnnotationTool::Pen => "Pen",
+                AnnotationTool::Arrow => "Arrow",
+                AnnotationTool::Rectangle => "Rect",
+                AnnotationTool::Ellipse => "Ellipse",
+                AnnotationTool::Highlight => "Highlight",
+                AnnotationTool::Blur => "Blur",
+                _ => "Stroke",
+            };
+            format!("{n} · {name}")
+        }
+    }
 }

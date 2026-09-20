@@ -758,6 +758,10 @@ pub(crate) struct VibecapApp {
     export_quality: u8,
     export_pad_px: u32,
     export_pad_color: egui::Color32,
+    /// Strokes panel selection (E123) — index into `annotation_actions`.
+    annotation_selected: Option<usize>,
+    /// Corner-watermark text field (E121).
+    watermark_text: String,
 
     // Feedback arrival polling & richer replies
     feedback_last_poll: Option<Instant>,
@@ -920,6 +924,8 @@ impl VibecapApp {
             export_quality: 90,
             export_pad_px: 0,
             export_pad_color: egui::Color32::WHITE,
+            annotation_selected: None,
+            watermark_text: String::new(),
             allow_exit: false,
             start_hidden: false,
             recording_arming: false,
@@ -1932,6 +1938,53 @@ impl VibecapApp {
             self.annotation_actions = next;
             self.step_counter = app::renumber_step_badges(&mut self.annotation_actions);
         }
+    }
+
+    /// Delete one stroke from the STROKES panel / Del key (E123). Undoable;
+    /// step badges renumber so the sequence stays contiguous.
+    pub fn remove_annotation(&mut self, idx: usize) {
+        if idx >= self.annotation_actions.len() {
+            return;
+        }
+        self.annotation_push_undo();
+        self.annotation_actions.remove(idx);
+        self.step_counter = app::renumber_step_badges(&mut self.annotation_actions);
+        self.annotation_selected = match self.annotation_selected {
+            Some(s) if s == idx => None,
+            Some(s) if s > idx => Some(s - 1),
+            s => s,
+        };
+    }
+
+    /// E121 — drop the watermark text as a Text annotation in the canvas'
+    /// bottom-right corner, in the current brush color.
+    pub fn add_watermark(&mut self) {
+        let text = self.watermark_text.trim().to_string();
+        if text.is_empty() {
+            self.show_toast("Type watermark text first");
+            return;
+        }
+        let rect = self
+            .annotation_canvas_rect
+            .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0)));
+        // Anchor bottom-right; estimate the pill width so it hugs the edge.
+        let est_w = text.len() as f32 * 9.0;
+        let margin = 18.0_f32.min(rect.width() * 0.05);
+        let pos = Pos2::new(
+            (rect.max.x - margin - est_w).max(rect.min.x + margin),
+            (rect.max.y - margin - 20.0).max(rect.min.y + margin),
+        );
+        self.annotation_push_undo();
+        self.annotation_actions.push(AnnotationAction {
+            tool: AnnotationTool::Text,
+            color: self.current_color,
+            stroke_width: 1.0,
+            points: vec![pos],
+            text_content: text,
+            badge_number: 0,
+        });
+        self.annotation_selected = Some(self.annotation_actions.len() - 1);
+        self.show_toast("Watermark added");
     }
 
     /// Copy the still to the clipboard without baked annotations (E115).
