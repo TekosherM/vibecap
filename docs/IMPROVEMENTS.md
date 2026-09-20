@@ -244,9 +244,9 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters.
 50. **Pause/resume hotkey** — dedicated digit.
 51. **REC bar source line** — shows target rect/monitor + audio state. ✓ (caption row under the timer: "Display 2" / "Region 800×600" / "Window: app" + ⚑ count; audio flag only where capture honors it)
-52. **REC bar position memory** — draggable, persists.
+52. **REC bar position memory** — draggable, persists. ✓ (empty-space drag via ViewportCommand::StartDrag; position tracked from outer_rect, session-persisted, bounds-checked on load)
 53. **Marker hotkey during record** — drops a chapter at press. ✓ (⚑ button on the REC bar works while parked; M key when focused; → .markers.txt on finalize)
-54. **Auto-trim dead air** — drop frames <N fps-change at head/tail on finalize.
+54. **Auto-trim dead air** — drop frames <N fps-change at head/tail on finalize. ✓ ("Auto-trim dead air" Settings switch applies dead_air_bounds to the trim on clip load; banner path stays as the default)
 55. **Output presets** — CRF, fps, codec (H264/H265/VP9) in Settings. ✓ (CRF Sharp/Balanced/Small chips → -crf 18/23/28 via `CaptureOpts::crf`; fps already in Settings; live codec stays libx264 — export-side codec picker covers H264/VP9/AV1)
 56. **GIF ping-pong loop** toggle. ✓ (was already shipped — "Ping-pong ↺" on the GIF export)
 57. **GIF frame delete** in the filmstrip. ✓ (cut marks on thumbs + "Export without cuts" — per-frame delay editing stays open)

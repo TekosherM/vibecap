@@ -585,6 +585,10 @@ pub(crate) struct VibecapApp {
     player_last_time: Option<f64>,
     /// Auto-play the preview when filmstrip frames land (Settings toggle).
     clip_autoplay: bool,
+    /// B54 — auto-apply detected dead-air bounds to the trim on clip load.
+    auto_dead_air: bool,
+    /// B52 — remembered REC bar window position (screen px).
+    rec_bar_pos: Option<(i32, i32)>,
     /// Half-width filmstrip — faster extraction, softer preview.
     filmstrip_low_res: bool,
     /// E24 — region overlay dim alpha (session-backed).
@@ -1220,6 +1224,14 @@ impl VibecapApp {
         self.rail_open = s.rail_open;
         self.inbox_quiet = s.inbox_quiet;
         self.clip_autoplay = s.clip_autoplay;
+        self.auto_dead_air = s.auto_dead_air;
+        self.rec_bar_pos = s.rec_bar_pos.and_then(|[x, y]| {
+            // Reject stale/off-screen positions (monitor unplugged etc.).
+            (-8000..=16000)
+                .contains(&x)
+                .then_some((x, y))
+                .filter(|_| (-2000..=16000).contains(&y))
+        });
         self.filmstrip_low_res = s.filmstrip_low_res;
         self.region_dim = s.region_dim.min(200);
         self.library_favorites = s.library_favorites.iter().cloned().collect();
@@ -1279,6 +1291,8 @@ impl VibecapApp {
             rail_open: self.rail_open,
             inbox_quiet: self.inbox_quiet,
             clip_autoplay: self.clip_autoplay,
+            auto_dead_air: self.auto_dead_air,
+            rec_bar_pos: self.rec_bar_pos.map(|(x, y)| [x, y]),
             filmstrip_low_res: self.filmstrip_low_res,
             region_dim: self.region_dim,
             library_favorites: self.library_favorites.iter().cloned().collect(),
@@ -3484,6 +3498,8 @@ impl VibecapApp {
             self.refresh_library();
             self.show_toast("⚠️ Stopped but no video path was set.");
         }
+        // B52 — a dragged REC bar position lands on disk with the session.
+        self.persist_session();
     }
 
     fn load_filmstrip(&mut self, ctx: &egui::Context, file: PathBuf) {
@@ -3567,6 +3583,19 @@ impl VibecapApp {
                 // Dead-air scan on the raw RGBA before it goes to the GPU —
                 // once frames are textures the pixels are unreachable.
                 self.dead_air_hint = app::recording::dead_air_bounds(&frames, fps);
+                // B54 — auto-apply instead of offering when the user opted in.
+                if self.auto_dead_air {
+                    if let Some((cs, ce)) = self.dead_air_hint {
+                        self.trim_start = crate::platform::format_timecode(cs);
+                        self.trim_end = crate::platform::format_timecode(ce);
+                        self.dead_air_dismissed = true;
+                        self.show_toast(format!(
+                            "✂ Auto-trimmed dead air → {}–{}",
+                            crate::platform::format_timecode(cs),
+                            crate::platform::format_timecode(ce)
+                        ));
+                    }
+                }
                 for (i, (w, h, pixels)) in frames.into_iter().enumerate() {
                     let expected = w as usize * h as usize * 4;
                     if w == 0 || h == 0 || pixels.len() != expected {
@@ -5383,7 +5412,7 @@ impl eframe::App for VibecapApp {
             }
         }
         if self.is_recording || self.recording_arming || self.recording_finalizing {
-            let builder = ViewportBuilder::default()
+            let mut builder = ViewportBuilder::default()
                 .with_title("Vibecap Recorder")
                 .with_decorations(false)
                 .with_always_on_top()
@@ -5391,129 +5420,140 @@ impl eframe::App for VibecapApp {
                 .with_resizable(false)
                 .with_transparent(!cfg!(target_os = "windows"))
                 .with_visible(true);
+            // B52 — reopen where the user left it.
+            if let Some((x, y)) = self.rec_bar_pos {
+                builder = builder.with_position([x as f32, y as f32]);
+            }
 
             ctx.show_viewport_immediate(
                 ViewportId::from_hash_of("recording_bar"),
                 builder,
                 |ctx, class| {
                     if class == egui::ViewportClass::Immediate {
+                        // B52 — track the OS position so a drag persists.
+                        if let Some(r) = ctx.input(|i| i.viewport().outer_rect) {
+                            self.rec_bar_pos =
+                                Some((r.min.x.round() as i32, r.min.y.round() as i32));
+                        }
                         let bar_frame = Frame::none()
                             .fill(theme::SURFACE())
                             .rounding(theme::rounding_lg())
                             .stroke(Stroke::new(1.5_f32, theme::ACCENT()));
 
-                        egui::CentralPanel::default()
-                            .frame(bar_frame)
-                            .show(ctx, |ui| {
-                                ui.vertical(|ui| {
-                                    ui.add_space(2.0);
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(6.0);
+                        let bar_resp =
+                            egui::CentralPanel::default()
+                                .frame(bar_frame)
+                                .show(ctx, |ui| {
+                                    ui.vertical(|ui| {
+                                        ui.add_space(2.0);
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(6.0);
 
-                                        let pulse =
-                                            (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
-                                        let dot_color =
-                                            if self.recording_arming || self.recording_finalizing {
+                                            let pulse =
+                                                (ctx.input(|i| i.time) * 4.0).sin().abs() as f32;
+                                            let dot_color = if self.recording_arming
+                                                || self.recording_finalizing
+                                            {
                                                 theme::ACCENT()
                                             } else if self.is_paused {
                                                 theme::WARN()
                                             } else {
                                                 theme::danger_pulse(pulse)
                                             };
-                                        ui.colored_label(dot_color, "●");
+                                            ui.colored_label(dot_color, "●");
 
-                                        if self.recording_arming {
-                                            ui.label(
-                                                RichText::new("Starting…")
+                                            if self.recording_arming {
+                                                ui.label(
+                                                    RichText::new("Starting…")
+                                                        .strong()
+                                                        .color(theme::TEXT()),
+                                                );
+                                            } else if self.recording_finalizing {
+                                                ui.label(
+                                                    RichText::new("Saving…")
+                                                        .strong()
+                                                        .color(theme::TEXT()),
+                                                );
+                                            } else {
+                                                let elapsed = self.recording_elapsed_secs();
+                                                let mins = elapsed / 60;
+                                                let secs = elapsed % 60;
+                                                let status_text =
+                                                    if self.is_paused { "PAUSED" } else { "REC" };
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "{} {:02}:{:02}",
+                                                        status_text, mins, secs
+                                                    ))
                                                     .strong()
                                                     .color(theme::TEXT()),
-                                            );
-                                        } else if self.recording_finalizing {
-                                            ui.label(
-                                                RichText::new("Saving…")
-                                                    .strong()
-                                                    .color(theme::TEXT()),
-                                            );
-                                        } else {
-                                            let elapsed = self.recording_elapsed_secs();
-                                            let mins = elapsed / 60;
-                                            let secs = elapsed % 60;
-                                            let status_text =
-                                                if self.is_paused { "PAUSED" } else { "REC" };
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} {:02}:{:02}",
-                                                    status_text, mins, secs
-                                                ))
-                                                .strong()
-                                                .color(theme::TEXT()),
-                                            );
-                                        }
+                                                );
+                                            }
 
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                ui.add_space(4.0);
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    ui.add_space(4.0);
 
-                                                if ui
-                                                    .button(
-                                                        RichText::new("✖")
-                                                            .color(theme::DANGER())
-                                                            .strong(),
-                                                    )
-                                                    .on_hover_text("Cancel Recording")
-                                                    .clicked()
-                                                {
-                                                    self.cancel_recording(ctx);
-                                                }
-
-                                                if !self.recording_arming
-                                                    && !self.recording_finalizing
-                                                {
                                                     if ui
                                                         .button(
-                                                            RichText::new("⏹")
-                                                                .color(theme::ON_SOLID())
+                                                            RichText::new("✖")
+                                                                .color(theme::DANGER())
                                                                 .strong(),
                                                         )
-                                                        .on_hover_text("Stop & Save")
+                                                        .on_hover_text("Cancel Recording")
                                                         .clicked()
                                                     {
-                                                        self.stop_recording(ctx);
+                                                        self.cancel_recording(ctx);
                                                     }
 
-                                                    if crate::platform::pause_supported() {
-                                                        let pause_icon = if self.is_paused {
-                                                            "▶"
-                                                        } else {
-                                                            "⏸"
-                                                        };
-                                                        let pause_color = if self.is_paused {
-                                                            theme::SUCCESS()
-                                                        } else {
-                                                            theme::WARN()
-                                                        };
+                                                    if !self.recording_arming
+                                                        && !self.recording_finalizing
+                                                    {
                                                         if ui
                                                             .button(
-                                                                RichText::new(pause_icon)
-                                                                    .color(pause_color)
+                                                                RichText::new("⏹")
+                                                                    .color(theme::ON_SOLID())
                                                                     .strong(),
                                                             )
-                                                            .on_hover_text(if self.is_paused {
-                                                                "Resume"
-                                                            } else {
-                                                                "Pause"
-                                                            })
+                                                            .on_hover_text("Stop & Save")
                                                             .clicked()
                                                         {
-                                                            self.toggle_pause();
+                                                            self.stop_recording(ctx);
                                                         }
-                                                    }
 
-                                                    // E53 — chapter marker that works while the
-                                                    // studio is parked; written to
-                                                    // <clip>.markers.txt on finalize.
-                                                    if ui
+                                                        if crate::platform::pause_supported() {
+                                                            let pause_icon = if self.is_paused {
+                                                                "▶"
+                                                            } else {
+                                                                "⏸"
+                                                            };
+                                                            let pause_color = if self.is_paused {
+                                                                theme::SUCCESS()
+                                                            } else {
+                                                                theme::WARN()
+                                                            };
+                                                            if ui
+                                                                .button(
+                                                                    RichText::new(pause_icon)
+                                                                        .color(pause_color)
+                                                                        .strong(),
+                                                                )
+                                                                .on_hover_text(if self.is_paused {
+                                                                    "Resume"
+                                                                } else {
+                                                                    "Pause"
+                                                                })
+                                                                .clicked()
+                                                            {
+                                                                self.toggle_pause();
+                                                            }
+                                                        }
+
+                                                        // E53 — chapter marker that works while the
+                                                        // studio is parked; written to
+                                                        // <clip>.markers.txt on finalize.
+                                                        if ui
                                                         .button(
                                                             RichText::new("⚑")
                                                                 .color(theme::ACCENT())
@@ -5531,22 +5571,31 @@ impl eframe::App for VibecapApp {
                                                             "Marker @ {t:.1}s"
                                                         ));
                                                     }
-                                                }
-                                            },
-                                        );
-                                    });
+                                                    }
+                                                },
+                                            );
+                                        });
 
-                                    // E51 — what is being captured, at a glance.
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(8.0);
-                                        ui.label(
-                                            RichText::new(self.record_source_line())
-                                                .size(9.5)
-                                                .color(theme::TEXT_MUTED()),
-                                        );
+                                        // E51 — what is being captured, at a glance.
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(8.0);
+                                            ui.label(
+                                                RichText::new(self.record_source_line())
+                                                    .size(9.5)
+                                                    .color(theme::TEXT_MUTED()),
+                                            );
+                                        });
                                     });
                                 });
-                            });
+                        // B52 — no titlebar: empty-space drags move the OS
+                        // window; position persists via `rec_bar_pos`.
+                        if bar_resp
+                            .response
+                            .interact(egui::Sense::drag())
+                            .drag_started()
+                        {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                        }
                     }
                 },
             );

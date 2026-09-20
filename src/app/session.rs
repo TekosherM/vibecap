@@ -71,6 +71,9 @@ pub struct SessionState {
     /// Auto-play the clip preview when filmstrip frames land.
     #[serde(default = "default_clip_autoplay")]
     pub clip_autoplay: bool,
+    /// B54 — auto-apply detected dead-air bounds to the trim on clip load.
+    #[serde(default)]
+    pub auto_dead_air: bool,
     /// Half-width (240px) filmstrip preview — faster extraction, less GPU memory.
     #[serde(default)]
     pub filmstrip_low_res: bool,
@@ -85,6 +88,9 @@ pub struct SessionState {
     /// `%Y-%m-%d %H:%M:%S` format as `FeedbackRequest::created_at`).
     #[serde(default)]
     pub inbox_seen_at: String,
+    /// B52 — remembered REC bar position `[x, y]` in screen px.
+    #[serde(default)]
+    pub rec_bar_pos: Option<[i32; 2]>,
 }
 
 fn default_theme_dark() -> String {
@@ -156,10 +162,12 @@ impl Default for SessionState {
             rail_open: false,
             inbox_quiet: false,
             clip_autoplay: true,
+            auto_dead_air: false,
             filmstrip_low_res: false,
             region_dim: default_region_dim(),
             library_favorites: Vec::new(),
             inbox_seen_at: String::new(),
+            rec_bar_pos: None,
         }
     }
 }

@@ -91,6 +91,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                if switch(ui, "Auto-trim dead air", &mut app.auto_dead_air) {
+                    app.persist_session();
+                }
+                ui.label(
+                    RichText::new("Clip opens with the trim already set to the live span (no banner).")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
                 if switch(ui, "Low-res clip preview", &mut app.filmstrip_low_res) {
                     app.persist_session();
                 }
