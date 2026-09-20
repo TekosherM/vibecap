@@ -75,6 +75,9 @@ pub struct SessionState {
     /// full brightness; the rest of the backdrop dims by this much.
     #[serde(default = "default_region_dim")]
     pub region_dim: u8,
+    /// Favorited library file *names* (not paths — survives a moved media dir).
+    #[serde(default)]
+    pub library_favorites: Vec<String>,
 }
 
 fn default_theme_dark() -> String {
@@ -143,6 +146,7 @@ impl Default for SessionState {
             clip_autoplay: true,
             filmstrip_low_res: false,
             region_dim: default_region_dim(),
+            library_favorites: Vec::new(),
         }
     }
 }

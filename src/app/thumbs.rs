@@ -140,6 +140,26 @@ fn sweep_thumbs_dir(save_dir: &Path, media_names: &std::collections::HashSet<Str
     }
 }
 
+/// E170 — thumbnail repair: delete zero-byte/corrupt thumbs, then regenerate
+/// anything missing for the given media files. Runs on its own worker.
+pub fn repair_thumbs(save_dir: PathBuf, media: Vec<PathBuf>) {
+    std::thread::spawn(move || {
+        let dir = thumbs_dir(&save_dir);
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                let broken = e.metadata().map(|m| m.len() == 0).unwrap_or(false);
+                if broken {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+        }
+        for p in media {
+            let _ = ensure_thumb(&p);
+        }
+    });
+}
+
 /// Remove leftover `frames_temp/` dirs under the media folder (crash leftovers).
 pub fn cleanup_frames_temp(save_dir: &Path) {
     let p = save_dir.join("frames_temp");

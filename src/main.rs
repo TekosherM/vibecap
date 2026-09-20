@@ -587,6 +587,8 @@ pub(crate) struct VibecapApp {
     filmstrip_low_res: bool,
     /// E24 — region overlay dim alpha (session-backed).
     region_dim: u8,
+    /// E154 — favorited library file names (session-backed).
+    library_favorites: std::collections::HashSet<String>,
     /// Filmstrip decode progress `(done, total)` for the determinate label.
     filmstrip_progress: (usize, usize),
     filmstrip_progress_rx: Option<Receiver<(usize, usize)>>,
@@ -1114,6 +1116,7 @@ impl VibecapApp {
         // an unexplained empty grid — whitelist to real categories.
         let valid_filters = [
             "All",
+            "★ Favorites",
             MediaCategory::Screenshot.label(),
             MediaCategory::Video.label(),
             MediaCategory::Gif.label(),
@@ -1205,6 +1208,7 @@ impl VibecapApp {
         self.clip_autoplay = s.clip_autoplay;
         self.filmstrip_low_res = s.filmstrip_low_res;
         self.region_dim = s.region_dim.min(200);
+        self.library_favorites = s.library_favorites.iter().cloned().collect();
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
         // never unconditionally, so granted users are not re-asked on cold start.
@@ -1261,6 +1265,7 @@ impl VibecapApp {
             clip_autoplay: self.clip_autoplay,
             filmstrip_low_res: self.filmstrip_low_res,
             region_dim: self.region_dim,
+            library_favorites: self.library_favorites.iter().cloned().collect(),
         });
     }
 
@@ -2477,9 +2482,26 @@ impl VibecapApp {
             .collect();
     }
 
+    /// E154 — toggle a library item's ★ (keyed by file name, session-persisted).
+    pub(crate) fn toggle_library_favorite(&mut self, name: &str) {
+        if !self.library_favorites.remove(name) {
+            self.library_favorites.insert(name.to_string());
+        }
+        self.persist_session();
+    }
+
     fn library_filtered(&self) -> Vec<&MediaItem> {
         let q = self.library_search.trim().to_ascii_lowercase();
-        let mut out: Vec<&MediaItem> = filter_items(&self.library_items, &self.library_filter)
+        // E154 — the ★ chip is a pseudo-category over favorited file names.
+        let base: Vec<&MediaItem> = if self.library_filter == "★ Favorites" {
+            self.library_items
+                .iter()
+                .filter(|i| self.library_favorites.contains(&i.name))
+                .collect()
+        } else {
+            filter_items(&self.library_items, &self.library_filter)
+        };
+        let mut out: Vec<&MediaItem> = base
             .into_iter()
             .filter(|i| {
                 if q.is_empty() || i.name.to_ascii_lowercase().contains(&q) {

@@ -156,3 +156,11 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - `still_grid` — "▦" toolbar toggle paints a quarters grid over the image (preview-only, never baked).
 - Region HUD: backdrop now dims (`region_dim` session 0–200, Settings slider) with the selection punched through at full brightness; "1080p"/"720p" chips drop centered pixel-size boxes; clicking the W×H plate copies `x,y,w,h` in pixels.
 - Marked already-shipped: #14 nudge/Enter, #19 aspect lock, #56 clip loop, #64 blur mosaic, #66 badge renumber, #67 zoom/pan, #45 0/1 zoom keys, #40 copy-original, #69 copy-path shortcut, #86 min-size guard.
+
+### Library ops
+- Favorites (#154): session `library_favorites` (file names, survives dir moves); ★/☆ in the hover ghost strip + context menu, persistent ★ badge, "★ n" filter chip, float-first within each date group.
+- Hover quick-actions (#160): ghost strip now ★ favorite · ⧉ copy path · ↗ reveal.
+- Recently-deleted shelf (#168): banner under the toolbar while the 12s undo window is live — Undo / Dismiss.
+- Thumbnail repair (#170): ⋯ "Repair thumbnails" → worker drops zero-byte thumbs + regenerates missing.
+- Duplicate detection (#165): scan flags items sharing size + head/tail/len fingerprint (`mark_duplicates`, reads only size-colliding files); tiles show an amber ≡ badge.
+- Marked already-shipped: grid thumbs #42, date groups #44, filename+sidecar search #45/#74, shift-range select #46, drag-in import (part of #47/#164), sort menu #78, GIF routing #172.

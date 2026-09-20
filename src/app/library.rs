@@ -125,6 +125,9 @@ pub struct MediaItem {
     pub category: MediaCategory,
     /// Unix secs for sort (newest first).
     pub modified_secs: u64,
+    /// E165 — true when another library item has identical content
+    /// (same size + same head/tail hash). Set by `mark_duplicates`.
+    pub dupe: bool,
 }
 
 /// Where a media item sits in the capture → review → annotate → ask → answer loop.
@@ -237,15 +240,66 @@ pub fn scan_media_dir(save_dir: &Path) -> Vec<MediaItem> {
                 size_bytes,
                 category,
                 modified_secs,
+                dupe: false,
             });
         }
     }
+    mark_duplicates(&mut items);
     items.sort_by(|a, b| {
         b.modified_secs
             .cmp(&a.modified_secs)
             .then_with(|| b.name.cmp(&a.name))
     });
     items
+}
+
+/// E165 — flag items whose bytes are identical to another item's. Size
+/// collisions are rare, so content is only read for size-colliding files;
+/// the hash covers head + tail + len (cheap on multi-GB videos).
+pub fn mark_duplicates(items: &mut [MediaItem]) {
+    use std::collections::HashMap;
+    // size → indices of items with that size.
+    let mut by_size: HashMap<u64, Vec<usize>> = HashMap::new();
+    for (i, it) in items.iter().enumerate() {
+        if it.size_bytes > 0 {
+            by_size.entry(it.size_bytes).or_default().push(i);
+        }
+    }
+    let mut seen: HashMap<u64, Vec<usize>> = HashMap::new();
+    for idxs in by_size.values().filter(|v| v.len() > 1) {
+        for &i in idxs {
+            let h = content_fingerprint(&items[i].path, items[i].size_bytes);
+            seen.entry(h).or_default().push(i);
+        }
+    }
+    for idxs in seen.values().filter(|v| v.len() > 1) {
+        for &i in idxs {
+            items[i].dupe = true;
+        }
+    }
+}
+
+/// Head+tail+len fingerprint — not cryptographic, just enough to tell a
+/// re-shot frame apart from a byte-identical copy.
+fn content_fingerprint(path: &Path, len: u64) -> u64 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    h.write_u64(len);
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return h.finish();
+    };
+    let mut head = [0u8; 65536];
+    let n = std::io::Read::read(&mut f, &mut head).unwrap_or(0);
+    h.write(&head[..n]);
+    if len > 65536 {
+        use std::io::{Seek, SeekFrom};
+        if f.seek(SeekFrom::End(-65536)).is_ok() {
+            let mut tail = [0u8; 65536];
+            let n = std::io::Read::read(&mut f, &mut tail).unwrap_or(0);
+            h.write(&tail[..n]);
+        }
+    }
+    h.finish()
 }
 
 pub fn get_dir_size_bytes(dir_path: &str) -> (u64, usize) {
@@ -329,6 +383,7 @@ mod tests {
             size_bytes: size,
             category: MediaCategory::Screenshot,
             modified_secs: secs,
+            dupe: false,
         };
         let mut v = vec![mk("b.png", 10, 100), mk("a.png", 50, 200)];
         LibrarySort::Name.apply(&mut v);
@@ -353,5 +408,32 @@ mod tests {
         assert_eq!(date_group_label(now.saturating_sub(100_000)), "Yesterday");
         assert_eq!(date_group_label(now.saturating_sub(400_000)), "This week");
         assert_eq!(date_group_label(now.saturating_sub(2_000_000)), "Earlier");
+    }
+
+    #[test]
+    fn mark_duplicates_flags_identical_bytes_only() {
+        let dir = std::env::temp_dir().join(format!("vibecap_dupe_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        let b = dir.join("b.png");
+        let c = dir.join("c.png");
+        let same = vec![9u8; 200_000];
+        std::fs::write(&a, &same).unwrap();
+        std::fs::write(&b, &same).unwrap();
+        std::fs::write(&c, vec![7u8; 200_000]).unwrap();
+        let mk = |p: &Path| MediaItem {
+            path: p.to_path_buf(),
+            name: p.file_name().unwrap().to_string_lossy().to_string(),
+            size_str: String::new(),
+            size_bytes: 200_000,
+            category: MediaCategory::Screenshot,
+            modified_secs: 0,
+            dupe: false,
+        };
+        let mut v = vec![mk(&a), mk(&b), mk(&c)];
+        mark_duplicates(&mut v);
+        assert!(v[0].dupe && v[1].dupe);
+        assert!(!v[2].dupe);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

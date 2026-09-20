@@ -88,6 +88,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.refresh_library();
                     ui.close_menu();
                 }
+                if ui.button("Repair thumbnails").clicked() {
+                    // E170 — drop zero-byte thumbs, regenerate the missing.
+                    let media: Vec<PathBuf> =
+                        app.library_items.iter().map(|i| i.path.clone()).collect();
+                    crate::app::thumbs::repair_thumbs(app.save_dir.clone(), media);
+                    app.show_toast("Repairing thumbnails…");
+                    ui.close_menu();
+                }
                 if live_n > 0 && ui.button("Free live frames").clicked() {
                     let _ = std::fs::remove_dir_all(&live);
                     let _ = std::fs::create_dir_all(&live);
@@ -181,6 +189,17 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 app.library_confirm_clear = false;
             }
         }
+        // E154 — ★ Favorites pseudo-category (file names, session-persisted).
+        let fav_n = app.library_favorites.len();
+        if chip(
+            ui,
+            &format!("★  {fav_n}"),
+            app.library_filter == "★ Favorites",
+        ) {
+            app.library_filter = "★ Favorites".into();
+            app.library_show_limit = LIBRARY_PAGE_SIZE;
+            app.library_confirm_clear = false;
+        }
     });
     ui.add_space(6.0);
 
@@ -233,6 +252,31 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         );
     }
 
+    // E168 — recently-deleted shelf: the undo window (12 s) is easy to miss
+    // in a toast; pin it under the toolbar while it's still live.
+    let trash_n = app
+        .undo_trash
+        .as_ref()
+        .filter(|(_, at, _)| at.elapsed() < std::time::Duration::from_secs(12))
+        .map(|(paths, _, _)| paths.len())
+        .unwrap_or(0);
+    if trash_n > 0 {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("🗑 {trash_n} file(s) deleted"))
+                    .size(11.0)
+                    .color(theme::TEXT_MUTED()),
+            );
+            if ui.small_button("Undo").clicked() {
+                app.undo_last_delete();
+            }
+            if ui.small_button("Dismiss").clicked() {
+                app.undo_trash = None;
+            }
+        });
+        ui.add_space(4.0);
+    }
+
     if total_filtered == 0 {
         empty_state(
             ui,
@@ -277,6 +321,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             _ => groups.push((g, vec![i])),
         }
     }
+    // E154 — favorites float to the top of their own group (stable sort,
+    // keeps the date ordering inside each half).
+    for (_, idxs) in groups.iter_mut() {
+        idxs.sort_by_key(|&i| !app.library_favorites.contains(&visible[i].name));
+    }
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let mut open_edit: Option<PathBuf> = None;
@@ -286,6 +335,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         let mut do_reveal: Option<PathBuf> = None;
         let mut do_open: Option<PathBuf> = None;
         let mut do_toggle_sel: Option<PathBuf> = None;
+        let mut do_fav: Option<String> = None;
+        let mut do_copy_path: Option<PathBuf> = None;
 
         // Row height is uniform across the grid — used for virtualization.
         let thumb_w = card_w - 12.0;
@@ -413,31 +464,90 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             );
                         }
 
-                        // Hover quick-action: reveal in Explorer/Finder —
-                        // ghost button pinned to the thumb's top-right.
+                        // Hover quick-actions (E160): favorite / copy path /
+                        // reveal — a ghost strip pinned to the thumb's top-right.
+                        let is_fav = app.library_favorites.contains(&item.name);
                         if hovered && !selected {
-                            let btn_rect = Rect::from_center_size(
-                                thumb_rect.right_top() + Vec2::new(-13.0, 13.0),
-                                Vec2::splat(22.0),
+                            let strip_w = 3.0 * 22.0 + 8.0;
+                            let strip = Rect::from_center_size(
+                                thumb_rect.right_top() + Vec2::new(-strip_w / 2.0 - 2.0, 13.0),
+                                Vec2::new(strip_w, 22.0),
                             );
-                            let r2 = ui.allocate_ui_at_rect(btn_rect, |ui| {
+                            let r2 = ui.allocate_ui_at_rect(strip, |ui| {
                                 egui::Frame::none()
                                     .fill(egui::Color32::from_black_alpha(140))
                                     .rounding(theme::rounding_sm())
                                     .inner_margin(egui::Margin::same(3.0))
                                     .show(ui, |ui| {
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new("↗").size(12.0).color(theme::TEXT()),
-                                            )
-                                            .sense(egui::Sense::click()),
-                                        )
+                                        ui.horizontal(|ui| {
+                                            let star = ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(if is_fav {
+                                                        "★"
+                                                    } else {
+                                                        "☆"
+                                                    })
+                                                    .size(12.0)
+                                                    .color(theme::WARN()),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            );
+                                            if star.on_hover_text("Favorite").clicked() {
+                                                do_fav = Some(item.name.clone());
+                                            }
+                                            let cp = ui.add(
+                                                egui::Label::new(
+                                                    RichText::new("⧉")
+                                                        .size(12.0)
+                                                        .color(theme::TEXT()),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            );
+                                            if cp.on_hover_text("Copy path").clicked() {
+                                                do_copy_path = Some(item.path.clone());
+                                            }
+                                            let rv = ui.add(
+                                                egui::Label::new(
+                                                    RichText::new("↗")
+                                                        .size(12.0)
+                                                        .color(theme::TEXT()),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            );
+                                            if rv.on_hover_text("Reveal in folder").clicked() {
+                                                do_reveal = Some(item.path.clone());
+                                            }
+                                        });
                                     })
                                     .response
                             });
-                            if r2.inner.on_hover_text("Reveal in folder").clicked() {
-                                do_reveal = Some(item.path.clone());
-                            }
+                            let _ = r2;
+                        }
+                        // Persistent ★ on favorited tiles when not hovered.
+                        if is_fav && !hovered {
+                            paint.text(
+                                thumb_rect.right_top() + Vec2::new(-11.0, 4.0),
+                                egui::Align2::CENTER_TOP,
+                                "★",
+                                egui::FontId::proportional(13.0),
+                                theme::WARN(),
+                            );
+                        }
+                        // E165 — duplicate badge: same size + same head/tail
+                        // fingerprint as another library item.
+                        if item.dupe {
+                            let drect = Rect::from_center_size(
+                                thumb_rect.left_bottom() + Vec2::new(14.0, -13.0),
+                                Vec2::new(22.0, 16.0),
+                            );
+                            paint.rect_filled(drect, 3.0, egui::Color32::from_black_alpha(160));
+                            paint.text(
+                                drect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "≡",
+                                egui::FontId::proportional(11.0),
+                                theme::WARN(),
+                            );
                         }
 
                         // Name + meta painted directly — no nested rows.
@@ -552,6 +662,17 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 do_reveal = Some(item.path.clone());
                                 ui.close_menu();
                             }
+                            if ui
+                                .button(if is_fav {
+                                    "★ Unfavorite"
+                                } else {
+                                    "☆ Favorite"
+                                })
+                                .clicked()
+                            {
+                                do_fav = Some(item.name.clone());
+                                ui.close_menu();
+                            }
                             ui.separator();
                             if ui
                                 .button(if selected { "Deselect" } else { "Select" })
@@ -605,6 +726,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
         if let Some(p) = do_copy {
             app.copy_image_to_clipboard(&p);
+        }
+        if let Some(name) = do_fav {
+            app.toggle_library_favorite(&name);
+        }
+        if let Some(p) = do_copy_path {
+            if let Ok(mut board) = arboard::Clipboard::new() {
+                if board.set_text(p.display().to_string()).is_ok() {
+                    app.show_toast("Path copied");
+                }
+            }
         }
         if let Some(p) = do_toggle_sel {
             if !app.library_selected.remove(&p) {
