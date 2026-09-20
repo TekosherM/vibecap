@@ -811,6 +811,10 @@ pub(crate) struct VibecapApp {
     wizard_budget_touched: bool,
     /// Wizard "start at login" choice (defaults on; applied on finish).
     wizard_autostart: bool,
+    /// E83 — in-flight/last result of the wizard's one-click test capture
+    /// (bytes written on success).
+    wizard_test_rx: Option<crossbeam_channel::Receiver<Result<u64, String>>>,
+    wizard_test_done: Option<Result<u64, String>>,
 
     /// Back/forward stacks for Alt+← / Alt+→ stage navigation.
     tab_back: Vec<AppTab>,

@@ -440,6 +440,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.wizard_step = 0;
                     app.wizard_budget_touched = false;
                     app.wizard_autostart = crate::platform::run_at_login_enabled();
+                    app.wizard_test_rx = None;
+                    app.wizard_test_done = None;
                 }
             });
 

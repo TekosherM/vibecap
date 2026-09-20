@@ -140,10 +140,10 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 
 ## 9 · Tray, hotkeys, settings, wizard
 
-81. **Hotkeys configurable.** Hardcoded Ctrl+Shift+2/3 (`main.rs`). Conflict with browser/OS; no UI to change; no detection.
-82. **S/R in-app vs global.** Document on the Capture card is right; wizard shortcuts step should show **Windows** keys (Ctrl+Shift), not macOS glyphs only.
-83. **Wizard: ffmpeg + Windows capture test.** Today welcome → save dir → budget → shortcuts. On Windows the failure mode is missing ffmpeg / GPU window. Add a one-click test still.
-84. **Wizard: MCP client detect** (Cursor / Claude Desktop / Codex config paths) with a copyable snippet. Highest activation ROI; still missing.
+81. **Hotkeys configurable.** Hardcoded Ctrl+Shift+2/3 (`main.rs`). Conflict with browser/OS; no UI to change; no detection. ✓ (digit pickers + "Apply hotkeys" live rebind with conflict report)
+82. **S/R in-app vs global.** Document on the Capture card is right; wizard shortcuts step should show **Windows** keys (Ctrl+Shift), not macOS glyphs only. ✓ (palette row is platform-conditional — Ctrl+K on Windows, ⌘K on macOS)
+83. **Wizard: ffmpeg + Windows capture test.** Today welcome → save dir → budget → shortcuts. On Windows the failure mode is missing ffmpeg / GPU window. Add a one-click test still. ✓ ("Run a test capture" on the final step — real still to temp on a worker, ✓ bytes / ✗ error inline; ffmpeg-missing hint when absent)
+84. **Wizard: MCP client detect** (Cursor / Claude Desktop / Codex config paths) with a copyable snippet. Highest activation ROI; still missing. ✓ (new step 5: detects Cursor ~/.cursor/mcp.json, Codex ~/.codex/config.toml, Claude Desktop config; copyable --mcp snippet + CLI fallback note)
 85. **Settings ffmpeg hint is Homebrew-only** (`brew install ffmpeg`). Windows should say `winget install Gyan.FFmpeg` (the error in `ffmpeg.rs` already does — Settings UI does not). ✓ (was already shipped — platform-conditional hint)
 86. **Windows permissions card.** macOS has Screen Recording; Windows needs “can gdigrab?” + “mic/loopback device” + “tray allowed”. Empty Settings on Windows looks unfinished.
 87. **Close-to-tray copy is macOS** (“menu bar icon”). On Windows say “notification area / system tray”. ✓ (was already shipped — platform-conditional)

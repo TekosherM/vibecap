@@ -10,7 +10,7 @@ use crate::app::{load_budget, save_budget, BudgetConfig};
 use crate::ui::theme;
 use crate::VibecapApp;
 
-pub const WIZARD_STEPS: u8 = 5;
+pub const WIZARD_STEPS: u8 = 6;
 
 /// Overlay wizard. Returns true if still open (caller should skip main chrome).
 pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
@@ -98,12 +98,28 @@ pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
                     });
                     ui.add_space(theme::SP_3);
 
+                    // E83 — pick up a finished test capture while the card is open.
+                    if let Some(rx) = &app.wizard_test_rx {
+                        match rx.try_recv() {
+                            Ok(res) => {
+                                app.wizard_test_done = Some(res);
+                                app.wizard_test_rx = None;
+                            }
+                            Err(crossbeam_channel::TryRecvError::Empty) => {
+                                ui.ctx()
+                                    .request_repaint_after(std::time::Duration::from_millis(150));
+                            }
+                            Err(_) => app.wizard_test_rx = None,
+                        }
+                    }
+
                     match step {
                         0 => step_welcome(ui),
                         1 => step_save_dir(app, ui),
                         2 => step_budget(app, ui),
                         3 => step_autostart(app, ui),
-                        _ => step_shortcuts(ui),
+                        4 => step_agent_connect(app, ui),
+                        _ => step_shortcuts(app, ui),
                     }
 
                     ui.add_space(theme::SP_4);
@@ -416,7 +432,109 @@ fn step_budget(app: &mut VibecapApp, ui: &mut egui::Ui) {
     }
 }
 
-fn step_shortcuts(ui: &mut egui::Ui) {
+/// E84 — detect agent-harness MCP config files so the user knows which
+/// client to wire up. Detection is path-existence only; nothing is written.
+fn mcp_client_rows() -> Vec<(&'static str, std::path::PathBuf, bool)> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut rows = vec![
+        ("Cursor", home.join(".cursor").join("mcp.json")),
+        ("Codex", home.join(".codex").join("config.toml")),
+    ];
+    #[cfg(target_os = "macos")]
+    let claude = home.join("Library/Application Support/Claude/claude_desktop_config.json");
+    #[cfg(not(target_os = "macos"))]
+    let claude = dirs::config_dir()
+        .unwrap_or_default()
+        .join("Claude")
+        .join("claude_desktop_config.json");
+    rows.push(("Claude Desktop", claude));
+    rows.into_iter()
+        .map(|(n, p)| (n, p.clone(), p.exists()))
+        .collect()
+}
+
+fn step_agent_connect(app: &mut VibecapApp, ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new("Connect your agent")
+            .size(22.0)
+            .strong()
+            .color(theme::TEXT()),
+    );
+    ui.add_space(theme::SP_2);
+    ui.label(
+        RichText::new(
+            "Agents ask for screenshots and clips through Vibecap. \
+             Some harnesses never list MCP tools — the CLI works everywhere.",
+        )
+        .size(14.0)
+        .color(theme::TEXT_MUTED()),
+    );
+    ui.add_space(theme::SP_3);
+    Frame::none()
+        .fill(theme::SURFACE_2())
+        .rounding(theme::rounding_md())
+        .inner_margin(Margin::same(12.0))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new("DETECTED CLIENTS")
+                    .size(11.0)
+                    .strong()
+                    .color(theme::TEXT_DIM()),
+            );
+            ui.add_space(4.0);
+            for (name, path, found) in mcp_client_rows() {
+                ui.horizontal(|ui| {
+                    let (mark, color) = if found {
+                        ("✓", theme::SUCCESS())
+                    } else {
+                        ("·", theme::TEXT_DIM())
+                    };
+                    ui.label(RichText::new(mark).color(color).strong());
+                    ui.label(RichText::new(name).size(12.5).color(theme::TEXT()));
+                    if found {
+                        ui.label(
+                            RichText::new(path.display().to_string())
+                                .size(10.0)
+                                .color(theme::TEXT_DIM()),
+                        );
+                    }
+                });
+            }
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new("Add to the client's MCP config:")
+                    .size(12.0)
+                    .color(theme::TEXT_MUTED()),
+            );
+            ui.add_space(4.0);
+            let snippet = "\"vibecap\": { \"command\": \"vibecap\", \"args\": [\"--mcp\"] }";
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(snippet)
+                        .monospace()
+                        .size(11.0)
+                        .color(theme::TEXT()),
+                );
+                if ui.small_button("Copy").clicked() {
+                    if let Ok(mut board) = arboard::Clipboard::new() {
+                        let _ = board.set_text(snippet);
+                    }
+                    app.show_toast("MCP snippet copied");
+                }
+            });
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(
+                    "No MCP slot? The CLI is the supported path: `vibecap record start`, \
+                     `--screenshot`, `record stop`. Run `vibecap doctor` to verify.",
+                )
+                .size(11.0)
+                .color(theme::TEXT_DIM()),
+            );
+        });
+}
+
+fn step_shortcuts(app: &mut VibecapApp, ui: &mut egui::Ui) {
     ui.label(
         RichText::new("You're ready.")
             .size(22.0)
@@ -431,10 +549,15 @@ fn step_shortcuts(ui: &mut egui::Ui) {
     );
     ui.add_space(theme::SP_3);
 
+    let palette_key = if cfg!(target_os = "macos") {
+        "⌘K"
+    } else {
+        "Ctrl+K"
+    };
     for (keys, action) in [
         ("S", "Screenshot (window focused)"),
         ("R", "Start / stop recording"),
-        ("⌘K / Ctrl+K", "Command palette"),
+        (palette_key, "Command palette"),
         ("Ctrl+1–5", "Jump to a stage"),
         ("Alt+← / →", "Back / forward"),
         ("Ctrl+Shift+3", "Screenshot (global / tray)"),
@@ -454,25 +577,88 @@ fn step_shortcuts(ui: &mut egui::Ui) {
         ui.add_space(6.0);
     }
     ui.add_space(theme::SP_2);
+
+    // E83 — one-click capture smoke test: a real gdigrab/x11grab still to
+    // temp proves ffmpeg + permissions before the user relies on it.
+    if crate::platform::ffmpeg_available() {
+        ui.horizontal(|ui| {
+            let busy = app.wizard_test_rx.is_some();
+            if ui
+                .add_enabled(!busy, egui::Button::new("Run a test capture"))
+                .clicked()
+            {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let out = std::env::temp_dir().join("vibecap_wizard_test.png");
+                    let res = crate::platform::capture_screenshot_opts(
+                        &out,
+                        &crate::platform::CaptureOpts::default(),
+                    )
+                    .and_then(|_| {
+                        std::fs::metadata(&out)
+                            .map(|m| m.len())
+                            .map_err(|e| e.to_string())
+                    });
+                    let _ = std::fs::remove_file(&out);
+                    let _ = tx.send(res);
+                });
+                app.wizard_test_rx = Some(rx);
+                app.wizard_test_done = None;
+            }
+            if busy {
+                ui.label(
+                    RichText::new("capturing…")
+                        .size(11.0)
+                        .color(theme::TEXT_MUTED()),
+                );
+            } else if let Some(done) = &app.wizard_test_done {
+                match done {
+                    Ok(bytes) => ui.label(
+                        RichText::new(format!("✓ works — {bytes} bytes captured"))
+                            .size(11.0)
+                            .color(theme::SUCCESS()),
+                    ),
+                    Err(e) => ui.label(
+                        RichText::new(format!("✗ {e}"))
+                            .size(11.0)
+                            .color(theme::DANGER()),
+                    ),
+                };
+            }
+        });
+    } else {
+        ui.label(
+            RichText::new(if cfg!(target_os = "windows") {
+                "⚠ ffmpeg missing — winget install Gyan.FFmpeg, then restart Vibecap."
+            } else {
+                "⚠ ffmpeg missing — brew install ffmpeg, then restart Vibecap."
+            })
+            .size(11.0)
+            .color(theme::WARN()),
+        );
+    }
+    ui.add_space(theme::SP_2);
     ui.label(
         RichText::new("Next: take a screenshot, or wire your agent to vibecap MCP.")
             .small()
             .color(theme::TEXT_DIM()),
     );
-    ui.label(
-        RichText::new(
-            if cfg!(target_os = "windows") {
-                "Windows: winget install Gyan.FFmpeg · then `vibecap doctor` and a test still in Settings."
-            } else {
-                "Agents: `vibecap doctor` then `record start` / `--screenshot` / `record stop` (MCP often never lists tools)."
-            },
-        )
-        .small()
-        .color(theme::TEXT_DIM()),
-    );
-    ui.label(
-        RichText::new("MCP snippet: { \"command\": \"vibecap\", \"args\": [\"--mcp\"] }")
-            .small()
-            .color(theme::TEXT_DIM()),
-    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_client_rows_cover_the_big_three() {
+        let rows = mcp_client_rows();
+        let names: Vec<&str> = rows.iter().map(|(n, _, _)| *n).collect();
+        assert!(names.contains(&"Cursor"));
+        assert!(names.contains(&"Codex"));
+        assert!(names.contains(&"Claude Desktop"));
+        // Detection never invents a hit for a path that does not exist.
+        for (_, path, found) in &rows {
+            assert_eq!(*found, path.exists());
+        }
+    }
 }
