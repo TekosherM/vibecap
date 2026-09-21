@@ -726,6 +726,13 @@ pub(crate) struct VibecapApp {
     update_rx: Option<crossbeam_channel::Receiver<Result<crate::app::update::ReleaseInfo, String>>>,
     /// Last successful release payload (drives the Download button + notes).
     update_info: Option<crate::app::update::ReleaseInfo>,
+    /// E222 — in-flight orphan-recording remux from a dead previous run.
+    recovery_rx: Option<crossbeam_channel::Receiver<Result<String, String>>>,
+    /// E222 — draft fingerprint + debounce for unsaved Review annotations.
+    review_draft_fp: u64,
+    review_draft_changed_at: Option<std::time::Instant>,
+    /// E216 — cached "Annotate with Vibecap" registry state for Settings.
+    explorer_verb_state: Option<bool>,
     hotkey_shot_digit: u8,
     hotkey_rec_digit: u8,
     /// Digits currently registered with the OS — rebind unregisters these,
@@ -1045,6 +1052,8 @@ impl VibecapApp {
         apply_current_theme(&cc.egui_ctx);
         app.brand_logo = load_brand_logo(&cc.egui_ctx);
         app.refresh_library();
+        // E222 — recover unsaved annotations + orphaned frag recordings.
+        app.recover_on_launch(&cc.egui_ctx);
         // E214 — opt-in launch check; a newer release surfaces as a toast.
         if app.update_check_on_launch {
             app.start_update_check();
@@ -1282,7 +1291,9 @@ impl VibecapApp {
         self.window_size = Vec2::new(s.window_w.max(1024.0), s.window_h.max(700.0));
     }
 
-    pub(crate) fn persist_session(&self) {
+    /// Build the durable session snapshot — shared by `persist_session`
+    /// and E213 profile export.
+    pub(crate) fn session_snapshot(&self) -> SessionState {
         let tab = match self.current_tab {
             AppTab::Capture => "capture",
             AppTab::Library => "library",
@@ -1303,7 +1314,7 @@ impl VibecapApp {
                 .map(|p| p.display().to_string()),
             _ => self.edit_file.as_ref().map(|p| p.display().to_string()),
         };
-        save_session(&SessionState {
+        SessionState {
             tab: tab.into(),
             edit_file,
             density: density_to_str(self.density).into(),
@@ -1342,7 +1353,11 @@ impl VibecapApp {
             retention_value: self.retention_value,
             retention_auto: self.retention_auto,
             library_list_view: self.library_list_view,
-        });
+        }
+    }
+
+    pub(crate) fn persist_session(&self) {
+        save_session(&self.session_snapshot());
     }
 
     /// Load a still into Still studio and select that tab.
@@ -2528,6 +2543,145 @@ impl VibecapApp {
         });
         self.update_rx = Some(rx);
         self.update_status = "checking…".into();
+    }
+
+    /// E222 — launch recovery: unsaved Review annotations + a frag-MP4
+    /// orphaned by a killed recorder. Both restore quietly; failures toast.
+    fn recover_on_launch(&mut self, ctx: &egui::Context) {
+        if let Some(draft) = app::read_review_draft() {
+            let still = PathBuf::from(&draft.still_path);
+            if still.exists() {
+                let n = draft.actions.len();
+                let actions = app::actions_from_draft(ctx, &draft);
+                self.load_still_from_path(&still);
+                self.annotation_canvas_rect = draft.canvas_rect.map(|[x0, y0, x1, y1]| {
+                    Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x1, y1))
+                });
+                self.annotation_actions = actions;
+                self.step_counter = app::renumber_step_badges(&mut self.annotation_actions);
+                self.review_draft_fp = app::actions_fingerprint(&self.annotation_actions);
+                self.show_toast(format!(
+                    "Recovered {n} unsaved annotation{} — open Review to continue",
+                    if n == 1 { "" } else { "s" }
+                ));
+            } else {
+                // Source still is gone — the draft can't be meaningfully
+                // restored; drop it so it doesn't re-nag every launch.
+                app::clear_review_draft();
+            }
+        }
+        if let Some(mp4) = app::agent_record::orphaned_frag_mp4() {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            std::thread::spawn(move || {
+                let clean = mp4.with_extension("clean.mp4");
+                let res = crate::platform::remux_to_clean_mp4(&mp4, &clean).map(|()| {
+                    let kept = if clean.exists() { clean } else { mp4 };
+                    kept.display().to_string()
+                });
+                app::agent_record::discard_orphaned_state();
+                let _ = tx.send(res);
+            });
+            self.recovery_rx = Some(rx);
+        }
+    }
+
+    /// E222 — debounced draft write: fingerprint the action list each frame;
+    /// 800 ms after the last change, persist (empty list clears the draft).
+    fn tick_review_draft(&mut self) {
+        let fp = app::actions_fingerprint(&self.annotation_actions);
+        if fp != self.review_draft_fp {
+            self.review_draft_fp = fp;
+            self.review_draft_changed_at = Some(std::time::Instant::now());
+        }
+        let Some(at) = self.review_draft_changed_at else {
+            return;
+        };
+        if at.elapsed() < std::time::Duration::from_millis(800) {
+            return;
+        }
+        self.review_draft_changed_at = None;
+        if self.annotation_actions.is_empty() {
+            app::clear_review_draft();
+        } else if let Some(still) = self.img_edit_file.clone() {
+            app::write_review_draft(
+                &still,
+                self.annotation_canvas_rect,
+                &self.annotation_actions,
+            );
+        }
+    }
+
+    fn drain_recovery(&mut self) {
+        let done = if let Some(rx) = &self.recovery_rx {
+            match rx.try_recv() {
+                Ok(res) => {
+                    match res {
+                        Ok(path) => {
+                            self.show_toast(format!("Recovered recording → {path}"));
+                            self.refresh_library();
+                        }
+                        Err(e) => self.show_toast(format!("⚠ Recording recovery: {e}")),
+                    }
+                    true
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => false,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => true,
+            }
+        } else {
+            false
+        };
+        if done {
+            self.recovery_rx = None;
+        }
+    }
+
+    /// E213 — save the durable profile (settings/hotkeys/library sets) to a
+    /// `.vcap-profile` zip chosen via the file dialog.
+    fn export_profile_dialog(&mut self) {
+        let Some(dest) = rfd::FileDialog::new()
+            .set_file_name("vibecap-profile.vcap-profile")
+            .add_filter("Vibecap profile", &["vcap-profile", "zip"])
+            .save_file()
+        else {
+            return;
+        };
+        match app::export_profile(&dest, &self.session_snapshot()) {
+            Ok(()) => self.show_toast(format!("Profile exported → {}", dest.display())),
+            Err(e) => self.show_toast(format!("⚠ Profile export: {e}")),
+        }
+    }
+
+    /// E213 — load a `.vcap-profile`: serde defaults fill fields the file
+    /// predates, then rebind hotkeys + re-theme so it applies live.
+    fn import_profile_dialog(&mut self, ctx: &egui::Context) {
+        let Some(src) = rfd::FileDialog::new()
+            .add_filter("Vibecap profile", &["vcap-profile", "zip"])
+            .pick_file()
+        else {
+            return;
+        };
+        match app::import_profile(&src) {
+            Ok(mut s) => {
+                // A profile carries prefs, not session UI state — keep the
+                // importer's tab, open editors, window size, wizard status
+                // and permission probes instead of taking the exporter's.
+                s.tab = String::new();
+                s.edit_file = None;
+                s.window_w = self.window_size.x;
+                s.window_h = self.window_size.y;
+                s.wizard_done = self.wizard_done;
+                s.screen_permission_prompted = self.screen_permission_prompted;
+                s.screen_permission_ok = self.screen_permission_ok;
+                s.library_filter = self.library_filter.clone();
+                self.apply_session(s);
+                self.current_tab = AppTab::Settings;
+                self.persist_session();
+                let _ = self.rebind_global_hotkeys();
+                crate::ui::theme::apply_current_theme(ctx);
+                self.show_toast("Profile imported — settings applied");
+            }
+            Err(e) => self.show_toast(format!("⚠ Profile import: {e}")),
+        }
     }
 
     fn show_toast(&mut self, message: impl Into<String>) {
@@ -5419,6 +5573,10 @@ impl eframe::App for VibecapApp {
 
         // Always reclaim a finished screenshot first (file marker is authoritative).
         self.poll_pending_still(ctx);
+        // E222 — crash-recovery drains: orphan remux result + annotation
+        // draft debounce.
+        self.drain_recovery();
+        self.tick_review_draft();
 
         // Startup Screen Recording check: cheap, prompt-free preflight first.
         // Granted users are never asked again; the system dialog appears only

@@ -85,6 +85,31 @@ pub fn record_pid_alive(pid: u32) -> bool {
     pid_alive(pid)
 }
 
+/// E222 — a dead recorder left its state file plus a frag-MP4 on disk;
+/// returns the mp4 so the GUI can remux it clean on launch. The frag file
+/// is already playable — remux restores a normal fast-start container.
+pub fn orphaned_frag_mp4() -> Option<PathBuf> {
+    let s = load_record_state()?;
+    if pid_alive(s.pid) {
+        return None;
+    }
+    let mp4 = s.mp4_path();
+    let big_enough = std::fs::metadata(&mp4)
+        .map(|m| m.len() > 512)
+        .unwrap_or(false);
+    if s.frag && big_enough {
+        Some(mp4)
+    } else {
+        None
+    }
+}
+
+/// E222 — drop a dead recorder's state file + breadcrumb after recovery.
+pub fn discard_orphaned_state() {
+    let s = load_record_state();
+    clear_state(s.as_ref());
+}
+
 fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;

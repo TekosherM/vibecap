@@ -999,6 +999,18 @@ extern "system" {
     ) -> i32;
     fn RegDeleteValueW(hkey: isize, name: *const u16) -> i32;
     fn RegCloseKey(hkey: isize) -> i32;
+    fn RegCreateKeyExW(
+        hkey: isize,
+        sub: *const u16,
+        res: u32,
+        class: *const u16,
+        opts: u32,
+        sam: u32,
+        sec: *const c_void,
+        out: *mut isize,
+        disp: *mut u32,
+    ) -> i32;
+    fn RegDeleteTreeW(hkey: isize, sub: *const u16) -> i32;
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -1070,6 +1082,95 @@ pub fn set_run_at_login_native(enable: bool, cmdline: &str) -> Result<(), String
             Ok(())
         } else {
             Err(format!("registry write failed ({rc})"))
+        }
+    }
+}
+
+// ── Explorer context verb (E216) — "Annotate with Vibecap" on images ──────────
+// `SystemFileAssociations\image` covers every image extension at once
+// (PerceivedType), so one verb serves .png/.jpg/.webp/… under HKCU — no
+// elevation, no machine-wide keys.
+
+const VERB_KEY: &str = "Software\\Classes\\SystemFileAssociations\\image\\shell\\VibecapAnnotate";
+
+fn reg_create_set(key_path: &str, name: Option<&str>, value: &str) -> Result<(), String> {
+    unsafe {
+        let mut key: isize = 0;
+        if RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            wide(key_path).as_ptr(),
+            0,
+            std::ptr::null(),
+            0,
+            KEY_SET_VALUE,
+            std::ptr::null(),
+            &mut key,
+            std::ptr::null_mut(),
+        ) != 0
+        {
+            return Err(format!("could not create registry key {key_path}"));
+        }
+        let data: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
+        let name_w = name.map(wide);
+        let name_ptr = name_w
+            .as_ref()
+            .map(|n| n.as_ptr())
+            .unwrap_or(std::ptr::null());
+        let rc = RegSetValueExW(
+            key,
+            name_ptr,
+            0,
+            REG_SZ,
+            data.as_ptr() as *const u8,
+            (data.len() * 2) as u32,
+        );
+        RegCloseKey(key);
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(format!("registry write failed ({rc})"))
+        }
+    }
+}
+
+/// Install "Annotate with Vibecap" on image files → `vibecap annotate "%1"`.
+pub fn explorer_verb_install(exe: &std::path::Path) -> Result<(), String> {
+    let exe_s = exe.display().to_string();
+    reg_create_set(VERB_KEY, None, "Annotate with Vibecap")?;
+    reg_create_set(VERB_KEY, Some("Icon"), &format!("\"{exe_s}\",0"))?;
+    reg_create_set(
+        &format!("{VERB_KEY}\\command"),
+        None,
+        &format!("\"{exe_s}\" annotate \"%1\""),
+    )
+}
+
+pub fn explorer_verb_remove() -> Result<(), String> {
+    unsafe {
+        let rc = RegDeleteTreeW(HKEY_CURRENT_USER, wide(VERB_KEY).as_ptr());
+        if rc == 0 || rc == ERROR_FILE_NOT_FOUND {
+            Ok(())
+        } else {
+            Err(format!("registry delete failed ({rc})"))
+        }
+    }
+}
+
+pub fn explorer_verb_installed() -> bool {
+    unsafe {
+        let mut key: isize = 0;
+        let rc = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(&format!("{VERB_KEY}\\command")).as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        );
+        if rc == 0 {
+            RegCloseKey(key);
+            true
+        } else {
+            false
         }
     }
 }
@@ -1567,7 +1668,7 @@ pub fn start_file_drag(paths: &[std::path::PathBuf]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{pickable_at, top_window_at, EnumWindow};
+    use super::*;
 
     #[test]
     fn pid_alive_native_probe() {
@@ -1643,5 +1744,64 @@ mod tests {
         assert_eq!(procs, ["chrome", "slack"]);
         // Empty corner → nothing (monitor-pick handles it upstream).
         assert!(pickable_at(&wins, 1900, 20, "vibecap").is_empty());
+    }
+
+    /// Real HKCU registry roundtrip — opt-in via VIBECAP_TEST_REGISTRY=1 so
+    /// `cargo test` never mutates the developer's registry. Cleans up after
+    /// itself even on assertion failure.
+    #[test]
+    fn explorer_verb_registry_roundtrip() {
+        if std::env::var("VIBECAP_TEST_REGISTRY").is_err() {
+            return;
+        }
+        let _ = explorer_verb_remove(); // clean slate
+        assert!(!explorer_verb_installed());
+        let exe = std::env::current_exe().unwrap();
+        explorer_verb_install(&exe).unwrap();
+        assert!(explorer_verb_installed());
+        // Read the command back — must be `"exe" annotate "%1"`.
+        unsafe {
+            let mut key: isize = 0;
+            let sub = wide(&format!("{VERB_KEY}\\command"));
+            assert_eq!(
+                RegOpenKeyExW(
+                    HKEY_CURRENT_USER,
+                    sub.as_ptr(),
+                    0,
+                    KEY_QUERY_VALUE,
+                    &mut key
+                ),
+                0
+            );
+            let mut len: u32 = 0;
+            RegQueryValueExW(
+                key,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut len,
+            );
+            let mut buf = vec![0u16; (len / 2) as usize + 1];
+            let rc = RegQueryValueExW(
+                key,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                buf.as_mut_ptr() as *mut u8,
+                &mut len,
+            );
+            RegCloseKey(key);
+            assert_eq!(rc, 0);
+            let cmd = String::from_utf16_lossy(&buf[..(len / 2) as usize]);
+            let cmd = cmd.trim_end_matches('\0');
+            assert!(
+                cmd.ends_with(" annotate \"%1\""),
+                "unexpected verb command: {cmd}"
+            );
+            assert!(cmd.contains("vibecap"), "command should point at the exe");
+        }
+        explorer_verb_remove().unwrap();
+        assert!(!explorer_verb_installed());
     }
 }

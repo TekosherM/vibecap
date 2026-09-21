@@ -68,10 +68,8 @@ fn entry_name(path: &Path) -> String {
 /// (deduped with `_2`, `_3`, … suffixes on collisions).
 pub fn write_zip(dest: &Path, files: &[PathBuf]) -> Result<Vec<String>, String> {
     let mut used = std::collections::HashSet::new();
-    let mut out = std::fs::File::create(dest).map_err(|e| e.to_string())?;
-    let mut central = Vec::new();
-    let mut names = Vec::new();
-    let (dos_time, dos_date) = dos_datetime();
+    let mut entries = Vec::with_capacity(files.len());
+    let mut names = Vec::with_capacity(files.len());
 
     for path in files {
         let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -88,7 +86,24 @@ pub fn write_zip(dest: &Path, files: &[PathBuf]) -> Result<Vec<String>, String> 
             };
             n += 1;
         }
-        let crc = crc32(&data);
+        names.push(name.clone());
+        entries.push((name, data));
+    }
+    write_zip_entries(dest, &entries)?;
+    Ok(names)
+}
+
+/// Write named in-memory byte entries as a STORED zip (E213 — profile
+/// export stages JSON without temp files).
+pub fn write_zip_entries(dest: &Path, entries: &[(String, Vec<u8>)]) -> Result<(), String> {
+    let mut out = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+    let mut central = Vec::new();
+    let (dos_time, dos_date) = dos_datetime();
+
+    for (name, data) in entries {
+        let name = name.clone();
+        let data = data.as_slice();
+        let crc = crc32(data);
         let offset = central_offset(&out)?;
         // Local file header
         out.write_all(&0x0403_4b50u32.to_le_bytes()).map_err(ioe)?;
@@ -105,9 +120,8 @@ pub fn write_zip(dest: &Path, files: &[PathBuf]) -> Result<Vec<String>, String> 
             .map_err(ioe)?;
         out.write_all(&0u16.to_le_bytes()).map_err(ioe)?; // extra len
         out.write_all(name.as_bytes()).map_err(ioe)?;
-        out.write_all(&data).map_err(ioe)?;
-        central.push((name.clone(), crc, sz, offset));
-        names.push(name);
+        out.write_all(data).map_err(ioe)?;
+        central.push((name, crc, sz, offset));
     }
 
     let cd_start = central_offset(&out)?;
@@ -142,7 +156,7 @@ pub fn write_zip(dest: &Path, files: &[PathBuf]) -> Result<Vec<String>, String> 
     out.write_all(&cd_size.to_le_bytes()).map_err(ioe)?;
     out.write_all(&cd_start.to_le_bytes()).map_err(ioe)?;
     out.write_all(&0u16.to_le_bytes()).map_err(ioe)?; // comment len
-    Ok(names)
+    Ok(())
 }
 
 fn central_offset(f: &std::fs::File) -> Result<u32, String> {
@@ -153,6 +167,74 @@ fn central_offset(f: &std::fs::File) -> Result<u32, String> {
 
 fn ioe(e: std::io::Error) -> String {
     e.to_string()
+}
+
+// ── Reader (E213 profile import) — stored entries only, CRC-verified ──────────
+
+fn u16_at(d: &[u8], off: usize) -> Result<u16, String> {
+    d.get(off..off + 2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .ok_or_else(|| "truncated zip".to_string())
+}
+
+fn u32_at(d: &[u8], off: usize) -> Result<u32, String> {
+    d.get(off..off + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .ok_or_else(|| "truncated zip".to_string())
+}
+
+/// Read a store-only zip — the format `write_zip` emits — into
+/// `(name, bytes)` pairs. Compressed entries error honestly (we never
+/// inflate); CRC is verified per entry.
+pub fn read_zip_stored(path: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // EOCD lives in the last 64 KiB + 22 bytes.
+    let tail_start = data.len().saturating_sub(66_000);
+    let mut cd = None;
+    for i in (tail_start..data.len().saturating_sub(3)).rev() {
+        if data.get(i..i + 4) == Some(b"PK\x05\x06") {
+            let count = u16_at(&data, i + 10)? as usize;
+            let off = u32_at(&data, i + 16)? as usize;
+            cd = Some((count, off));
+            break;
+        }
+    }
+    let (count, mut p) = cd.ok_or("no end-of-central-directory — not a zip?")?;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        if data.get(p..p + 4) != Some(b"PK\x01\x02") {
+            return Err("bad central-directory record".into());
+        }
+        if u16_at(&data, p + 10)? != 0 {
+            return Err("zip entry is compressed — only stored zips are supported".into());
+        }
+        let crc = u32_at(&data, p + 16)?;
+        let comp = u32_at(&data, p + 20)? as usize;
+        let name_len = u16_at(&data, p + 28)? as usize;
+        let extra_len = u16_at(&data, p + 30)? as usize;
+        let comment_len = u16_at(&data, p + 32)? as usize;
+        let lh_off = u32_at(&data, p + 42)? as usize;
+        let name = data
+            .get(p + 46..p + 46 + name_len)
+            .map(|b| String::from_utf8_lossy(b).to_string())
+            .ok_or("truncated zip")?;
+        if data.get(lh_off..lh_off + 4) != Some(b"PK\x03\x04") {
+            return Err("bad local header".into());
+        }
+        let lnl = u16_at(&data, lh_off + 26)? as usize;
+        let lel = u16_at(&data, lh_off + 28)? as usize;
+        let dstart = lh_off + 30 + lnl + lel;
+        let bytes = data
+            .get(dstart..dstart + comp)
+            .ok_or("truncated zip entry")?
+            .to_vec();
+        if crc32(&bytes) != crc {
+            return Err(format!("crc mismatch on {name}"));
+        }
+        out.push((name, bytes));
+        p += 46 + name_len + extra_len + comment_len;
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -201,6 +283,37 @@ mod tests {
         let zip = dir.join("out.zip");
         let names = write_zip(&zip, &[f1, f2]).unwrap();
         assert_eq!(names, vec!["same.png", "same_2.png"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn entries_write_then_read_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("vibecap_ziprd_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip = dir.join("p.zip");
+        write_zip_entries(
+            &zip,
+            &[
+                ("manifest.json".into(), br#"{"kind":"x"}"#.to_vec()),
+                ("session.json".into(), b"{\"theme\":\"dark\"}".to_vec()),
+            ],
+        )
+        .unwrap();
+        let got = read_zip_stored(&zip).unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].0, "manifest.json");
+        assert_eq!(got[1].0, "session.json");
+        assert_eq!(got[1].1, b"{\"theme\":\"dark\"}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_zip_rejects_garbage() {
+        let dir = std::env::temp_dir().join(format!("vibecap_zipbad_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip = dir.join("not.zip");
+        std::fs::write(&zip, b"definitely not a zip file").unwrap();
+        assert!(read_zip_stored(&zip).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

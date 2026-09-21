@@ -16,8 +16,10 @@ pub mod live;
 pub mod mcp;
 pub mod naming;
 pub mod paths;
+pub mod profile;
 pub mod recording;
 pub mod retro;
+pub mod review_draft;
 pub mod session;
 pub mod thumbs;
 pub mod update;
@@ -48,6 +50,11 @@ pub use library::{
 pub use mcp::{mcp_tool_count, run_mcp_server, MCP_TOOL_NAMES};
 pub use naming::{format_capture_stem, DEFAULT_PATTERN};
 pub use paths::{default_live_dir, default_media_dir, mcp_live_dir};
+pub use profile::{export_profile, import_profile};
 pub use recording::{extract_filmstrip_rgba, finalize_recorder, kill_recorder};
 pub use retro::RetroController;
+pub use review_draft::{
+    actions_fingerprint, actions_from_draft, clear_review_draft, read_review_draft,
+    write_review_draft,
+};
 pub use zip::write_zip;

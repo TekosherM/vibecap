@@ -580,16 +580,16 @@ background chip (112), save-as-copy (116), Esc depth (125).
 210. **CLI poke** — `vibecap --capture` forwards to the running instance.
 211. **Watch-folder import** — monitor a dir, auto-add shots.
 212. **Portable mode** — config/session beside the exe.
-213. **Profile export/import** — settings + hotkeys as one file.
+213. **Profile export/import** — settings + hotkeys as one file. ✓ (Settings → Export/Import profile… → `.vcap-profile` zip: manifest.json + session.json via the store-only zip writer/reader; import validates, serde defaults fill fields the file predates, session-only state — tab, open editors, window size, wizard, permission probes — is masked so an export can't yank the importer's UI)
 214. **Update checker** — GitHub Releases poll, opt-in, changelog toast. ✓ (worker-thread check — the old sync curl blocked the UI; "Check on launch" session toggle (off = fully offline); newer tag → changelog toast + Settings shows notes preview + Download ↗ opening the release page)
 215. **Auto-update channel** — staged: check → download → apply on exit.
-216. **Context-menu verb** — Explorer right-click "Annotate with Vibecap" on images.
+216. **Context-menu verb** — Explorer right-click "Annotate with Vibecap" on images. ✓ (HKCU `SystemFileAssociations\image` verb → `"vibecap.exe" annotate "%1"` — one PerceivedType key covers .png/.jpg/.webp/…, no elevation; raw RegCreateKeyExW/RegDeleteTreeW FFI in win32.rs; Settings checkbox installs/removes; verb lands in Review via the pending-still handoff whether the GUI is running or cold)
 217. **Share target** — Windows share contract so apps can send Vibecap images.
 218. **Startup-on-login option** — tray-only resident mode.
 219. **Notification-area copy** — all "menu bar" strings fixed for Windows.
 220. **Windows permissions card** — mic/loopback device, tray status, gdigrab test.
 221. **First-run health check** — ffmpeg, write-perms, DPI awareness, tray — one green card.
-222. **Crash-recovery** — unsaved annotations/session state restored on relaunch.
+222. **Crash-recovery** — unsaved annotations/session state restored on relaunch. ✓ (two halves: `review_draft.json` — debounced 800 ms draft of the Still editor's strokes as a serializable mirror (stickers as base64 PNGs), canvas-rect included so `sync_annotation_canvas` re-projects into the new layout; on launch a draft whose still still exists restores into Review without a tab switch. Plus orphaned-recorder recovery: a dead pid + frag-MP4 on disk → background remux to a clean MP4, state + breadcrumb discarded, result toasts)
 223. **? cheat-sheet kept current** — auto-generate from the binding table, not hand-maintained.
 224. **Keyboard-only walkthrough** — wizard step that teaches S/R/Esc in 30 s.
 225. **OS dark-mode event** — live-switch Mono themes when Windows toggles.

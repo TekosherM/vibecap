@@ -1092,6 +1092,33 @@ pub fn set_run_at_login(_enable: bool) -> Result<(), String> {
     Err("run at login is not supported on this platform".into())
 }
 
+/// E216 — "Annotate with Vibecap" on image files in Explorer (HKCU, no
+/// elevation). `enable=false` removes the verb entirely.
+#[cfg(target_os = "windows")]
+pub fn set_explorer_verb(enable: bool) -> Result<(), String> {
+    if enable {
+        let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+        super::win32::explorer_verb_install(&exe)
+    } else {
+        super::win32::explorer_verb_remove()
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn explorer_verb_enabled() -> bool {
+    super::win32::explorer_verb_installed()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_explorer_verb(_enable: bool) -> Result<(), String> {
+    Err("Explorer context verb is Windows-only".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn explorer_verb_enabled() -> bool {
+    false
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn run_at_login_enabled() -> bool {
     false

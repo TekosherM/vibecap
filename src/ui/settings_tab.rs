@@ -454,6 +454,30 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             Err(e) => app.show_toast(format!("Autostart failed: {e}")),
                         }
                     }
+                    if app.explorer_verb_state.is_none() {
+                        app.explorer_verb_state = Some(crate::platform::explorer_verb_enabled());
+                    }
+                    let mut verb = app.explorer_verb_state.unwrap_or(false);
+                    if ui
+                        .checkbox(&mut verb, "\"Annotate with Vibecap\" on image right-click")
+                        .on_hover_text(
+                            "Adds an Explorer context-menu verb for image files that \
+                             opens the file straight into Review annotations (HKCU, no admin)",
+                        )
+                        .changed()
+                    {
+                        match crate::platform::set_explorer_verb(verb) {
+                            Ok(()) => {
+                                app.explorer_verb_state = Some(verb);
+                                app.show_toast(if verb {
+                                    "Right-click an image → Annotate with Vibecap"
+                                } else {
+                                    "Explorer verb removed"
+                                });
+                            }
+                            Err(e) => app.show_toast(format!("Explorer verb failed: {e}")),
+                        }
+                    }
                 }
                 ui.add_space(theme::SP_2);
                 ui.horizontal(|ui| {
@@ -526,6 +550,21 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         }
                     });
                 });
+                ui.add_space(theme::SP_2);
+                ui.horizontal(|ui| {
+                    if btn_secondary(ui, "Export profile…") {
+                        app.export_profile_dialog();
+                    }
+                    if btn_secondary(ui, "Import profile…") {
+                        app.import_profile_dialog(ctx);
+                    }
+                    ui.label(
+                        RichText::new("settings + hotkeys as a .vcap-profile zip")
+                            .size(10.5)
+                            .color(theme::TEXT_DIM()),
+                    );
+                });
+                ui.add_space(theme::SP_2);
                 if btn_secondary(ui, "Replay first-run wizard") {
                     app.wizard_open = true;
                     app.wizard_step = 0;
