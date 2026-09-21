@@ -280,3 +280,9 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - Startup: `cleanup_old_binary` deletes the parked `.old` and any <500 KB `.new` (crashed download); a valid `.new` sets `update_staged` → Settings shows "Restart to apply update" even across restarts.
 - Settings card: "Download update" (platform asset) + "Release page ↗" + tag; "Downloading…" while in flight.
 - 98/98 tests (parse_release_json_picks_platform_asset — triple-matched URL from the assets array; no-assets → None).
+
+### Capture-card recents — drag-out, quick-actions, carousel
+- #54: tiles use `click_and_drag`; `drag_started` (egui's threshold, so clicks stay clicks) → `start_file_drag` OLE CF_HDROP source — straight into Explorer/Slack.
+- #55: pointer-in-rect hover overlay with 📋 copy-path (arboard) + 🗑 delete via `delete_library_paths` (12 s undo-trash, Z to undo) at the tile's top-right; containment check instead of `resp.hovered()` so entering a chip doesn't flicker the overlay away.
+- #56: `take(8)` + `ScrollArea::horizontal` — recents scroll instead of truncating at 3; thumb worker loads all 8.
+- 98/98 tests.

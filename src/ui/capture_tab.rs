@@ -350,7 +350,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             let top: Vec<(std::path::PathBuf, bool)> = app
                                 .library_items
                                 .iter()
-                                .take(3)
+                                .take(8)
                                 .map(|i| {
                                     (
                                         i.path.clone(),
@@ -401,66 +401,127 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                             if !app.recent_thumbs.is_empty() {
                                 ui.label(
-                                    RichText::new("RECENT — TAP TO REVIEW")
+                                    RichText::new("RECENT — CLICK REVIEWS · DRAG OUT")
                                         .size(10.0)
                                         .strong()
                                         .color(theme::TEXT_DIM()),
                                 );
                                 ui.add_space(theme::SP_2);
-                                ui.horizontal(|ui| {
-                                    let mut open: Option<(std::path::PathBuf, bool)> = None;
-                                    for (path, is_video, tex) in &app.recent_thumbs {
-                                        let resp = egui::Frame::none()
-                                            .stroke(Stroke::new(1.0_f32, theme::BORDER()))
-                                            .rounding(theme::rounding_md())
-                                            .show(ui, |ui| {
-                                                let img = egui::Image::new(tex)
-                                                    .fit_to_exact_size(egui::Vec2::new(120.0, 68.0))
-                                                    .rounding(theme::rounding_md());
-                                                let r = ui.add(img);
-                                                if *is_video {
-                                                    let p = ui.painter();
-                                                    let c = r.rect.center();
-                                                    p.circle_filled(
-                                                        c,
-                                                        10.0,
-                                                        theme::CANVAS().gamma_multiply(0.75),
-                                                    );
-                                                    p.add(egui::Shape::convex_polygon(
-                                                        vec![
-                                                            c + egui::Vec2::new(-3.0, -5.0),
-                                                            c + egui::Vec2::new(-3.0, 5.0),
-                                                            c + egui::Vec2::new(6.0, 0.0),
-                                                        ],
-                                                        theme::TEXT(),
-                                                        Stroke::NONE,
+                                // E56 — carousel: scroll instead of hiding
+                                // captures past the third tile.
+                                egui::ScrollArea::horizontal()
+                                    .auto_shrink([false, true])
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            let mut open: Option<(std::path::PathBuf, bool)> = None;
+                                            let mut copy_path: Option<std::path::PathBuf> = None;
+                                            let mut delete_path: Option<std::path::PathBuf> = None;
+                                            for (path, is_video, tex) in &app.recent_thumbs {
+                                                let resp = egui::Frame::none()
+                                                    .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                                                    .rounding(theme::rounding_md())
+                                                    .show(ui, |ui| {
+                                                        let img = egui::Image::new(tex)
+                                                            .fit_to_exact_size(egui::Vec2::new(120.0, 68.0))
+                                                            .rounding(theme::rounding_md());
+                                                        let r = ui.add(img);
+                                                        if *is_video {
+                                                            let p = ui.painter();
+                                                            let c = r.rect.center();
+                                                            p.circle_filled(
+                                                                c,
+                                                                10.0,
+                                                                theme::CANVAS().gamma_multiply(0.75),
+                                                            );
+                                                            p.add(egui::Shape::convex_polygon(
+                                                                vec![
+                                                                    c + egui::Vec2::new(-3.0, -5.0),
+                                                                    c + egui::Vec2::new(-3.0, 5.0),
+                                                                    c + egui::Vec2::new(6.0, 0.0),
+                                                                ],
+                                                                theme::TEXT(),
+                                                                Stroke::NONE,
+                                                            ));
+                                                        }
+                                                        r
+                                                    })
+                                                    .inner
+                                                    .interact(egui::Sense::click_and_drag())
+                                                    .on_hover_text(format!(
+                                                        "{} — click: Review · drag: out to Explorer/Slack",
+                                                        path.file_name()
+                                                            .map(|f| f.to_string_lossy().to_string())
+                                                            .unwrap_or_default()
                                                     ));
+                                                // E54 — OS-level drag-out straight
+                                                // from the tile (Windows shell drag).
+                                                if resp.drag_started() {
+                                                    let _ = crate::platform::start_file_drag(&[
+                                                        path.clone(),
+                                                    ]);
                                                 }
-                                                r
-                                            })
-                                            .inner
-                                            .interact(egui::Sense::click())
-                                            .on_hover_text(format!(
-                                                "{} — open in Review",
-                                                path.file_name()
-                                                    .map(|f| f.to_string_lossy().to_string())
-                                                    .unwrap_or_default()
-                                            ));
-                                        if resp.clicked() {
-                                            open = Some((path.clone(), *is_video));
-                                        }
-                                        ui.add_space(theme::SP_2);
-                                    }
-                                    if let Some((p, is_video)) = open {
-                                        if is_video {
-                                            app.edit_file = Some(p.clone());
-                                            app.current_tab = crate::AppTab::Clip;
-                                            app.load_filmstrip(ctx, p);
-                                        } else {
-                                            app.open_still_from_path(p);
-                                        }
-                                    }
-                                });
+                                                // E55 — hover quick-actions:
+                                                // copy path / delete (undo-trash).
+                                                // Pointer-in-rect (not resp.hovered):
+                                                // the chips sit on top of the
+                                                // tile, so hovered() flips false
+                                                // when the pointer enters them —
+                                                // containment keeps them steady.
+                                                let pointer_in = ui
+                                                    .ctx()
+                                                    .pointer_latest_pos()
+                                                    .map(|p| resp.rect.contains(p))
+                                                    .unwrap_or(false);
+                                                if pointer_in {
+                                                    let chip = egui::Rect::from_min_size(
+                                                        resp.rect.right_top()
+                                                            + egui::vec2(-50.0, 3.0),
+                                                        egui::vec2(47.0, 17.0),
+                                                    );
+                                                    ui.allocate_ui_at_rect(chip, |ui| {
+                                                        ui.horizontal(|ui| {
+                                                            if ui
+                                                                .small_button("📋")
+                                                                .on_hover_text("Copy path")
+                                                                .clicked()
+                                                            {
+                                                                copy_path = Some(path.clone());
+                                                            }
+                                                            if ui
+                                                                .small_button("🗑")
+                                                                .on_hover_text("Delete (undo-able)")
+                                                                .clicked()
+                                                            {
+                                                                delete_path = Some(path.clone());
+                                                            }
+                                                        });
+                                                    });
+                                                }
+                                                if resp.clicked() {
+                                                    open = Some((path.clone(), *is_video));
+                                                }
+                                                ui.add_space(theme::SP_2);
+                                            }
+                                            if let Some(p) = copy_path {
+                                                if let Ok(mut b) = arboard::Clipboard::new() {
+                                                    let _ = b.set_text(p.display().to_string());
+                                                    app.show_toast("📋 Path copied");
+                                                }
+                                            }
+                                            if let Some(p) = delete_path {
+                                                app.delete_library_paths(&[p]);
+                                            }
+                                            if let Some((p, is_video)) = open {
+                                                if is_video {
+                                                    app.edit_file = Some(p.clone());
+                                                    app.current_tab = crate::AppTab::Clip;
+                                                    app.load_filmstrip(ctx, p);
+                                                } else {
+                                                    app.open_still_from_path(p);
+                                                }
+                                            }
+                                        });
+                                    });
                                 ui.add_space(theme::SP_3);
                             } else if app.library_items.is_empty() {
                                 ui.label(

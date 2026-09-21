@@ -394,9 +394,9 @@ Numbered 1–300 for this round. Sections sized 25 each.
 51. **Per-target memory** — remember Region vs Window per session *and* per hour-of-day.
 52. **Shutter button split-menu** — chevron on Screenshot offering Region/Window/Full variants without leaving the row.
 53. **Capture preview strip on hover** — hovering a recent tile grows it 1.5× with play.
-54. **Drag recent tile out** — straight to Explorer/Slack from the capture card.
-55. **Recent tile quick-actions** — hover overlay: copy / annotate / delete on recents.
-56. **Recents carousel** — horizontal scroll when >3 items instead of hiding them.
+54. **Drag recent tile out** — straight to Explorer/Slack from the capture card. ✓ (`Sense::click_and_drag` + `drag_started` → `platform::start_file_drag` OLE CF_HDROP; drag-threshold means plain clicks never start a drag)
+55. **Recent tile quick-actions** — hover overlay: copy / annotate / delete on recents. ✓ (📋 copy path + 🗑 delete-to-undo-trash chips at the tile's top-right; pointer-in-rect containment so the overlay doesn't flicker when the pointer enters a chip)
+56. **Recents carousel** — horizontal scroll when >3 items instead of hiding them. ✓ (8 newest items, `ScrollArea::horizontal` wraps the tile row)
 57. **"Waiting for capture" state** — while armed+hidden, the studio (if shown) should say so.
 58. **Options card quick toggles** — cursor/audio/display as icon toggles, not buried in disclosure.
 59. **Audio device picker** — dropdown of dshow devices when Include audio is on. ✓ (combo under the switch lists enumerated devices + Auto; pick persists via session `audio_device`; a vanished device falls back to Auto)
