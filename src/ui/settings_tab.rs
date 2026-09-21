@@ -14,10 +14,47 @@ use crate::ui::{
 use crate::VibecapApp;
 
 pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
-    ScrollArea::vertical()
-        .id_source("settings_scroll")
-        .show(ui, |ui| {
+    // E284/E285 — filter box + section rail replace the flat scroll;
+    // "All" keeps the old scroll-everything layout.
+    let filter = app.settings_filter.trim().to_lowercase();
+    let nav = app.settings_nav.clone();
+    let want = |key: &str, hay: &str| -> bool {
+        if !filter.is_empty() {
+            hay.contains(filter.as_str())
+        } else {
+            nav == "all" || nav == key
+        }
+    };
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.set_width(128.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut app.settings_filter)
+                    .hint_text("Filter settings…")
+                    .desired_width(120.0),
+            );
+            ui.add_space(theme::SP_2);
+            for (key, label) in [
+                ("all", "All"),
+                ("save", "Save"),
+                ("rec", "Recording"),
+                ("lib", "Library"),
+                ("adv", "Advanced"),
+                ("keys", "Shortcuts & look"),
+                ("agent", "Agent"),
+                ("about", "About & help"),
+            ] {
+                if ui.selectable_label(app.settings_nav == key, label).clicked() {
+                    app.settings_nav = key.to_string();
+                }
+            }
+        });
+        ui.separator();
+        ScrollArea::vertical()
+            .id_source("settings_scroll")
+            .show(ui, |ui| {
             // ── Save location ─────────────────────────────────────
+            if want("save", "save location directory folder filename pattern naming") {
             section_card(ui, "SAVE LOCATION", |ui| {
                 ui.label(
                     RichText::new(app.save_dir.display().to_string())
@@ -81,9 +118,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                ui.add_space(theme::SP_1);
+                // E287 — per-section reset back to shipped defaults.
+                if ui
+                    .small_button("↺ Reset section")
+                    .on_hover_text("Restore this section's defaults")
+                    .clicked()
+                {
+                    app.name_pattern = crate::app::naming::DEFAULT_PATTERN.to_string();
+                    app.persist_session();
+                    app.show_toast("Save-location settings reset");
+                }
             });
+            }
 
             // ── Recording ────────────────────────────────────────
+            if want("rec", "recording framerate fps audio mic quality crf countdown region dim ffmpeg error bug report") {
             section_card(ui, "RECORDING", |ui| {
                 setting_row(ui, "Framerate", |ui| {
                     segmented(
@@ -226,9 +276,31 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 if btn_secondary(ui, "Bug report pack") {
                     app.bug_report_pack(ctx);
                 }
+                ui.add_space(theme::SP_1);
+                if ui
+                    .small_button("↺ Reset section")
+                    .on_hover_text("Restore this section's defaults")
+                    .clicked()
+                {
+                    app.fps_target = 30;
+                    app.record_crf = 23;
+                    app.capture_audio = false;
+                    app.audio_device.clear();
+                    app.clip_autoplay = true;
+                    app.auto_open_review = true;
+                    app.auto_dead_air = false;
+                    app.filmstrip_low_res = false;
+                    app.inbox_quiet = false;
+                    app.record_countdown_secs = 0;
+                    app.region_dim = 110;
+                    app.persist_session();
+                    app.show_toast("Recording settings reset");
+                }
             });
+            }
 
             // ── Library ──────────────────────────────────────────
+            if want("lib", "library retention sweep cleanup keep newest older than") {
             section_card(ui, "LIBRARY", |ui| {
                 setting_row(ui, "Retention", |ui| {
                     if segmented(
@@ -272,9 +344,23 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .color(theme::TEXT_DIM()),
                     );
                 }
+                ui.add_space(theme::SP_1);
+                if ui
+                    .small_button("↺ Reset section")
+                    .on_hover_text("Restore this section's defaults")
+                    .clicked()
+                {
+                    app.retention_mode = 0;
+                    app.retention_value = 30;
+                    app.retention_auto = false;
+                    app.persist_session();
+                    app.show_toast("Library settings reset");
+                }
             });
+            }
 
             // Power-user internals collapse — the simple path stays above.
+            if want("adv", "advanced windows status permissions tray retro buffer test screenshot capture internals") {
             egui::CollapsingHeader::new(
                 RichText::new("Advanced · capture internals & retro buffer")
                     .size(12.0)
@@ -282,6 +368,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .color(theme::TEXT_MUTED()),
             )
             .default_open(false)
+            .open(if nav == "adv" || !filter.is_empty() { Some(true) } else { None })
             .show(ui, |ui| {
             #[cfg(target_os = "windows")]
             section_card(ui, "WINDOWS STATUS", |ui| {
@@ -410,11 +497,21 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.retro.clear_frames();
                         app.show_toast("Retro buffer cleared");
                     }
+                    if ui
+                        .small_button("↺ Reset section")
+                        .on_hover_text("Restore retro defaults (off · 60 s)")
+                        .clicked()
+                    {
+                        app.retro.set_config(Default::default());
+                        app.show_toast("Retro buffer reset");
+                    }
                 });
             });
             });
+            }
 
             // ── Shortcuts & appearance ────────────────────────────
+            if want("keys", "shortcuts appearance hotkey keys theme density tray autostart portable update wizard profile prtscn capture sounds explorer deep link watch folder") {
             section_card(ui, "SHORTCUTS & APPEARANCE", |ui| {
                 ui.label(RichText::new("In app (window focused)").size(12.0).color(theme::TEXT_MUTED()));
                 ui.add_space(theme::SP_1);
@@ -717,6 +814,13 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 // swaps + relaunches after a short delay.
                 if app.update_staged.is_some() {
                     if btn_secondary(ui, "Restart to apply update") {
+                        // E292 — carry the notes over the restart so the
+                        // What's New card can show them once.
+                        if let Some(info) = &app.update_info {
+                            app.whats_new_tag = info.tag.clone();
+                            app.whats_new_notes = info.notes.clone();
+                        }
+                        app.persist_session();
                         match crate::app::update::apply_staged_and_restart() {
                             Ok(()) => app.quit_app(),
                             Err(e) => app.show_toast(format!("Update failed: {e}")),
@@ -799,9 +903,32 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.wizard_test_rx = None;
                     app.wizard_test_done = None;
                 }
+                ui.add_space(theme::SP_1);
+                if ui
+                    .small_button("↺ Reset section")
+                    .on_hover_text("Restore hotkeys, theme and toggles to defaults")
+                    .clicked()
+                {
+                    app.hotkey_shot_digit = 3;
+                    app.hotkey_rec_digit = 2;
+                    app.hotkey_pause_digit = None;
+                    app.hotkey_prtscn = false;
+                    app.shutter_sound = false;
+                    app.tray_dblclick = "open".into();
+                    app.watch_folder.clear();
+                    app.theme_follow_os = false;
+                    app.theme_dark_pick = "dark".into();
+                    app.density = crate::ui::Density::Comfortable;
+                    app.set_theme(ctx, theme::ThemeMode::Dark);
+                    let _ = app.rebind_global_hotkeys();
+                    app.persist_session();
+                    app.show_toast("Shortcuts & appearance reset");
+                }
             });
+            }
 
             // ── Agent session & budget ────────────────────────────
+            if want("agent", "agent session budget mcp frames minutes tier spend caps") {
             egui::CollapsingHeader::new(
                 RichText::new("For agents · session & budget")
                     .size(12.0)
@@ -809,6 +936,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .color(theme::TEXT_MUTED()),
             )
             .default_open(false)
+            .open(if nav == "agent" || !filter.is_empty() { Some(true) } else { None })
             .show(ui, |ui| {
             section_card(ui, "AGENT SESSION & BUDGET", |ui| {
                 if !app.budget_loaded {
@@ -902,10 +1030,73 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .size(11.0)
                     .color(theme::TEXT_MUTED()),
                 );
+                ui.add_space(theme::SP_1);
+                if ui
+                    .small_button("↺ Reset section")
+                    .on_hover_text("Reset caps to unlimited / standard tier")
+                    .clicked()
+                {
+                    app.budget_frames_input = "0".into();
+                    app.budget_mb_input = "0.0".into();
+                    app.budget_minutes_input = "0".into();
+                    app.budget_tier = "standard".into();
+                    let _ = save_budget(&BudgetConfig::default());
+                    app.show_toast("Budget caps reset (0 = unlimited)");
+                }
             });
             });
+            }
+
+            // ── About & help ──────────────────────────────────────
+            if want("about", "about help docs documentation version changelog what's new quit exit") {
+            section_card(ui, "ABOUT & HELP", |ui| {
+                ui.label(
+                    RichText::new(format!("Vibecap v{}", env!("CARGO_PKG_VERSION")))
+                        .size(12.0)
+                        .color(theme::TEXT()),
+                );
+                // E292 — notes of the just-applied update, shown once.
+                if !app.whats_new_tag.is_empty() {
+                    ui.add_space(theme::SP_1);
+                    ui.label(
+                        RichText::new(format!("Updated to {}", app.whats_new_tag))
+                            .size(11.5)
+                            .color(theme::ACCENT())
+                            .strong(),
+                    );
+                    if !app.whats_new_notes.is_empty() {
+                        ui.label(
+                            RichText::new(&app.whats_new_notes)
+                                .size(10.5)
+                                .color(theme::TEXT_DIM()),
+                        );
+                    }
+                    if btn_small(ui, "Got it") {
+                        app.whats_new_tag.clear();
+                        app.whats_new_notes.clear();
+                        app.persist_session();
+                    }
+                }
+                ui.add_space(theme::SP_2);
+                // E293 — in-app doc links per surface.
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("Docs").size(12.0).color(theme::TEXT_MUTED()));
+                    for (label, url) in [
+                        ("Capture recipes ↗", "https://github.com/TekosherM/vibecap/blob/master/docs/AGENTS.md"),
+                        ("MCP tools ↗", "https://github.com/TekosherM/vibecap/blob/master/docs/MCP.md"),
+                        ("Roadmap ↗", "https://github.com/TekosherM/vibecap/blob/master/docs/IMPROVEMENTS.md"),
+                        ("Releases ↗", "https://github.com/TekosherM/vibecap/releases"),
+                    ] {
+                        if btn_small(ui, label) {
+                            let _ = open::that(url);
+                        }
+                    }
+                });
+            });
+            }
 
             // ── Quit — the X hides to tray; this is the real exit ──
+            if filter.is_empty() || "quit exit".contains(filter.as_str()) {
             ui.add_space(theme::SP_3);
             ui.separator();
             ui.add_space(theme::SP_2);
@@ -921,7 +1112,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .color(theme::TEXT_DIM()),
                 );
             });
+            }
         });
+    });
 }
 
 /// Theme picker swatch — canvas preview + ink label, ink ring when active.

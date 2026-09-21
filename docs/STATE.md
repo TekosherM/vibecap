@@ -359,3 +359,12 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #25: HUD toolbar ⚡ chip toggles ctx-data hud_no_flash; the flash paint consumes it once, cancel clears it.
 - #70 verified already-covered: next_seq dedupes auto names; save/export go through the OS overwrite prompt.
 - 102/102 tests.
+
+### Settings tail - rail nav, filter, per-section reset, About card
+- #285: left rail (All / Save / Recording / Library / Advanced / Shortcuts & look / Agent / About & help); All preserves the scroll-all layout.
+- #284: rail filter matches per-section haystacks; filtering force-opens the collapsed Advanced/Agent groups so hits are visible.
+- #287: "Reset section" on each card restores shipped defaults (hotkeys rebind, theme -> Dark, budget -> unlimited, retro -> off/60s).
+- #292: "Restart to apply update" stashes tag+notes in session; ABOUT & HELP shows them once with a dismiss.
+- #293: ABOUT & HELP links docs/AGENTS, MCP, IMPROVEMENTS, releases.
+- #291 verified shipped (Replay first-run wizard); #286 marked - every switch row already carries an explainer line or hover.
+- 102/102 tests.

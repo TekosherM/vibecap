@@ -152,6 +152,12 @@ pub struct SessionState {
     /// e.g. "dark" | "carbon" | "celestial" | "celestial-pink").
     #[serde(default = "default_theme_dark")]
     pub theme_dark_pick: String,
+    /// E292 — tag/notes of a just-applied update so the What's New card
+    /// can show once after the relaunch; cleared on dismiss.
+    #[serde(default)]
+    pub whats_new_tag: String,
+    #[serde(default)]
+    pub whats_new_notes: String,
 }
 
 fn default_theme_dark() -> String {
@@ -256,6 +262,8 @@ impl Default for SessionState {
             watch_folder: String::new(),
             theme_follow_os: false,
             theme_dark_pick: default_theme_dark(),
+            whats_new_tag: String::new(),
+            whats_new_notes: String::new(),
         }
     }
 }

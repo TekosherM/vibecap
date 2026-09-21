@@ -916,6 +916,13 @@ pub(crate) struct VibecapApp {
     palette_open: bool,
     palette_query: String,
     palette_selected: usize,
+    /// E285 — Settings left-rail selection ("all" scrolls everything).
+    settings_nav: String,
+    /// E284 — Settings filter box contents.
+    settings_filter: String,
+    /// E292 — tag/notes of the just-applied update; cleared when dismissed.
+    whats_new_tag: String,
+    whats_new_notes: String,
     /// Recently-run palette actions (most recent first, max 3).
     palette_mru: Vec<PaletteAction>,
     density: Density,
@@ -1211,6 +1218,10 @@ impl VibecapApp {
             palette_open: false,
             palette_query: String::new(),
             palette_selected: 0,
+            settings_nav: "all".to_string(),
+            settings_filter: String::new(),
+            whats_new_tag: String::new(),
+            whats_new_notes: String::new(),
             density: Density::Comfortable,
             undo_trash: None,
             capture_toast: None,
@@ -1351,7 +1362,7 @@ impl VibecapApp {
     /// Re-register global hotkeys after the user changes the digit in
     /// Settings — no restart needed (I201). Returns Err listing which
     /// bindings failed (e.g. another app owns the combo).
-    fn rebind_global_hotkeys(&mut self) -> Result<(), String> {
+    pub(crate) fn rebind_global_hotkeys(&mut self) -> Result<(), String> {
         self.unbind_extra_hotkeys();
         let Some(manager) = self.hotkey_manager.as_ref() else {
             return Err("global hotkey manager unavailable".into());
@@ -1546,6 +1557,8 @@ impl VibecapApp {
             _ => "dark".into(),
         };
         self.inbox_seen_stamp = s.inbox_seen_at.clone();
+        self.whats_new_tag = s.whats_new_tag;
+        self.whats_new_notes = s.whats_new_notes;
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
         // never unconditionally, so granted users are not re-asked on cold start.
@@ -1628,6 +1641,8 @@ impl VibecapApp {
             watch_folder: self.watch_folder.clone(),
             theme_follow_os: self.theme_follow_os,
             theme_dark_pick: self.theme_dark_pick.clone(),
+            whats_new_tag: self.whats_new_tag.clone(),
+            whats_new_notes: self.whats_new_notes.clone(),
         }
     }
 

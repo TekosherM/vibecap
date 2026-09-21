@@ -669,16 +669,16 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 281. **`vibecap open <id>`** — open a Library item straight in Review from CLI. ✓ (stills → Review via pending-still marker; clips/audio → OS default app)
 282. **CLI list** — `vibecap list [--type video] [--limit n]` prints media. ✓ (newest-first `name\tbytes\tkind`; --json array; --output-dir overrides the scanned dir)
 283. **CLI annotate** — `vibecap annotate file.png --arrow x1,y1,x2,y2` headless. ✓ (ops → headless bake via the GUI's own rasterizer → `<stem>_annotated.png`/`--out`; no ops → opens the Studio annotate surface)
-284. **Settings search** — filter box over all prefs.
-285. **Settings sections as rail** — left-nav inside Settings instead of scroll.
-286. **Setting tooltips** — every toggle explains its effect + default.
-287. **Reset-to-default per section** — not just global reset.
+284. **Settings search** — filter box over all prefs. ✓ (rail filter field matches section haystacks; filtering shows all hits and force-opens the collapsed groups)
+285. **Settings sections as rail** — left-nav inside Settings instead of scroll. ✓ (left rail: All / Save / Recording / Library / Advanced / Shortcuts & look / Agent / About & help; All preserves the old scroll)
+286. **Setting tooltips** — every toggle explains its effect + default. ✓ (each switch row carries a dim explainer line under it; non-obvious checkboxes also have hover text — e.g. PrtScn, explorer verb, deep links, portable, follow-OS)
+287. **Reset-to-default per section** — not just global reset. ✓ ("↺ Reset section" on Save / Recording / Library / Retro / Shortcuts & look / Agent cards — restores shipped defaults, hotkeys rebind, theme resets to Dark)
 288. **Wizard Windows page** — ffmpeg test-shot, mic check, hotkey conflict check.
 289. **Wizard MCP detect** — find Cursor/Claude/Codex configs, offer snippet paste.
 290. **Wizard theme pick** — live preview of all five, sets preference at first run.
-291. **Re-open wizard** — "Replay setup" in Settings.
-292. **In-app changelog** — What's New card after update.
-293. **Docs links in-app** — ? icon → relevant doc section per tab.
+291. **Re-open wizard** — "Replay setup" in Settings. ✓ (was already shipped — "Replay first-run wizard" button resets wizard state)
+292. **In-app changelog** — What's New card after update. ✓ (apply stashes tag+notes in session; ABOUT & HELP card shows them once with "Got it" dismiss)
+293. **Docs links in-app** — ? icon → relevant doc section per tab. ✓ (ABOUT & HELP card links capture recipes / MCP tools / roadmap / releases)
 294. **Stats card** — captures/week, bytes saved, streaks (round-2 #99, still open). ✓ (Library header stats line)
 295. **Budget dashboard** — per-session spend sparkline in Inbox.
 296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview.
