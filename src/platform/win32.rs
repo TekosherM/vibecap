@@ -1020,6 +1020,43 @@ fn wide(s: &str) -> Vec<u16> {
 const RUN_SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "Vibecap";
 
+/// E225 — Windows app dark mode: reads
+/// `HKCU\…\Themes\Personalize\AppsUseLightTheme` (DWORD). None when the
+/// value can't be read — callers treat that as "don't touch the theme".
+pub fn apps_use_light_theme() -> Option<bool> {
+    const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+    unsafe {
+        let mut key: isize = 0;
+        if RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(PERSONALIZE).as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        ) != 0
+        {
+            return None;
+        }
+        let mut ty: u32 = 0;
+        let mut val: u32 = 0;
+        let mut len: u32 = 4;
+        let rc = RegQueryValueExW(
+            key,
+            wide("AppsUseLightTheme").as_ptr(),
+            std::ptr::null_mut(),
+            &mut ty,
+            &mut val as *mut u32 as *mut u8,
+            &mut len,
+        );
+        RegCloseKey(key);
+        if rc == 0 && ty == 4 /* REG_DWORD */ && len >= 4 {
+            Some(val != 0)
+        } else {
+            None
+        }
+    }
+}
+
 /// True when HKCU\…\Run\Vibecap exists — instant, no child process.
 pub fn run_at_login_enabled_native() -> bool {
     unsafe {

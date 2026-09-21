@@ -524,6 +524,36 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         });
                     });
                 }
+                // E212 — portable mode: marker file beside the exe flips
+                // config + media under `<exe>/portable/` on next launch.
+                {
+                    let active = crate::platform::is_portable();
+                    let mut want = active;
+                    if ui
+                        .checkbox(&mut want, "Portable mode (restart to apply)")
+                        .on_hover_text(
+                            "Keeps settings + media in a `portable/` folder beside the \
+                             executable instead of the OS profile. Writes/removes a \
+                             `vibecap.portable` marker; takes effect on next launch. \
+                             Existing files are not migrated.",
+                        )
+                        .changed()
+                    {
+                        match crate::platform::set_portable_marker(want) {
+                            Ok(()) => app.show_toast(if want {
+                                "Portable mode armed — restart Vibecap".to_string()
+                            } else {
+                                "Portable mode off — restart Vibecap".to_string()
+                            }),
+                            Err(e) => app.show_toast(format!("Portable toggle failed: {e}")),
+                        }
+                    }
+                    if active {
+                        ui.label(
+                            RichText::new("running portable").size(10.5).color(theme::SUCCESS()),
+                        );
+                    }
+                }
                 ui.add_space(theme::SP_2);
                 ui.horizontal(|ui| {
                     let checking = app.update_rx.is_some();
@@ -594,6 +624,39 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             ui.add_space(theme::SP_2);
                         }
                     });
+                });
+                setting_row(ui, "Follow OS", |ui| {
+                    let mut on = app.theme_follow_os;
+                    if ui
+                        .checkbox(&mut on, "match Windows light/dark")
+                        .on_hover_text("Poll the Windows app theme every few seconds and switch themes with it")
+                        .changed()
+                    {
+                        app.theme_follow_os = on;
+                        app.os_dark_seen = None; // force converge on next tick
+                        app.persist_session();
+                    }
+                    if app.theme_follow_os {
+                        ui.label(
+                            RichText::new("dark pick:").size(11.0).color(theme::TEXT_DIM()),
+                        );
+                        for mode in [
+                            theme::ThemeMode::Dark,
+                            theme::ThemeMode::Carbon,
+                            theme::ThemeMode::Celestial,
+                            theme::ThemeMode::CelestialPink,
+                        ] {
+                            let name = theme::theme_mode_to_str(mode);
+                            let picked = app.theme_dark_pick == name;
+                            if ui
+                                .selectable_label(picked, theme::theme_mode_label(mode))
+                                .clicked()
+                            {
+                                app.theme_dark_pick = name.to_string();
+                                app.persist_session();
+                            }
+                        }
+                    }
                 });
                 ui.add_space(theme::SP_2);
                 ui.horizontal(|ui| {

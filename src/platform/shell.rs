@@ -1119,6 +1119,18 @@ pub fn explorer_verb_enabled() -> bool {
     false
 }
 
+/// E225 — Some(true) when the OS prefers dark app surfaces right now.
+/// None = unknown → the caller must not touch the theme.
+#[cfg(target_os = "windows")]
+pub fn os_apps_dark() -> Option<bool> {
+    super::win32::apps_use_light_theme().map(|light| !light)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn os_apps_dark() -> Option<bool> {
+    None
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn run_at_login_enabled() -> bool {
     false

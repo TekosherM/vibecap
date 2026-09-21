@@ -123,6 +123,14 @@ pub struct SessionState {
     /// (empty = off).
     #[serde(default)]
     pub watch_folder: String,
+    /// E225 — follow the OS light/dark preference (Windows reads
+    /// AppsUseLightTheme). Off = the picked theme is fixed.
+    #[serde(default)]
+    pub theme_follow_os: bool,
+    /// E225 — which dark theme "follow OS" falls back to (name string,
+    /// e.g. "dark" | "carbon" | "celestial" | "celestial-pink").
+    #[serde(default = "default_theme_dark")]
+    pub theme_dark_pick: String,
 }
 
 fn default_theme_dark() -> String {
@@ -218,6 +226,8 @@ impl Default for SessionState {
             library_list_view: false,
             tray_dblclick: default_tray_dblclick(),
             watch_folder: String::new(),
+            theme_follow_os: false,
+            theme_dark_pick: default_theme_dark(),
         }
     }
 }

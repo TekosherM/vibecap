@@ -863,6 +863,12 @@ pub(crate) struct VibecapApp {
     /// E211 — folder polled for media to move into the library; "" = off.
     watch_folder: String,
     watch_last_scan: Option<std::time::Instant>,
+    /// E225 — follow Windows light/dark for the theme.
+    theme_follow_os: bool,
+    /// E225 — dark theme used when the OS is dark (name string).
+    theme_dark_pick: String,
+    os_dark_seen: Option<bool>,
+    os_theme_poll_at: Option<std::time::Instant>,
 
     // First-run wizard (Phase 3)
     wizard_open: bool,
@@ -1310,6 +1316,11 @@ impl VibecapApp {
             _ => "open".into(),
         };
         self.watch_folder = s.watch_folder;
+        self.theme_follow_os = s.theme_follow_os;
+        self.theme_dark_pick = match s.theme_dark_pick.as_str() {
+            "carbon" | "dark" | "celestial" | "celestial-pink" => s.theme_dark_pick.clone(),
+            _ => "dark".into(),
+        };
         self.inbox_seen_stamp = s.inbox_seen_at.clone();
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
@@ -1384,6 +1395,8 @@ impl VibecapApp {
             library_list_view: self.library_list_view,
             tray_dblclick: self.tray_dblclick.clone(),
             watch_folder: self.watch_folder.clone(),
+            theme_follow_os: self.theme_follow_os,
+            theme_dark_pick: self.theme_dark_pick.clone(),
         }
     }
 
@@ -1860,7 +1873,50 @@ impl VibecapApp {
             ThemeMode::Celestial => apply_celestial_theme(ctx),
             ThemeMode::CelestialPink => theme::apply_celestial_pink_theme(ctx),
         }
+        // E225 — a manually-picked dark theme becomes the follow-OS dark
+        // target (Light is the OS-light target, not a pick).
+        if mode != ThemeMode::Light && self.theme_follow_os {
+            self.theme_dark_pick = theme::theme_mode_to_str(mode).to_string();
+        }
         self.persist_session();
+    }
+
+    /// E225 — live dark-mode follow: poll AppsUseLightTheme every 3 s and
+    /// re-theme on transitions (and once on enable, to converge).
+    fn tick_os_theme(&mut self, ctx: &egui::Context) {
+        if !self.theme_follow_os {
+            self.os_dark_seen = None;
+            return;
+        }
+        let now = std::time::Instant::now();
+        if self
+            .os_theme_poll_at
+            .map(|t| now.duration_since(t) < std::time::Duration::from_secs(3))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.os_theme_poll_at = Some(now);
+        let Some(dark) = crate::platform::os_apps_dark() else {
+            return;
+        };
+        let want = if dark {
+            theme::theme_mode_from_str(&self.theme_dark_pick)
+        } else {
+            ThemeMode::Light
+        };
+        let changed = match self.os_dark_seen {
+            None => theme::theme_mode() != want, // converge on launch/enable
+            Some(prev) => prev != dark,          // OS toggled
+        };
+        self.os_dark_seen = Some(dark);
+        if changed {
+            self.set_theme(ctx, want);
+            self.show_toast(format!(
+                "Theme followed Windows → {}",
+                theme::theme_mode_label(want)
+            ));
+        }
     }
 
     pub(crate) fn dump_retro_buffer(&mut self) {
@@ -5760,6 +5816,8 @@ impl eframe::App for VibecapApp {
         tray_ui::set_dblclick_is_open(self.tray_dblclick == "open");
         // E211 — watch-folder intake poll (3 s cadence inside).
         self.tick_watch_folder();
+        // E225 — OS dark-mode follow (3 s registry poll inside).
+        self.tick_os_theme(ctx);
 
         // Startup Screen Recording check: cheap, prompt-free preflight first.
         // Granted users are never asked again; the system dialog appears only

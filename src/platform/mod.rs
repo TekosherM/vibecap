@@ -46,7 +46,10 @@ pub fn stop_audio_preview() {
     #[cfg(windows)]
     win32::stop_sound();
 }
-pub use paths::{config_dir, live_dir, live_session_dir, media_dir, media_dir_display};
+pub use paths::{
+    config_dir, is_portable, live_dir, live_session_dir, media_dir, media_dir_display,
+    set_portable_marker,
+};
 pub use process::{cont_process, pause_supported, stop_process};
 #[cfg(windows)]
 pub(crate) use win32::{
@@ -73,7 +76,7 @@ pub use shell::window_rect_on_screen;
 pub use shell::{
     activate_own_app, explorer_verb_enabled, focus_app, frontmost_app_name, list_capture_windows,
     list_capture_windows_cached, list_monitors, list_running_apps, open_path,
-    open_screen_recording_settings, open_with, request_screen_recording_access,
+    open_screen_recording_settings, open_with, os_apps_dark, request_screen_recording_access,
     reveal_in_file_manager, run_at_login_enabled, screen_capture_allowed, set_explorer_verb,
     set_run_at_login, start_file_drag, window_tools_hint,
 };

@@ -1134,3 +1134,19 @@ pub fn theme_mode_to_str(m: ThemeMode) -> &'static str {
         ThemeMode::CelestialPink => "celestial-pink",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// E225 — the follow-OS dark pick round-trips through the persisted
+    /// string form for every theme (Light included; the caller filters it).
+    #[test]
+    fn theme_mode_str_roundtrip() {
+        for m in THEME_ORDER {
+            assert_eq!(theme_mode_from_str(theme_mode_to_str(m)), m);
+        }
+        // Unknown persisted values degrade to Dark, never panic.
+        assert_eq!(theme_mode_from_str("bogus"), ThemeMode::Dark);
+    }
+}
