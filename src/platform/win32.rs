@@ -1191,6 +1191,108 @@ pub fn set_run_at_login_native(enable: bool, cmdline: &str) -> Result<(), String
     }
 }
 
+// ── E34 — user env var (HKCU\Environment) so agents and the GUI agree ────────
+
+const ENV_SUBKEY: &str = "Environment";
+
+/// Write (or delete with `None`) a user-scoped env var. New processes see it
+/// on next launch; running shells keep their copy.
+pub fn set_user_env(name: &str, value: Option<&str>) -> Result<(), String> {
+    unsafe {
+        let mut key: isize = 0;
+        if RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            wide(ENV_SUBKEY).as_ptr(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            KEY_SET_VALUE,
+            std::ptr::null_mut(),
+            &mut key,
+            std::ptr::null_mut(),
+        ) != 0
+        {
+            return Err("could not open HKCU\\Environment".into());
+        }
+        let wname = wide(name);
+        let rc = match value {
+            Some(v) => {
+                let data: Vec<u16> = v.encode_utf16().chain(std::iter::once(0)).collect();
+                RegSetValueExW(
+                    key,
+                    wname.as_ptr(),
+                    0,
+                    REG_SZ,
+                    data.as_ptr() as *const u8,
+                    (data.len() * 2) as u32,
+                )
+            }
+            None => RegDeleteValueW(key, wname.as_ptr()),
+        };
+        RegCloseKey(key);
+        if rc == 0 || (value.is_none() && rc == ERROR_FILE_NOT_FOUND) {
+            Ok(())
+        } else {
+            Err(format!("registry write failed ({rc})"))
+        }
+    }
+}
+
+/// Read a user-scoped env var (HKCU\Environment).
+pub fn user_env(name: &str) -> Option<String> {
+    unsafe {
+        let mut key: isize = 0;
+        if RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(ENV_SUBKEY).as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        ) != 0
+        {
+            return None;
+        }
+        let wname = wide(name);
+        let mut ty: u32 = 0;
+        let mut len: u32 = 0;
+        if RegQueryValueExW(
+            key,
+            wname.as_ptr(),
+            std::ptr::null_mut(),
+            &mut ty,
+            std::ptr::null_mut(),
+            &mut len,
+        ) != 0
+            || len < 2
+        {
+            RegCloseKey(key);
+            return None;
+        }
+        let mut buf = vec![0u16; (len / 2) as usize];
+        if RegQueryValueExW(
+            key,
+            wname.as_ptr(),
+            std::ptr::null_mut(),
+            &mut ty,
+            buf.as_mut_ptr() as *mut u8,
+            &mut len,
+        ) != 0
+        {
+            RegCloseKey(key);
+            return None;
+        }
+        RegCloseKey(key);
+        let s = String::from_utf16_lossy(&buf)
+            .trim_end_matches('\0')
+            .to_string();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    }
+}
+
 // ── Explorer context verb (E216) — "Annotate with Vibecap" on images ──────────
 // `SystemFileAssociations\image` covers every image extension at once
 // (PerceivedType), so one verb serves .png/.jpg/.webp/… under HKCU — no
@@ -1359,6 +1461,56 @@ pub fn stop_sound() {
     unsafe {
         PlaySoundW(std::ptr::null(), std::ptr::null_mut(), 0);
     }
+}
+
+/// E202 — subtle shutter click: a ~25 ms decaying sine burst synthesized
+/// once to a temp WAV, played async via winmm. No bundled asset needed.
+pub fn shutter_click() {
+    let wav = std::env::temp_dir().join("vibecap_click.wav");
+    if !wav.exists() {
+        if std::fs::write(&wav, synth_click_wav()).is_err() {
+            return;
+        }
+    }
+    let wide: Vec<u16> = wav
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        PlaySoundW(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            SND_FILENAME | SND_ASYNC,
+        );
+    }
+}
+
+fn synth_click_wav() -> Vec<u8> {
+    const RATE: u32 = 22050;
+    const N: usize = (RATE as usize) / 40; // 25 ms
+    let mut data = Vec::with_capacity(44 + N * 2);
+    // RIFF/WAVE PCM16 mono header
+    data.extend_from_slice(b"RIFF");
+    data.extend_from_slice(&(36 + N as u32 * 2).to_le_bytes());
+    data.extend_from_slice(b"WAVEfmt ");
+    data.extend_from_slice(&16u32.to_le_bytes());
+    data.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    data.extend_from_slice(&1u16.to_le_bytes()); // mono
+    data.extend_from_slice(&RATE.to_le_bytes());
+    data.extend_from_slice(&(RATE * 2).to_le_bytes());
+    data.extend_from_slice(&2u16.to_le_bytes());
+    data.extend_from_slice(&16u16.to_le_bytes());
+    data.extend_from_slice(b"data");
+    data.extend_from_slice(&(N as u32 * 2).to_le_bytes());
+    for i in 0..N {
+        let t = i as f32 / RATE as f32;
+        // 1.8 kHz burst with exponential decay — a tick, not a beep.
+        let s = (t * 1800.0 * std::f32::consts::TAU).sin() * (-t * 160.0).exp() * 0.35;
+        data.extend_from_slice(&((s * i16::MAX as f32) as i16).to_le_bytes());
+    }
+    data
 }
 
 // ---------------------------------------------------------------------------

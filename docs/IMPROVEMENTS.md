@@ -68,7 +68,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 31. **Post-capture toast must not steal the still tab** if the user is mid-annotate. Today success always `open_still_from_path`. ✓ (was already shipped — `is_annotating` guard keeps the still you're editing; toast says 'finish this markup first')
 32. **Copy path / Copy image / Reveal / Annotate / Discard** on the toast (Discard = undo trash). Copy image exists on Still (⌘C); toast should offer it. ✓ (was already shipped — all five actions on the capture card)
 33. **Naming tokens** `{app}-{date}-{seq}` with a live preview in Settings. Default `screenshot_YYYY-MM-DD_HH-MM-SS.jpg` is unreadable in a folder of 200.
-34. **Save-to last folder vs default media dir.** Agents pass `--output-dir`; GUI always uses `save_dir`. Add “set as agent default” so GUI and CLI agree (`VIBECAP_OUTPUT_DIR`).
+34. **Save-to last folder vs default media dir.** Agents pass `--output-dir`; GUI always uses `save_dir`. Add “set as agent default” so GUI and CLI agree (`VIBECAP_OUTPUT_DIR`). ✓ ('Use for CLI/agents' now persists VIBECAP_OUTPUT_DIR to HKCU\Environment via set_user_env, plus a 'Clear agent default' button)
 35. **GIF as a first-class shutter action** (still / record / GIF). Today GIF is an export from Clip or `--gif` on stop. ✓ (GIF button in the shutter strip next to Record)
 36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies. ◑ (the lie is fixed — Windows recordings now add a real dshow audio input and fail loudly when no device resolves; live level meter still open)
 37. **Disable or warn the audio switch** on Windows until a device is detected (`ffmpeg -list_devices`). ✓ (async device probe + warn row existed; now the recording actually carries audio — and with zero devices the spawn errors honestly instead of recording silence)
@@ -96,28 +96,28 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 ## 6 · Clip editor
 
 51. **Preview is silent flipbook (~24 JPEGs).** Label it “preview (no audio)” in the player chrome, not only a hover. Offer **Open** more prominently for fidelity. ✓ (was already shipped — 'Preview (no audio)' label + flipbook hint in player chrome)
-52. **Don’t block the UI on extract** (async already). Show a determinate bar (`frame i/n`) instead of “Preparing preview frames…”.
-53. **Keep `frames_temp/` out of the library** and delete on Clip close / app exit (today thumbs are removed in `extract_filmstrip_rgba`, but a crash leaves the dir).
-54. **In/out handles must match export.** Verify GIF/trim ffmpeg `-ss/-to` uses the same seconds as the ruler (probed duration vs filmstrip fps drift).
+52. **Don’t block the UI on extract** (async already). Show a determinate bar (`frame i/n`) instead of “Preparing preview frames…”. ✓ (async + determinate 'Extracting preview… i/n' from filmstrip_progress)
+53. **Keep `frames_temp/` out of the library** and delete on Clip close / app exit (today thumbs are removed in `extract_filmstrip_rgba`, but a crash leaves the dir). ✓ (denylisted in scans; cleanup_frames_temp on clip-close and exit; in the reclaimable sweep)
+54. **In/out handles must match export.** Verify GIF/trim ffmpeg `-ss/-to` uses the same seconds as the ruler (probed duration vs filmstrip fps drift). ✓ (trim export probes output vs expected span and warns on keyframe drift)
 55. **Frame step ←/→** and `J/K` while the player is focused. ✓ (ArrowLeft/Right + J/K in the Clip player)
 56. **Loop region** between in/out. ✓ (`clip_loop`, L key + transport toggle — playhead wraps to in-point)
-57. **Export presets:** “Discord 8 MB”, “README 480p 3s”, “full lossless”. One ffmpeg line each.
-58. **GIF dialog:** fps / width / estimated size before encode. Current export is a fixed `fps=15,scale=800`.
-59. **Audio extract** (m4a) from the TOOLS card — wardrobe has transforms; no “strip audio / extract audio”.
+57. **Export presets:** “Discord 8 MB”, “README 480p 3s”, “full lossless”. One ffmpeg line each. ✓ (PRESETS group: Discord 8 MB / README 480p 3s / Full lossless)
+58. **GIF dialog:** fps / width / estimated size before encode. Current export is a fixed `fps=15,scale=800`. ✓ (fps + width sliders, ping-pong, ~KB estimate in the GIF group)
+59. **Audio extract** (m4a) from the TOOLS card — wardrobe has transforms; no “strip audio / extract audio”. ✓ (TOOLS → Extract audio → .m4a)
 60. **Chapter markers** during record (hotkey drops a timestamp sidecar) → Clip marker ticks. Pause is the wrong tool for “note this moment”. ✓ (REC-bar chapter button drops timestamp sidecar → Clip marker ticks)
 
 ---
 
 ## 7 · Still & annotation
 
-61. **Crop by dragging on the preview**, not four text fields (`img_crop_x/y/w/h` parse in `main.rs`). Numeric fields stay as precision.
+61. **Crop by dragging on the preview**, not four text fields (`img_crop_x/y/w/h` parse in `main.rs`). Numeric fields stay as precision. ✓ (crop_drag on the still preview feeds the numeric fields)
 62. **Annotation undo/redo.** `annotation_actions` is a vec with no history stack; Esc exits the whole studio. ✓ (undo stack + Ctrl+Z; draft persistence fingerprint tracks pushes/undos)
-63. **Esc from annotate returns to Still/Inbox**, not a blank capture tab.
+63. **Esc from annotate returns to Still/Inbox**, not a blank capture tab. ✓ (Esc clears text-edit/crop/selection in place rather than exiting)
 64. **Blur is a filled overlay**, not a real pixel blur (`AnnotationTool::Blur`). Bake a box-blur (or mosaic) so PII is actually gone in the exported JPG. ✓ (`pixelate_rect` mosaic bakes into pixels — the preview overlay is just chrome)
-65. **Text tool: in-place editor** at the click, not a separate `pending_text` field you type first.
+65. **Text tool: in-place editor** at the click, not a separate `pending_text` field you type first. ✓ (text_edit_at spawns an inline Area editor at the click point)
 66. **Step badges renumber** when you delete one. ✓ (`renumber_step_badges` on remove)
 67. **Zoom/pan** on the still canvas (scroll = zoom, space+drag = pan, 0 = fit). 4K stills in a 1160×800 window are unusable to annotate. ✓ (scroll zoom 25–400%, Space+drag pan, 0 fit / 1 true-100%)
-68. **Save as copy vs overwrite.** Baking currently writes next to the original; make the two actions explicit.
+68. **Save as copy vs overwrite.** Baking currently writes next to the original; make the two actions explicit. ✓ ('Save overwrite' and 'Save as copy' are separate explicit buttons)
 69. **Copy image vs copy path** as two shortcuts (⌘C image, ⇧⌘C path) — ⌘C is image-only today. ✓ (Ctrl+C image, Ctrl+Shift+C path)
 70. **Voice note on Windows.** `spawn_voice_memo` uses dshow `virtual-audio-capturer` by default — a virtual *playback* capture driver, not a mic. Use the default WASAPI/dshow *audio input* device. ✓ (spawn_voice_memo resolves real dshow input devices, not virtual-audio-capturer by default)
 
@@ -145,7 +145,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 83. **Wizard: ffmpeg + Windows capture test.** Today welcome → save dir → budget → shortcuts. On Windows the failure mode is missing ffmpeg / GPU window. Add a one-click test still. ✓ ("Run a test capture" on the final step — real still to temp on a worker, ✓ bytes / ✗ error inline; ffmpeg-missing hint when absent)
 84. **Wizard: MCP client detect** (Cursor / Claude Desktop / Codex config paths) with a copyable snippet. Highest activation ROI; still missing. ✓ (new step 5: detects Cursor ~/.cursor/mcp.json, Codex ~/.codex/config.toml, Claude Desktop config; copyable --mcp snippet + CLI fallback note)
 85. **Settings ffmpeg hint is Homebrew-only** (`brew install ffmpeg`). Windows should say `winget install Gyan.FFmpeg` (the error in `ffmpeg.rs` already does — Settings UI does not). ✓ (was already shipped — platform-conditional hint)
-86. **Windows permissions card.** macOS has Screen Recording; Windows needs “can gdigrab?” + “mic/loopback device” + “tray allowed”. Empty Settings on Windows looks unfinished.
+86. **Windows permissions card.** macOS has Screen Recording; Windows needs “can gdigrab?” + “mic/loopback device” + “tray allowed”. Empty Settings on Windows looks unfinished. ✓ (WINDOWS STATUS card: live ✓/✗ for ffmpeg gdibrab, audio input, tray + resolved mic name; stale 'pause unavailable' copy fixed)
 87. **Close-to-tray copy is macOS** (“menu bar icon”). On Windows say “notification area / system tray”. ✓ (was already shipped — platform-conditional)
 88. **Tray “Hide to Menu Bar”** label (`tray_ui.rs`) — Windows users do not have a menu bar. “Hide to tray”. ✓ (was already shipped — platform-conditional)
 89. **Single-instance optional.** Docs celebrate multi-process (GUI + MCP). GUI+GUI is confusing (two trays, two hotkeys). Second GUI should focus the first unless `--mcp` / `--screenshot`. ✓ (gui.lock + focus-existing; --mcp/--screenshot bypass)
@@ -199,9 +199,9 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 10. **Global Esc during pick** — a focus-loss can't orphan the overlay (listen on the pump).
 11. **Clipboard-only stills** — copy and discard the file; never touches the library. ✓
 12. **Clipboard format pref** — PNG vs JPEG for copy (PNG preserves sharp text edges).
-13. **Shutter sound** — subtle click on capture; off by default.
+13. **Shutter sound** — subtle click on capture; off by default. ✓ (synthesized 25 ms decaying-sine WAV via winmm PlaySoundW, no bundled asset; Settings toggle, off by default)
 14. **Pre-warm backdrop** — reuse the previous snap as the overlay's backdrop instantly, stamped "refreshing…" until the new snap lands. ✓
-15. **PrtScn capture** — optional single-key still via a dedicated hotkey slot.
+15. **PrtScn capture** — optional single-key still via a dedicated hotkey slot. ✓ (opt-in 'PrtScn still' checkbox registers bare PrintScreen globally)
 16. **Z-cycle in window-pick** — scroll wheel steps through overlapping windows under the cursor. ✓
 17. **Pick card shows process + monitor** under the window title.
 18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test). ✓ (was already shipped — `show_countdown_bubble` is its own always-on-top viewport)
@@ -242,7 +242,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 47. **Follow-cursor recording** — crop rect pans with the pointer (for zoomed tutorials).
 48. **Webcam bubble** — second gdigrab/dshow source composited corner-overlay (big).
 49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters.
-50. **Pause/resume hotkey** — dedicated digit.
+50. **Pause/resume hotkey** — dedicated digit. ✓ (opt-in Ctrl+Shift+N via 'Pause hotkey' in Settings; WakeEvent::PauseToggle wakes a parked studio like Stop)
 51. **REC bar source line** — shows target rect/monitor + audio state. ✓ (caption row under the timer: "Display 2" / "Region 800×600" / "Window: app" + ⚑ count; audio flag only where capture honors it)
 52. **REC bar position memory** — draggable, persists. ✓ (empty-space drag via ViewportCommand::StartDrag; position tracked from outer_rect, session-persisted, bounds-checked on load)
 53. **Marker hotkey during record** — drops a chapter at press. ✓ (⚑ button on the REC bar works while parked; M key when focused; → .markers.txt on finalize)
@@ -264,9 +264,9 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 66. **Clipboard history** — last 10 captures in a tray submenu + palette. (tray "Recent captures" shipped — 5 slots; palette half still open)
 67. **Copy as Markdown image** — `![](path)` for docs. ✓
 68. **Copy file URI / data URI** for devs. ✓ (Still ⋯ menu — file:// + data: URI with in-house base64, 8 MB cap)
-69. **Copy + reveal combo** action on the toast card.
+69. **Copy + reveal combo** action on the toast card. ✓ (toast has Copy, Copy path, Reveal, Annotate, Discard)
 70. **Auto-open editor** toggle (some flows never want Review). ✓ ("Open captures in Review" switch, default on; off stages the editor silently without the tab jump)
-71. **OS drag-out** of the capture card thumbnail into Explorer/Slack (open item).
+71. **OS drag-out** of the capture card thumbnail into Explorer/Slack (open item). ✓ (recent tiles drag via OLE CF_HDROP — shipped with the recents carousel)
 72. **Size guard hint** — warn + auto-shrink offer when a still exceeds Discord's 8 MB. ✓ (>8 MB toast warns + points at "Export for Discord" — iterative q85 JPEG / 0.8× shrink until under)
 73. **Post-capture actions menu** — copy path / reveal / open / delete right on the card. ✓ (was already shipped: Annotate · Copy Image · Copy Path · Reveal · Discard)
 
@@ -286,21 +286,21 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 
 ## F · Hotkeys, tray, system
 
-85. **Hotkey rebind UI** — Settings editor, applies without restart (open #81).
+85. **Hotkey rebind UI** — Settings editor, applies without restart (open #81). ✓ (hotkey digits rebindable in Settings; rebind_global_hotkeys applies live)
 86. **Per-mode hotkeys** — region-still / window-still / GIF / pause.
-87. **Tray recent-captures** submenu.
-88. **Tray pause/resume** item during record.
+87. **Tray recent-captures** submenu. ✓ (tray 'Recent captures' — 5 slots)
+88. **Tray pause/resume** item during record. ✓ (Pause/Resume Recording under Stop, Recording{paused} label + ⏸ title)
 89. **Tray "repeat last capture"** item. ✓
-90. **Tray double-click = screenshot** option.
-91. **CLI poke running GUI** — `vibecap --capture` forwards to the single instance.
-92. **Watch-folder import** — drop shots into the library dir.
-93. **Portable mode** — config beside the exe.
-94. **Profile export/import** — settings as a file.
+90. **Tray double-click = screenshot** option. ✓ (Settings 'Tray double-click' → Open/Screenshot/Record; deferred-click dedup)
+91. **CLI poke running GUI** — `vibecap --capture` forwards to the single instance. ✓ (`vibecap poke <verb>` → pending_cmd marker → running/parked instance)
+92. **Watch-folder import** — drop shots into the library dir. ✓ (session watch_folder + 3 s sweep, parked-side via the pump)
+93. **Portable mode** — config beside the exe. ✓ (vibecap.portable marker beside the exe redirects config+media)
+94. **Profile export/import** — settings as a file. ✓ (.vcap-profile zip, manifest+session, masked import)
 95. **Silent mode** — suppress toasts + flash. ✓
 96. **Update toast with changelog** link.
 97. **First-run health check** — ffmpeg, DPI awareness, write-perms, tray.
 98. **`?` cheat sheet** — in-app shortcut overlay. ✓
-99. **Stats card** — captures this week, bytes, streak.
+99. **Stats card** — captures this week, bytes, streak. ✓ (Library header line: 'This week: N · size · D-day streak' bucketed from item mtimes)
 100. **Crash-recovery** — restore unsaved annotations on next launch.
 
 ### Round-2 first cut (built this pass)
@@ -508,7 +508,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 147. **Player always-visible Open** — real-player fallback button lives in chrome, not only on error. ✓ (transport bar)
 148. **Preview quality toggle** — half-res filmstrip for long clips. ✓ (Settings → "Low-res clip preview" → 240px filmstrip via session `filmstrip_low_res`)
 149. **Auto-play setting** — the autoplay we shipped becomes a Settings toggle. ✓ (session-persisted `clip_autoplay`)
-150. **Clip deletion guard** — deleting a recording with unsaved trims asks once.
+150. **Clip deletion guard** — deleting a recording with unsaved trims asks once. ✓ (deleting the clip open in Review with unsaved cuts/trims opens a one-time 'Delete unsaved clip work?' confirm; remembered per path per session)
 
 ## G · Library (151–175)
 
@@ -570,7 +570,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 201. **Hotkey rebind UI** — Settings editor, applies live (round-1 open). ✓ (`rebind_global_hotkeys` unregisters/re-registers; conflict toast names the taken combo)
 202. **Per-mode hotkeys** — region-still, window-still, GIF, pause each rebindable.
-203. **Hotkey conflict detect** — warn when binding collides with OS/browser.
+203. **Hotkey conflict detect** — warn when binding collides with OS/browser. ✓ (rebind reports 'already taken by another app' per failed combo — includes pause/PrtScn)
 204. **Tray recent-captures** — last 5 items submenu with copy/reveal. ✓ (5 slots follow the library scan; click opens the file)
 205. **Tray pause/resume** — during record. ✓ ("Pause/Resume Recording" item under Stop, enabled only while recording; `TrayLiveState::Recording{paused}` drives label + ⏸ tray title; parked clicks wake through `pump_needs_wake` like Stop)
 206. **Tray double-click action** — configurable (screenshot / open / record). ✓ (Settings → "Tray double-click" segmented; TrayIconEvent::DoubleClick → TrayAction::DoubleClick resolved per session `tray_dblclick`. Single clicks defer one 400 ms double-click window via shared PENDING_CLICK state — consumed by both the visible-path `poll_actions` and the parked pump's `drain_tray_channels` — so a configured screenshot/record no longer pops the studio first. When the action IS "open" clicks stay instant: a double just shows twice)
@@ -679,7 +679,7 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 291. **Re-open wizard** — "Replay setup" in Settings.
 292. **In-app changelog** — What's New card after update.
 293. **Docs links in-app** — ? icon → relevant doc section per tab.
-294. **Stats card** — captures/week, bytes saved, streaks (round-2 #99, still open).
+294. **Stats card** — captures/week, bytes saved, streaks (round-2 #99, still open). ✓ (Library header stats line)
 295. **Budget dashboard** — per-session spend sparkline in Inbox.
 296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview.
 297. **Export diagnostics bundle** — one click → zip of logs+session+doctor for bug reports.

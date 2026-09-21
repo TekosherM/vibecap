@@ -413,6 +413,49 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         );
     }
 
+    // E294 — stats line: captures this week, bytes, consecutive-day streak.
+    {
+        let now_day = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() / 86_400)
+            .unwrap_or(0);
+        let mut week_n = 0u32;
+        let mut week_bytes = 0u64;
+        let mut active_days = std::collections::HashSet::new();
+        for item in &app.library_items {
+            let d = item.modified_secs / 86_400;
+            if d <= now_day {
+                active_days.insert(d);
+                if now_day - d < 7 {
+                    week_n += 1;
+                    week_bytes += item.size_bytes;
+                }
+            }
+        }
+        // Streak counts back from today (or yesterday if today is empty).
+        let mut streak = 0u32;
+        let mut d = if active_days.contains(&now_day) {
+            now_day
+        } else {
+            now_day.saturating_sub(1)
+        };
+        while active_days.contains(&d) {
+            streak += 1;
+            d = d.saturating_sub(1);
+        }
+        if week_n > 0 {
+            ui.label(
+                RichText::new(format!(
+                    "This week: {week_n} · {} · {}-day streak",
+                    crate::app::library::format_size(week_bytes),
+                    streak
+                ))
+                .small()
+                .color(theme::TEXT_DIM()),
+            );
+        }
+    }
+
     // E168 — recently-deleted shelf: the undo window (12 s) is easy to miss
     // in a toast; pin it under the toolbar while it's still live.
     let trash_n = app

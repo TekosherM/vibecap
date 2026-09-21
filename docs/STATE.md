@@ -309,3 +309,14 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - System #89-98, #100 shipped (single-instance, update checker+apply, ps1 smoke, gif_pending, doctor, shared still path, budget toast, capture_flow.rs, current STATE).
 - New code: #91 `--paths` prints `gui_stdio=detached (windows_subsystem)`; #94 `.ffmpeg.log` deleted on verify-clean stop, kept on repair/failure.
 - 99/99 tests.
+
+### Hotkeys + settings polish — pause digit, PrtScn, shutter sound, Windows status card, stats, agent env
+- #150: deleting the clip open in Review with unsaved cuts/trims routes through a one-time "Delete unsaved clip work?" modal; delete_guard_ok remembers per path per session.
+- #50: opt-in `hotkey_pause_digit` (Ctrl+Shift+N) → WakeEvent::PauseToggle; pump_needs_wake treats it as a recording-control intent (wakes parked studio).
+- #204: opt-in `hotkey_prtscn` registers bare PrintScreen → still path (steals the OS key while running — checkbox warns).
+- #202: shutter_sound session flag → synthesized 25 ms decaying-sine WAV via PlaySoundW; temp file cached; off by default.
+- #220: WINDOWS STATUS card — live ✓/✗ lines for ffmpeg gdibrab, audio input device, tray + resolved mic label; fixed stale "pause unavailable" copy.
+- #34: "Use for CLI/agents" persists VIBECAP_OUTPUT_DIR via HKCU\Environment (set_user_env/user_env FFI) + Clear agent default.
+- #294: Library stats line — week count, bytes, consecutive-day streak.
+- bind_extra_hotkeys/unbind_extra_hotkeys centralize the extras for bind+rebind; hotkey ids flow to the pump.
+- 99/99 tests.

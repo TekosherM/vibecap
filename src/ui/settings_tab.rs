@@ -41,8 +41,27 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         let _ = crate::platform::open_path(&dir);
                     }
                     if btn_small(ui, "Use for CLI/agents") {
+                        // E34 — process-local for this session AND persisted
+                        // to the user env so future agent shells inherit it.
                         std::env::set_var("VIBECAP_OUTPUT_DIR", dir.display().to_string());
-                        app.show_toast("This folder is VIBECAP_OUTPUT_DIR for this process");
+                        match crate::platform::set_user_env(
+                            "VIBECAP_OUTPUT_DIR",
+                            Some(&dir.display().to_string()),
+                        ) {
+                            Ok(()) => app.show_toast(
+                                "VIBECAP_OUTPUT_DIR saved — new shells/agents use this folder",
+                            ),
+                            Err(_) => app.show_toast(
+                                "Set for this process only (persist not supported here)",
+                            ),
+                        }
+                    }
+                    #[cfg(target_os = "windows")]
+                    if crate::platform::user_env("VIBECAP_OUTPUT_DIR").is_some()
+                        && btn_small(ui, "Clear agent default")
+                    {
+                        let _ = crate::platform::set_user_env("VIBECAP_OUTPUT_DIR", None);
+                        app.show_toast("Agent default cleared");
                     }
                 });
                 ui.add_space(theme::SP_2);
@@ -265,12 +284,40 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             .default_open(false)
             .show(ui, |ui| {
             #[cfg(target_os = "windows")]
-            section_card(ui, "WINDOWS CAPTURE", |ui| {
+            section_card(ui, "WINDOWS STATUS", |ui| {
+                // E220 — one green/red line per dependency so "empty Settings
+                // on Windows" reads as a health card, not a stub.
+                let ffmpeg_ok = crate::platform::ffmpeg_path().is_some();
+                let mic = if app.audio_device.is_empty() {
+                    match app.audio_devices.first() {
+                        Some(d) => format!("auto → {d}"),
+                        None => "auto (first dshow device)".to_string(),
+                    }
+                } else {
+                    app.audio_device.clone()
+                };
+                for (label, ok) in [
+                    ("ffmpeg gdigrab (stills + recording)", ffmpeg_ok),
+                    ("audio input device", !app.audio_devices.is_empty() || !app.audio_device.is_empty()),
+                    ("tray icon", app.tray.is_some()),
+                ] {
+                    ui.label(
+                        RichText::new(format!("{} {label}", if ok { "✓" } else { "✗" }))
+                            .size(12.0)
+                            .color(if ok { theme::SUCCESS() } else { theme::DANGER() }),
+                    );
+                }
+                ui.label(
+                    RichText::new(format!("mic: {mic}"))
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
+                ui.add_space(theme::SP_1);
                 ui.label(
                     RichText::new(
-                        "Stills and recordings use ffmpeg gdigrab. GPU apps (Chrome) are brought to the front so the shot is not black. Pause is unavailable on Windows.",
+                        "GPU apps (Chrome) are brought to the front so the shot is not black. Pause suspends the ffmpeg child.",
                     )
-                    .size(12.0)
+                    .size(11.0)
                     .color(theme::TEXT_MUTED()),
                 );
                 ui.add_space(theme::SP_1);
@@ -422,6 +469,25 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ui.add(egui::Slider::new(&mut app.hotkey_shot_digit, 0..=9).prefix("#"));
                     ui.label("Record");
                     ui.add(egui::Slider::new(&mut app.hotkey_rec_digit, 0..=9).prefix("#"));
+                });
+                // E50/E204 — opt-in extras: pause digit + bare PrtScn.
+                ui.horizontal(|ui| {
+                    let mut pause_on = app.hotkey_pause_digit.is_some();
+                    if ui.checkbox(&mut pause_on, "Pause hotkey").changed() {
+                        app.hotkey_pause_digit = pause_on.then_some(4);
+                    }
+                    if let Some(d) = app.hotkey_pause_digit.as_mut() {
+                        ui.add(egui::Slider::new(d, 0..=9).prefix("#"));
+                    }
+                    ui.checkbox(&mut app.hotkey_prtscn, "PrtScn still")
+                        .on_hover_text("Bare PrtScn takes a screenshot while Vibecap runs");
+                    if ui
+                        .checkbox(&mut app.shutter_sound, "Shutter sound")
+                        .on_hover_text("Subtle click when a still lands")
+                        .changed()
+                    {
+                        app.persist_session();
+                    }
                 });
                 if btn_small(ui, "Apply hotkeys") {
                     match app.rebind_global_hotkeys() {

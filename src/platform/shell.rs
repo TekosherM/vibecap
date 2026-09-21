@@ -801,6 +801,39 @@ pub fn open_with(path: &Path) -> Result<(), String> {
     }
 }
 
+/// E34 — persist a user-scoped env var (Windows: HKCU\Environment). Other
+/// platforms have no portable per-user env store — returns Err there.
+pub fn set_user_env(name: &str, value: Option<&str>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::set_user_env(name, value)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (name, value);
+        Err("persistent env vars are not supported on this platform".into())
+    }
+}
+
+/// Read a persisted user-scoped env var (None off-Windows).
+pub fn user_env(name: &str) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::user_env(name)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = name;
+        None
+    }
+}
+
+/// E202 — subtle shutter click on capture (opt-in). No-op off-Windows.
+pub fn shutter_click() {
+    #[cfg(target_os = "windows")]
+    super::win32::shutter_click();
+}
+
 /// E62 — battery state: `Some(true)` on battery, `Some(false)` on AC,
 /// `None` when the OS can't say (desktops without a battery report AC).
 pub fn on_battery() -> Option<bool> {

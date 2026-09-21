@@ -61,6 +61,15 @@ pub struct SessionState {
     /// Global record hotkey digit (Ctrl+Shift+N). Default 2.
     #[serde(default = "default_hotkey_rec")]
     pub hotkey_rec_digit: u8,
+    /// E50 — pause/resume hotkey digit (Ctrl+Shift+N); None = unbound.
+    #[serde(default)]
+    pub hotkey_pause_digit: Option<u8>,
+    /// E204 — bare PrtScn takes a still (opt-in; steals the OS key).
+    #[serde(default)]
+    pub hotkey_prtscn: bool,
+    /// E202 — subtle click when a still lands; off by default.
+    #[serde(default)]
+    pub shutter_sound: bool,
     /// True after we have triggered the macOS Screen Recording permission probe once.
     #[serde(default)]
     pub screen_permission_prompted: bool,
@@ -213,6 +222,9 @@ impl Default for SessionState {
             ],
             hotkey_shot_digit: 3,
             hotkey_rec_digit: 2,
+            hotkey_pause_digit: None,
+            hotkey_prtscn: false,
+            shutter_sound: false,
             screen_permission_prompted: false,
             screen_permission_ok: false,
             rail_open: false,

@@ -180,6 +180,8 @@ enum WakeEvent {
     ToggleWindow,
     Screenshot,
     RecordToggle,
+    /// E50 — dedicated pause/resume hotkey (Ctrl+Shift+N, opt-in digit).
+    PauseToggle,
     Tray(TrayAction),
 }
 
@@ -302,6 +304,8 @@ fn spawn_wake_pump(
     id_shot: u32,
     id_rec: u32,
     id_summon: u32,
+    id_pause: u32,
+    id_prtscn: u32,
     shared: Arc<WakeShared>,
     ctx: egui::Context,
 ) {
@@ -318,6 +322,11 @@ fn spawn_wake_pump(
                         pump_event(&shared, &ctx, WakeEvent::RecordToggle);
                     } else if event.id == id_summon {
                         pump_summon(&shared, &ctx);
+                    } else if event.id == id_pause {
+                        pump_event(&shared, &ctx, WakeEvent::PauseToggle);
+                    } else if event.id == id_prtscn {
+                        // E204 — bare PrtScn behaves like the screenshot hotkey.
+                        pump_still_event(&shared, &ctx);
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
@@ -399,6 +408,7 @@ fn pump_needs_wake(ev: &WakeEvent, parked: bool, still_busy: bool) -> bool {
     matches!(
         ev,
         WakeEvent::RecordToggle
+            | WakeEvent::PauseToggle
             | WakeEvent::Show
             | WakeEvent::Tray(TrayAction::ToggleRecord)
             | WakeEvent::Tray(TrayAction::TogglePause)
@@ -649,6 +659,11 @@ pub(crate) struct VibecapApp {
     library_selected: std::collections::HashSet<PathBuf>,
     /// Pending confirm for clear-all in current category.
     library_confirm_clear: bool,
+    /// E150 — deleting a clip with unsaved trims asks once: paths parked
+    /// here while the confirm modal is up; `delete_guard_ok` remembers the
+    /// "delete anyway" answer per path for the session.
+    confirm_delete: Option<Vec<PathBuf>>,
+    delete_guard_ok: std::collections::HashSet<PathBuf>,
 
     // Edit tab & Video Processing
     trim_start: String,
@@ -759,6 +774,8 @@ pub(crate) struct VibecapApp {
     hotkey_id_screenshot: u32,
     /// Hotkey id → summon/hide the window (Ctrl+Alt+V).
     hotkey_id_summon: u32,
+    hotkey_id_pause: u32,
+    hotkey_id_prtscn: u32,
 
     // System tray (menu bar / notification area)
     tray: Option<TrayController>,
@@ -854,6 +871,14 @@ pub(crate) struct VibecapApp {
     /// not the (possibly edited) pending digits.
     hotkey_shot_digit_prev: u8,
     hotkey_rec_digit_prev: u8,
+    /// E50 — opt-in pause/resume hotkey digit (None = unbound).
+    hotkey_pause_digit: Option<u8>,
+    hotkey_pause_digit_prev: Option<u8>,
+    /// E204 — opt-in bare PrtScn still (steals the OS key while running).
+    hotkey_prtscn: bool,
+    hotkey_prtscn_prev: bool,
+    /// E202 — subtle click when a still lands; session-backed, off default.
+    shutter_sound: bool,
     region_snap_path: Option<PathBuf>,
     region_snap_rx: Option<Receiver<Result<(PathBuf, u32, u32, Vec<u8>), String>>>,
     brand_logo: Option<egui::TextureHandle>,
@@ -1077,6 +1102,11 @@ impl VibecapApp {
             hotkey_rec_digit: 2,
             hotkey_shot_digit_prev: 3,
             hotkey_rec_digit_prev: 2,
+            hotkey_pause_digit: None,
+            hotkey_pause_digit_prev: None,
+            hotkey_prtscn: false,
+            hotkey_prtscn_prev: false,
+            shutter_sound: false,
             save_dir: default_dir,
             wake_shared: Arc::new(WakeShared::default()),
             arm_cancel: Arc::new(AtomicBool::new(false)),
@@ -1084,6 +1114,8 @@ impl VibecapApp {
             hotkey_id_record: 0,
             hotkey_id_screenshot: 0,
             hotkey_id_summon: 0,
+            hotkey_id_pause: 0,
+            hotkey_id_prtscn: 0,
             trim_start: "00:00:00".to_string(),
             trim_end: "00:00:05".to_string(),
             export_speed: "1.0".to_string(),
@@ -1102,6 +1134,8 @@ impl VibecapApp {
             library_show_limit: LIBRARY_PAGE_SIZE,
             library_selected: std::collections::HashSet::new(),
             library_confirm_clear: false,
+            confirm_delete: None,
+            delete_guard_ok: std::collections::HashSet::new(),
             budget_frames_input: "0".to_string(),
             budget_mb_input: "0.0".to_string(),
             budget_minutes_input: "0".to_string(),
@@ -1168,6 +1202,8 @@ impl VibecapApp {
                 app.hotkey_id_screenshot,
                 app.hotkey_id_record,
                 app.hotkey_id_summon,
+                app.hotkey_id_pause,
+                app.hotkey_id_prtscn,
                 app.wake_shared.clone(),
                 cc.egui_ctx.clone(),
             );
@@ -1236,12 +1272,56 @@ impl VibecapApp {
         let _ = manager.register(hk_summon);
         self.hotkey_rec_digit_prev = rec;
         self.hotkey_shot_digit_prev = shot;
+        self.bind_extra_hotkeys();
+    }
+
+    /// E50/E204 — opt-in extras: pause digit (Ctrl+Shift+N) and bare PrtScn.
+    /// Registers + records ids; shared by `bind` and `rebind`.
+    fn bind_extra_hotkeys(&mut self) {
+        self.hotkey_id_pause = 0;
+        self.hotkey_id_prtscn = 0;
+        let Some(manager) = self.hotkey_manager.as_ref() else {
+            return;
+        };
+        if let Some(d) = self.hotkey_pause_digit {
+            let hk = HotKey::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Self::digit_code(d.clamp(0, 9)),
+            );
+            self.hotkey_id_pause = hk.id();
+            let _ = manager.register(hk);
+        }
+        if self.hotkey_prtscn {
+            let hk = HotKey::new(None, Code::PrintScreen);
+            self.hotkey_id_prtscn = hk.id();
+            let _ = manager.register(hk);
+        }
+        self.hotkey_pause_digit_prev = self.hotkey_pause_digit;
+        self.hotkey_prtscn_prev = self.hotkey_prtscn;
+    }
+
+    /// Unregister the extras as previously bound (ids are deterministic
+    /// hashes of mods+code, so rebuild them from the `_prev` fields).
+    fn unbind_extra_hotkeys(&mut self) {
+        let Some(manager) = self.hotkey_manager.as_ref() else {
+            return;
+        };
+        if let Some(d) = self.hotkey_pause_digit_prev {
+            let _ = manager.unregister(HotKey::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Self::digit_code(d.clamp(0, 9)),
+            ));
+        }
+        if self.hotkey_prtscn_prev {
+            let _ = manager.unregister(HotKey::new(None, Code::PrintScreen));
+        }
     }
 
     /// Re-register global hotkeys after the user changes the digit in
     /// Settings — no restart needed (I201). Returns Err listing which
     /// bindings failed (e.g. another app owns the combo).
     fn rebind_global_hotkeys(&mut self) -> Result<(), String> {
+        self.unbind_extra_hotkeys();
         let Some(manager) = self.hotkey_manager.as_ref() else {
             return Err("global hotkey manager unavailable".into());
         };
@@ -1287,6 +1367,7 @@ impl VibecapApp {
         self.hotkey_id_summon = hk_summon.id();
         self.hotkey_rec_digit_prev = rec;
         self.hotkey_shot_digit_prev = shot;
+        self.bind_extra_hotkeys();
         if failed.is_empty() {
             Ok(())
         } else {
@@ -1394,6 +1475,9 @@ impl VibecapApp {
         if s.hotkey_rec_digit <= 9 {
             self.hotkey_rec_digit = s.hotkey_rec_digit;
         }
+        self.hotkey_pause_digit = s.hotkey_pause_digit.filter(|d| *d <= 9);
+        self.hotkey_prtscn = s.hotkey_prtscn;
+        self.shutter_sound = s.shutter_sound;
         self.screen_permission_prompted = s.screen_permission_prompted;
         self.screen_permission_ok = s.screen_permission_ok;
         self.rail_open = s.rail_open;
@@ -1483,6 +1567,9 @@ impl VibecapApp {
             inbox_snippets: self.inbox_snippets.clone(),
             hotkey_shot_digit: self.hotkey_shot_digit,
             hotkey_rec_digit: self.hotkey_rec_digit,
+            hotkey_pause_digit: self.hotkey_pause_digit,
+            hotkey_prtscn: self.hotkey_prtscn,
+            shutter_sound: self.shutter_sound,
             screen_permission_prompted: self.screen_permission_prompted,
             screen_permission_ok: self.screen_permission_ok,
             rail_open: self.rail_open,
@@ -3446,6 +3533,22 @@ impl VibecapApp {
     fn delete_library_paths(&mut self, paths: &[PathBuf]) {
         if paths.is_empty() {
             return;
+        }
+        // E150 — a clip with unsaved cuts/trims asks once before trashing.
+        if self.confirm_delete.is_none() {
+            let guarded: Vec<PathBuf> = paths
+                .iter()
+                .filter(|p| {
+                    self.edit_file.as_ref() == Some(*p)
+                        && (!self.filmstrip_cut.is_empty() || self.trim_start != "00:00:00")
+                        && !self.delete_guard_ok.contains(*p)
+                })
+                .cloned()
+                .collect();
+            if !guarded.is_empty() {
+                self.confirm_delete = Some(guarded);
+                return;
+            }
         }
         // Stage into undo trash (12s window) instead of hard-delete only.
         let trash_root = vibecap_config_dir().join("undo_trash");
@@ -5495,6 +5598,9 @@ impl VibecapApp {
         match result {
             Ok(shot_file) => {
                 self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
+                if self.shutter_sound {
+                    crate::platform::shutter_click();
+                }
                 // Snipping-Tool rule: a fresh capture is immediately pasteable —
                 // no need to open the app and press Ctrl+C first. The card
                 // reports the copy result honestly ("Copied" vs "Captured").
@@ -6784,6 +6890,7 @@ impl eframe::App for VibecapApp {
                 WakeEvent::ToggleWindow => self.toggle_window(ctx),
                 WakeEvent::Screenshot => hotkey_shots += 1,
                 WakeEvent::RecordToggle => hotkey_recs += 1,
+                WakeEvent::PauseToggle => self.toggle_pause(),
                 WakeEvent::Tray(action) => self.on_tray_action(ctx, action),
             }
         }
@@ -7275,6 +7382,41 @@ impl eframe::App for VibecapApp {
                 show_toast_card(ctx, msg, *level);
             } else {
                 self.toast_message = None;
+            }
+        }
+
+        // E150 — one-time confirm when a delete targets the open clip with
+        // unsaved cuts/trims.
+        if let Some(paths) = self.confirm_delete.clone() {
+            let mut keep = false;
+            let mut del = false;
+            egui::Window::new("Delete unsaved clip work?")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.label(format!(
+                        "{} file(s) include the clip open in Review with unsaved trims.",
+                        paths.len()
+                    ));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Delete anyway").clicked() {
+                            del = true;
+                        }
+                        if ui.button("Keep").clicked() {
+                            keep = true;
+                        }
+                    });
+                });
+            if del {
+                for p in &paths {
+                    self.delete_guard_ok.insert(p.clone());
+                }
+                self.confirm_delete = None;
+                self.delete_library_paths(&paths);
+            } else if keep {
+                self.confirm_delete = None;
             }
         }
     }
