@@ -581,7 +581,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 211. **Watch-folder import** — monitor a dir, auto-add shots.
 212. **Portable mode** — config/session beside the exe.
 213. **Profile export/import** — settings + hotkeys as one file.
-214. **Update checker** — GitHub Releases poll, opt-in, changelog toast.
+214. **Update checker** — GitHub Releases poll, opt-in, changelog toast. ✓ (worker-thread check — the old sync curl blocked the UI; "Check on launch" session toggle (off = fully offline); newer tag → changelog toast + Settings shows notes preview + Download ↗ opening the release page)
 215. **Auto-update channel** — staged: check → download → apply on exit.
 216. **Context-menu verb** — Explorer right-click "Annotate with Vibecap" on images.
 217. **Share target** — Windows share contract so apps can send Vibecap images.

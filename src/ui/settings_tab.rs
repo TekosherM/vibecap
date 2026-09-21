@@ -457,17 +457,17 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
                 ui.add_space(theme::SP_2);
                 ui.horizontal(|ui| {
-                    if btn_secondary(ui, "Check for updates") {
-                        match crate::app::update::check_latest_release() {
-                            Ok(msg) => {
-                                app.update_status = msg.clone();
-                                app.show_toast(msg);
-                            }
-                            Err(e) => {
-                                app.update_status = e.clone();
-                                app.show_toast(e);
-                            }
-                        }
+                    let checking = app.update_rx.is_some();
+                    if btn_secondary(
+                        ui,
+                        if checking {
+                            "Checking…"
+                        } else {
+                            "Check for updates"
+                        },
+                    ) && !checking
+                    {
+                        app.start_update_check();
                     }
                     if !app.update_status.is_empty() {
                         ui.label(
@@ -477,6 +477,35 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         );
                     }
                 });
+                setting_row(ui, "Check on launch", |ui| {
+                    if ui
+                        .checkbox(&mut app.update_check_on_launch, "")
+                        .on_hover_text("Ask GitHub Releases once at startup; off = fully offline")
+                        .changed()
+                    {
+                        app.persist_session();
+                    }
+                });
+                // E214 — newer release: notes preview + download link.
+                if let Some(info) = &app.update_info {
+                    if info.newer {
+                        ui.horizontal(|ui| {
+                            if btn_secondary(ui, "Download ↗") {
+                                let _ = open::that(&info.url);
+                            }
+                            ui.label(
+                                RichText::new(&info.tag).size(11.0).color(theme::ACCENT()),
+                            );
+                        });
+                        if !info.notes.is_empty() {
+                            ui.label(
+                                RichText::new(&info.notes)
+                                    .size(10.5)
+                                    .color(theme::TEXT_DIM()),
+                            );
+                        }
+                    }
+                }
                 ui.add_space(theme::SP_3);
                 setting_row(ui, "Density", |ui| {
                     if segmented(

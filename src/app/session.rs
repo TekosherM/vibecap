@@ -74,6 +74,9 @@ pub struct SessionState {
     /// B54 — auto-apply detected dead-air bounds to the trim on clip load.
     #[serde(default)]
     pub auto_dead_air: bool,
+    /// E214 — opt-in release check on launch (off = fully offline by default).
+    #[serde(default)]
+    pub update_check_on_launch: bool,
     /// D70 — jump to Review after a capture lands. Off = toast only, for
     /// flows that never want the editor.
     #[serde(default = "default_clip_autoplay")]
@@ -189,6 +192,7 @@ impl Default for SessionState {
             inbox_quiet: false,
             clip_autoplay: true,
             auto_dead_air: false,
+            update_check_on_launch: false,
             auto_open_review: true,
             filmstrip_low_res: false,
             region_dim: default_region_dim(),

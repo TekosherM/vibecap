@@ -208,3 +208,10 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - Deleted dead PS machinery: `windows_powershell`, `ps_escape`, `ps_like_escape`, and the test-only parsers for the old PS output formats (window target / window info / monitor lines).
 - Remaining PS spawns (deliberately kept, off the capture path): `notify.rs` toast balloons, `update.rs` network fallback after curl.
 - 79/79 tests (4 dead PS-format tests removed, `pid_alive_native_probe` added).
+
+### #214 — update checker (async + opt-in launch + changelog)
+- `update::check_latest_release` now returns `ReleaseInfo { tag, url, notes, newer }` — parsed via `parse_release_json` (unit-tested: tag/url/notes extraction, same-tag → not newer).
+- Check runs on a worker thread (`update_rx` channel drained in update()) — the previous version ran curl synchronously on the UI thread and froze the app for the request duration.
+- Settings → "Check for updates" button (shows "Checking…" while in flight); on a newer tag the card shows the first 8 non-empty changelog lines + "Download ↗" → `open::that(release url)`.
+- "Check on launch" session toggle (default off — fully offline by default); when on, `new()` starts the check and a newer release surfaces as a toast.
+- #215 (download→apply on exit) still open — self-replacing a running exe needs a relauncher story.

@@ -587,6 +587,8 @@ pub(crate) struct VibecapApp {
     clip_autoplay: bool,
     /// B54 — auto-apply detected dead-air bounds to the trim on clip load.
     auto_dead_air: bool,
+    /// E214 — opt-in: check GitHub Releases once at launch.
+    update_check_on_launch: bool,
     /// D70 — jump to Review after a capture lands (off = toast only).
     auto_open_review: bool,
     /// B52 — remembered REC bar window position (screen px).
@@ -720,6 +722,10 @@ pub(crate) struct VibecapApp {
     inbox_filter: crate::ui::inbox_tab::InboxFilter,
     budget_warned: bool,
     update_status: String,
+    /// E214 — in-flight GitHub check; Some = a worker is fetching.
+    update_rx: Option<crossbeam_channel::Receiver<Result<crate::app::update::ReleaseInfo, String>>>,
+    /// Last successful release payload (drives the Download button + notes).
+    update_info: Option<crate::app::update::ReleaseInfo>,
     hotkey_shot_digit: u8,
     hotkey_rec_digit: u8,
     /// Digits currently registered with the OS — rebind unregisters these,
@@ -1039,6 +1045,10 @@ impl VibecapApp {
         apply_current_theme(&cc.egui_ctx);
         app.brand_logo = load_brand_logo(&cc.egui_ctx);
         app.refresh_library();
+        // E214 — opt-in launch check; a newer release surfaces as a toast.
+        if app.update_check_on_launch {
+            app.start_update_check();
+        }
         app
     }
 
@@ -1244,6 +1254,7 @@ impl VibecapApp {
         self.inbox_quiet = s.inbox_quiet;
         self.clip_autoplay = s.clip_autoplay;
         self.auto_dead_air = s.auto_dead_air;
+        self.update_check_on_launch = s.update_check_on_launch;
         self.auto_open_review = s.auto_open_review;
         self.rec_bar_pos = s.rec_bar_pos.and_then(|[x, y]| {
             // Reject stale/off-screen positions (monitor unplugged etc.).
@@ -1318,6 +1329,7 @@ impl VibecapApp {
             inbox_quiet: self.inbox_quiet,
             clip_autoplay: self.clip_autoplay,
             auto_dead_air: self.auto_dead_air,
+            update_check_on_launch: self.update_check_on_launch,
             auto_open_review: self.auto_open_review,
             rec_bar_pos: self.rec_bar_pos.map(|(x, y)| [x, y]),
             filmstrip_low_res: self.filmstrip_low_res,
@@ -2503,6 +2515,19 @@ impl VibecapApp {
         if let Some(tray) = self.tray.as_mut() {
             tray.set_live_state(state, inbox, self.last_error.as_deref());
         }
+    }
+
+    /// E214 — release check on a worker; the UI never blocks on curl.
+    fn start_update_check(&mut self) {
+        if self.update_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = crossbeam_channel::unbounded();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::app::update::check_latest_release());
+        });
+        self.update_rx = Some(rx);
+        self.update_status = "checking…".into();
     }
 
     fn show_toast(&mut self, message: impl Into<String>) {
@@ -3851,6 +3876,38 @@ impl VibecapApp {
             if let Ok(res) = arx.try_recv() {
                 self.preview_audio_path = res;
                 self.preview_audio_rx = None;
+            }
+        }
+        // E214 — update check result; the worker keeps curl off the UI thread.
+        if let Some(urx) = self.update_rx.as_ref() {
+            if let Ok(res) = urx.try_recv() {
+                match res {
+                    Ok(info) => {
+                        self.update_status = if info.newer {
+                            format!(
+                                "update available: {} (running v{})",
+                                info.tag,
+                                env!("CARGO_PKG_VERSION")
+                            )
+                        } else {
+                            format!("up to date (v{})", env!("CARGO_PKG_VERSION"))
+                        };
+                        // E214 — changelog toast on launch checks: only when
+                        // a newer release exists (quiet otherwise).
+                        if info.newer {
+                            self.show_toast(format!(
+                                "Vibecap {} is out — Settings → Download",
+                                info.tag
+                            ));
+                        }
+                        self.update_info = Some(info);
+                    }
+                    Err(e) => {
+                        self.update_status = e;
+                        self.update_info = None;
+                    }
+                }
+                self.update_rx = None;
             }
         }
         let Some(rx) = self.filmstrip_rx.as_ref() else {
