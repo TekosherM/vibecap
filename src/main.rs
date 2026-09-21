@@ -401,6 +401,7 @@ fn pump_needs_wake(ev: &WakeEvent, parked: bool, still_busy: bool) -> bool {
         WakeEvent::RecordToggle
             | WakeEvent::Show
             | WakeEvent::Tray(TrayAction::ToggleRecord)
+            | WakeEvent::Tray(TrayAction::TogglePause)
             | WakeEvent::Tray(TrayAction::Show)
             | WakeEvent::Tray(TrayAction::DoubleClick)
             | WakeEvent::Tray(TrayAction::Quit)
@@ -2686,6 +2687,7 @@ impl VibecapApp {
                     self.trigger_capture(ctx, false);
                 }
             }
+            TrayAction::TogglePause => self.toggle_pause(),
             TrayAction::RepeatLast => self.repeat_last_capture(ctx),
             TrayAction::GoShutter => {
                 self.current_tab = AppTab::Capture;
@@ -2734,6 +2736,7 @@ impl VibecapApp {
         let state = if self.is_recording {
             TrayLiveState::Recording {
                 elapsed_secs: self.recording_elapsed_secs(),
+                paused: self.is_paused,
             }
         } else if self.recording_finalizing {
             TrayLiveState::Finalizing
@@ -3583,6 +3586,7 @@ impl VibecapApp {
         let live = if self.is_recording {
             TrayLiveState::Recording {
                 elapsed_secs: self.recording_elapsed_secs(),
+                paused: self.is_paused,
             }
         } else if self.recording_arming || self.countdown_deadline.is_some() {
             TrayLiveState::Arming

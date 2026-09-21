@@ -596,6 +596,49 @@ pub fn terminate_process(pid: u32) -> bool {
     }
 }
 
+// ── E10 — suspend/resume: Windows has no SIGSTOP, but ntdll's ──────────────
+// NtSuspendProcess/NtResumeProcess are the stable primitives Process
+// Explorer uses. Applied only to our own ffmpeg child — a suspended
+// recorder holds its file handle harmlessly and resumes cleanly; the
+// frag-MP4 writes keep a timestamp gap rather than corrupting.
+
+const PROCESS_SUSPEND_RESUME: u32 = 0x0800;
+
+#[link(name = "ntdll")]
+extern "system" {
+    fn NtSuspendProcess(process: *mut c_void) -> i32;
+    fn NtResumeProcess(process: *mut c_void) -> i32;
+}
+
+fn nt_suspend_resume(pid: u32, resume: bool) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        let h = OpenProcess(PROCESS_SUSPEND_RESUME, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let status = if resume {
+            NtResumeProcess(h)
+        } else {
+            NtSuspendProcess(h)
+        };
+        CloseHandle(h);
+        status == 0 // NTSTATUS 0 = STATUS_SUCCESS
+    }
+}
+
+/// Freeze all threads of `pid` (SIGSTOP equivalent).
+pub fn suspend_process(pid: u32) -> bool {
+    nt_suspend_resume(pid, false)
+}
+
+/// Thaw all threads of `pid` (SIGCONT equivalent).
+pub fn resume_process(pid: u32) -> bool {
+    nt_suspend_resume(pid, true)
+}
+
 /// Free bytes available on the volume containing `dir` (None on failure).
 pub fn disk_free_bytes(dir: &std::path::Path) -> Option<u64> {
     let mut wide: Vec<u16> = dir
@@ -1759,6 +1802,25 @@ mod tests {
         assert!(super::pid_alive(std::process::id()));
         assert!(!super::pid_alive(0));
         assert!(!super::pid_alive(u32::MAX - 1));
+    }
+
+    /// E10 — NtSuspendProcess/NtResumeProcess roundtrip on a real child:
+    /// suspend + resume both succeed and the process is still alive after.
+    #[test]
+    fn suspend_resume_roundtrip() {
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/c", "ping", "-n", "30", "127.0.0.1", ">nul"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert!(super::suspend_process(pid));
+        assert!(super::pid_alive(pid));
+        assert!(super::resume_process(pid));
+        assert!(super::pid_alive(pid));
+        // Bogus pids refuse cleanly rather than crashing.
+        assert!(!super::suspend_process(0));
+        assert!(!super::resume_process(0));
+        let _ = child.kill();
     }
 
     #[test]

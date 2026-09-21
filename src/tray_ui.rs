@@ -23,6 +23,8 @@ pub enum TrayAction {
     RepeatLast,
     /// Idle → start; arming → cancel; recording → stop.
     ToggleRecord,
+    /// E205 — suspend/resume the recorder mid-capture.
+    TogglePause,
     GoShutter,
     GoMedia,
     GoReview,
@@ -107,6 +109,8 @@ pub enum TrayLiveState {
     Finalizing,
     Recording {
         elapsed_secs: u64,
+        /// E205 — drives the Pause/Resume menu label.
+        paused: bool,
     },
 }
 
@@ -124,12 +128,14 @@ pub struct TrayController {
     tray: TrayIcon,
     status_item: MenuItem,
     record_item: MenuItem,
+    pause_item: MenuItem,
     inbox_item: MenuItem,
     show_id: tray_icon::menu::MenuId,
     hide_id: tray_icon::menu::MenuId,
     screenshot_id: tray_icon::menu::MenuId,
     repeat_id: tray_icon::menu::MenuId,
     record_id: tray_icon::menu::MenuId,
+    pause_id: tray_icon::menu::MenuId,
     shutter_id: tray_icon::menu::MenuId,
     media_id: tray_icon::menu::MenuId,
     review_id: tray_icon::menu::MenuId,
@@ -171,6 +177,8 @@ impl TrayController {
         let screenshot_item = MenuItem::new("Screenshot\t⌃⇧3", true, None);
         let repeat_item = MenuItem::new("Repeat last capture", true, None);
         let record_item = MenuItem::new("Record\t⌃⇧2", true, None);
+        // E205 — enabled only while a recording is live.
+        let pause_item = MenuItem::new("Pause Recording", false, None);
 
         // ── Recent captures — fixed slots whose labels follow the library ──
         let recent_header = MenuItem::new("Recent captures", false, None);
@@ -212,6 +220,7 @@ impl TrayController {
         let screenshot_id = screenshot_item.id().clone();
         let repeat_id = repeat_item.id().clone();
         let record_id = record_item.id().clone();
+        let pause_id = pause_item.id().clone();
         let shutter_id = shutter_item.id().clone();
         let media_id = media_item.id().clone();
         let review_id = review_item.id().clone();
@@ -230,6 +239,7 @@ impl TrayController {
             &screenshot_item,
             &repeat_item,
             &record_item,
+            &pause_item,
             &PredefinedMenuItem::separator(),
             &recent_header,
             &recent_items[0],
@@ -273,12 +283,14 @@ impl TrayController {
             tray,
             status_item,
             record_item,
+            pause_item,
             inbox_item,
             show_id,
             hide_id,
             screenshot_id,
             repeat_id,
             record_id,
+            pause_id,
             shutter_id,
             media_id,
             review_id,
@@ -342,8 +354,11 @@ impl TrayController {
             TrayLiveState::Idle => format!("idle:{inbox_pending}:{err_key}"),
             TrayLiveState::Arming => format!("arm:{inbox_pending}:{err_key}"),
             TrayLiveState::Finalizing => format!("fin:{inbox_pending}:{err_key}"),
-            TrayLiveState::Recording { elapsed_secs } => {
-                format!("rec:{elapsed_secs}:{inbox_pending}:{err_key}")
+            TrayLiveState::Recording {
+                elapsed_secs,
+                paused,
+            } => {
+                format!("rec:{elapsed_secs}:{paused}:{inbox_pending}:{err_key}")
             }
         };
         if key == self.last_progress_key {
@@ -365,17 +380,37 @@ impl TrayController {
             self.inbox_item.set_text("Inbox");
         }
 
+        // E205 — pause is only meaningful while recording.
+        self.pause_item
+            .set_enabled(matches!(state, TrayLiveState::Recording { .. }));
+        self.pause_item.set_text("Pause Recording");
+
         match state {
-            TrayLiveState::Recording { elapsed_secs } => {
+            TrayLiveState::Recording {
+                elapsed_secs,
+                paused,
+            } => {
                 let clock = format_clock(elapsed_secs);
                 // Menu bar: compact live tracker next to aperture icon.
-                self.tray.set_title(Some(format!("REC {clock}")));
+                self.tray.set_title(Some(format!(
+                    "{} {clock}",
+                    if paused { "⏸" } else { "REC" }
+                )));
                 let _ = self
                     .tray
                     .set_tooltip(Some(format!("Recording {clock} — menu: Stop · ⌃⇧2")));
-                self.status_item.set_text(format!("Recording · {clock}"));
+                self.status_item.set_text(format!(
+                    "{} · {clock}",
+                    if paused { "Paused" } else { "Recording" }
+                ));
                 self.record_item
                     .set_text(format!("Stop Recording  [{clock}]\t⌃⇧2"));
+                self.pause_item.set_enabled(true);
+                self.pause_item.set_text(if paused {
+                    "Resume Recording"
+                } else {
+                    "Pause Recording"
+                });
                 if let Ok(icon) = make_tray_icon(IconPhase::Recording { elapsed_secs }) {
                     let _ = self.tray.set_icon_with_as_template(Some(icon), false);
                 }
@@ -445,6 +480,7 @@ impl TrayController {
             (self.screenshot_id.clone(), TrayAction::Screenshot),
             (self.repeat_id.clone(), TrayAction::RepeatLast),
             (self.record_id.clone(), TrayAction::ToggleRecord),
+            (self.pause_id.clone(), TrayAction::TogglePause),
             (self.shutter_id.clone(), TrayAction::GoShutter),
             (self.media_id.clone(), TrayAction::GoMedia),
             (self.review_id.clone(), TrayAction::GoReview),
@@ -534,6 +570,8 @@ impl TrayController {
                 actions.push(TrayAction::RepeatLast);
             } else if id == self.record_id {
                 actions.push(TrayAction::ToggleRecord);
+            } else if id == self.pause_id {
+                actions.push(TrayAction::TogglePause);
             } else if id == self.shutter_id {
                 actions.push(TrayAction::GoShutter);
             } else if id == self.media_id {

@@ -29,7 +29,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 7. **Virtual-desktop origin may be negative.** `even_screen_rect` must not clamp `x,y` to 0 (left-of-primary monitors).
 8. **HiDPI region record.** Overlay points ≠ gdigrab pixels. Keep snapshot-map on Windows; `pixels_per_point` on macOS live overlay. Persist `selected_screen_rect`, not just egui `Rect`.
 9. **Agent MP4 always has a `moov`.** Frag + remux on `record stop` (already). If remux fails, surface the `.ffmpeg.log` tail in the CLI error instead of a 36-byte file.
-10. **Pause/resume on Windows.** `stop_process`/`cont_process` are Unix SIGSTOP no-ops. Either hide Pause on Windows or send ffmpeg `q`/`SIG` equivalent (`-c:v libx264` + stdin is already piped in GUI).
+10. **Pause/resume on Windows.** `stop_process`/`cont_process` are Unix SIGSTOP no-ops. Either hide Pause on Windows or send ffmpeg `q`/`SIG` equivalent (`-c:v libx264` + stdin is already piped in GUI). ✓ (real suspend — ntdll `NtSuspendProcess`/`NtResumeProcess` via OpenProcess(SUSPEND_RESUME) on our own ffmpeg child; `pause_supported()` now true on Windows so the REC-bar Pause button shows)
 
 ---
 
@@ -572,7 +572,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 202. **Per-mode hotkeys** — region-still, window-still, GIF, pause each rebindable.
 203. **Hotkey conflict detect** — warn when binding collides with OS/browser.
 204. **Tray recent-captures** — last 5 items submenu with copy/reveal. ✓ (5 slots follow the library scan; click opens the file)
-205. **Tray pause/resume** — during record.
+205. **Tray pause/resume** — during record. ✓ ("Pause/Resume Recording" item under Stop, enabled only while recording; `TrayLiveState::Recording{paused}` drives label + ⏸ tray title; parked clicks wake through `pump_needs_wake` like Stop)
 206. **Tray double-click action** — configurable (screenshot / open / record). ✓ (Settings → "Tray double-click" segmented; TrayIconEvent::DoubleClick → TrayAction::DoubleClick resolved per session `tray_dblclick`. Single clicks defer one 400 ms double-click window via shared PENDING_CLICK state — consumed by both the visible-path `poll_actions` and the parked pump's `drain_tray_channels` — so a configured screenshot/record no longer pops the studio first. When the action IS "open" clicks stay instant: a double just shows twice)
 207. **Tray icon state** — REC blink baked into icon while recording. ✓ (was already shipped — IconPhase rec disc + arc)
 208. **Tray recording elapsed** — tooltip shows `REC 02:41`. ✓ (was already shipped — `Recording {clock}` tooltip)

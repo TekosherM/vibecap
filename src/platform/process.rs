@@ -1,12 +1,13 @@
 #[cfg(unix)]
 use std::process::Command;
 
-/// Pause via SIGSTOP exists on Unix only. Windows GUI hides the Pause control.
+/// Suspend/resume exists on Unix (SIGSTOP/SIGCONT) and Windows
+/// (ntdll NtSuspendProcess/NtResumeProcess on our own ffmpeg child).
 pub fn pause_supported() -> bool {
-    cfg!(unix)
+    cfg!(unix) || cfg!(windows)
 }
 
-/// Resume a paused child process (Unix SIGCONT). No-op on Windows.
+/// Resume a paused child process (Unix SIGCONT, Windows NtResumeProcess).
 pub fn cont_process(pid: u32) {
     #[cfg(unix)]
     {
@@ -16,12 +17,11 @@ pub fn cont_process(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let _ = pid;
-        // ffmpeg pause via SIGSTOP is not available on Windows.
+        let _ = super::win32::resume_process(pid);
     }
 }
 
-/// Pause a child process (Unix SIGSTOP). No-op on Windows.
+/// Pause a child process (Unix SIGSTOP, Windows NtSuspendProcess).
 pub fn stop_process(pid: u32) {
     #[cfg(unix)]
     {
@@ -31,6 +31,6 @@ pub fn stop_process(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let _ = pid;
+        let _ = super::win32::suspend_process(pid);
     }
 }
