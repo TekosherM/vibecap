@@ -87,6 +87,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         } else {
                             "Record  (R)".to_string()
                         };
+                        // E67 — pressing Record opens the Options header once
+                        // so the audio/display knobs are visible before arming.
+                        let mut open_options = false;
                         if let Some(act) = shutter_strip(
                             ui,
                             app.is_recording,
@@ -116,6 +119,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     } else if app.recording_arming {
                                         app.cancel_recording(ctx);
                                     } else {
+                                        open_options = true;
                                         app.trigger_capture(ctx, false);
                                     }
                                 }
@@ -162,6 +166,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     .color(theme::WARN()),
                                 );
                             }
+                        }
+                        // E62 — battery-aware hint: suggest the lighter fps
+                        // when the machine is unplugged.
+                        if crate::platform::on_battery() == Some(true) && app.fps_target > 24 {
+                            ui.add_space(theme::SP_1);
+                            ui.label(
+                                RichText::new(
+                                    "🔋 On battery — 24 fps or shorter clips extend recording time",
+                                )
+                                .size(11.0)
+                                .color(theme::WARN()),
+                            );
                         }
 
                         ui.add_space(theme::SP_4);
@@ -245,9 +261,17 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         });
                         ui.label(
                             RichText::new(match app.capture_target {
-                                CaptureTarget::Fullscreen => "Everything on screen",
-                                CaptureTarget::Region => "You'll drag a box on the screen",
-                                CaptureTarget::Window => "Pick or choose an app window",
+                                CaptureTarget::Fullscreen => "Everything on screen".to_string(),
+                                CaptureTarget::Region => {
+                                    "You'll drag a box on the screen".to_string()
+                                }
+                                // E69 — surface the persisted pick on the card.
+                                CaptureTarget::Window if !app.window_app.is_empty() => {
+                                    format!("Window: {}", app.window_app)
+                                }
+                                CaptureTarget::Window => {
+                                    "Pick or choose an app window".to_string()
+                                }
                             })
                             .size(10.0)
                             .color(theme::TEXT_DIM()),
@@ -265,6 +289,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 app.refresh_window_list();
                                 app.window_list_at = Some(std::time::Instant::now());
                             }
+                            let before_pick = app.window_app.clone();
                             ui.horizontal(|ui| {
                                 egui::ComboBox::from_id_source("window_app_picker")
                                     .selected_text(if app.window_app.is_empty() {
@@ -326,6 +351,11 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     );
                                 }
                             });
+                            // E69 — persist the last window pick so the card
+                            // can show it across restarts.
+                            if app.window_app != before_pick {
+                                app.persist_session();
+                            }
                             ui.add(
                                 egui::TextEdit::singleline(&mut app.window_app)
                                     .hint_text("Or type an app name (e.g. Chrome)")
@@ -431,12 +461,53 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             }
 
                             if !app.recent_thumbs.is_empty() {
-                                ui.label(
-                                    RichText::new("RECENT — CLICK REVIEWS · DRAG OUT")
-                                        .size(10.0)
-                                        .strong()
-                                        .color(theme::TEXT_DIM()),
-                                );
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new("RECENT — CLICK REVIEWS · DRAG OUT")
+                                            .size(10.0)
+                                            .strong()
+                                            .color(theme::TEXT_DIM()),
+                                    );
+                                    // E63 — 7-day capture-activity sparkline.
+                                    let now_day = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_secs() / 86_400)
+                                        .unwrap_or(0);
+                                    let mut days = [0u32; 7];
+                                    for item in &app.library_items {
+                                        let d = item.modified_secs / 86_400;
+                                        if d <= now_day && now_day - d < 7 {
+                                            days[(now_day - d) as usize] += 1;
+                                        }
+                                    }
+                                    let peak = days.iter().copied().max().unwrap_or(1).max(1);
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::Vec2::new(7.0 * 8.0, 12.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    for (i, n) in days.iter().enumerate() {
+                                        // i=0 is today — draw oldest→newest left→right.
+                                        let x = rect.min.x + (6 - i) as f32 * 8.0;
+                                        let h = ((*n as f32 / peak as f32) * 10.0).max(1.5);
+                                        ui.painter().rect_filled(
+                                            egui::Rect::from_min_size(
+                                                egui::pos2(x, rect.max.y - h),
+                                                egui::vec2(5.0, h),
+                                            ),
+                                            1.5,
+                                            if i == 0 {
+                                                theme::ACCENT()
+                                            } else {
+                                                theme::TEXT_DIM().gamma_multiply(0.6)
+                                            },
+                                        );
+                                    }
+                                    ui.label(
+                                        RichText::new("7d")
+                                            .size(9.0)
+                                            .color(theme::TEXT_DIM()),
+                                    );
+                                });
                                 ui.add_space(theme::SP_2);
                                 // E56 — carousel: scroll instead of hiding
                                 // captures past the third tile.
@@ -636,6 +707,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         .color(theme::TEXT_MUTED()),
                                 )
                                 .default_open(false)
+                                .open(open_options.then_some(true))
                                 .show(ui, |ui| {
                                     crate::ui::group(ui, "POINTER", |ui| {
                                         switch(ui, "Draw cursor on stills", &mut app.draw_mouse);

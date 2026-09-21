@@ -402,14 +402,14 @@ Numbered 1–300 for this round. Sections sized 25 each.
 59. **Audio device picker** — dropdown of dshow devices when Include audio is on. ✓ (combo under the switch lists enumerated devices + Auto; pick persists via session `audio_device`; a vanished device falls back to Auto)
 60. **Estimated file size** — live "≈4 MB/min @ 30fps" under Record. ✓ (STORAGE group in Options, scaled by fps + monitor mpx)
 61. **Disk-space guard** — warn <500 MB free on the target dir before arming. ✓ (GetDiskFreeSpaceExW; warning under shutter + free-space line in STORAGE)
-62. **Battery-aware hint** — on battery, suggest 24 fps / shorter clips.
-63. **Capture history sparkline** — tiny 7-day activity graph on the Capture card.
+62. **Battery-aware hint** — on battery, suggest 24 fps / shorter clips. ✓ (`GetSystemPowerStatus` ACLineStatus → "🔋 On battery — 24 fps or shorter clips" under the shutter when fps_target > 24; desktops/unknown → no hint)
+63. **Capture history sparkline** — tiny 7-day activity graph on the Capture card. ✓ (7-bar strip beside the RECENT label, bucketed from `library_items` mtimes, today bar in accent)
 64. **Quick-capture tray-free mode** — double-press hotkey within 500 ms = instant region with last settings.
 65. **Countdown cancel UX** — click anywhere or Esc during countdown aborts cleanly with toast. ✓ (Esc was already wired; now `pointer.any_pressed` inside the bubble cancels too — label reads "Esc or click to cancel")
 66. **Post-capture inline undo** — toast gets an Undo for 5 s on auto-save. ✓ (the capture toast's Discard routes to the 12 s undo-trash — "undo the save" and Z undoes the discard)
-67. **Auto-scroll to options** — when Record selected, scroll options card into view.
-68. **Source icons state-colored** — the From segment icons tint to accent when active.
-69. **Window target shows last pick** — "Window: Chrome — DevTools" persisted on the card.
+67. **Auto-scroll to options** — when Record selected, scroll options card into view. ✓ (pressing Record opens the collapsed Options header that frame via `.open(Some(true))` — audio/display knobs visible before arming)
+68. **Source icons state-colored** — the From segment icons tint to accent when active. ✓ (already shipped — icons paint ACCENT when on, TEXT_MUTED when off)
+69. **Window target shows last pick** — "Window: Chrome — DevTools" persisted on the card. ✓ (`window_app` joins session state; combo + 🎯 Pick persist on change; the target hint reads "Window: <name>" when a pick exists)
 70. **Confirm-before-overwrite** — same-name collision in output dir prompts once per session.
 71. **Multi-shot batch** — hold modifier + click regions repeatedly = rapid sequence of stills.
 72. **Time-lapse mode** — capture frame every N sec into a video (stills → mp4).

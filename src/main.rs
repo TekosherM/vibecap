@@ -1384,6 +1384,7 @@ impl VibecapApp {
         };
         self.capture_monitor = s.monitor;
         self.audio_device = s.audio_device.clone();
+        self.window_app = s.window_app.clone();
         if !s.inbox_snippets.is_empty() {
             self.inbox_snippets = s.inbox_snippets;
         }
@@ -1477,6 +1478,7 @@ impl VibecapApp {
             fps: self.fps_target,
             record_crf: self.record_crf,
             audio_device: self.audio_device.clone(),
+            window_app: self.window_app.clone(),
             monitor: self.capture_monitor,
             inbox_snippets: self.inbox_snippets.clone(),
             hotkey_shot_digit: self.hotkey_shot_digit,
@@ -5439,6 +5441,7 @@ impl VibecapApp {
         {
             if let Some((name, ..)) = self.window_pick_hover.take() {
                 self.window_app = name;
+                self.persist_session();
             }
         }
         self.exit_region_overlay(ctx);

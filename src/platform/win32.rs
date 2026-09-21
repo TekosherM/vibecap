@@ -549,6 +549,31 @@ extern "system" {
         total: *mut u64,
         free_total: *mut u64,
     ) -> i32;
+    fn GetSystemPowerStatus(status: *mut RawPowerStatus) -> i32;
+}
+
+#[repr(C)]
+struct RawPowerStatus {
+    ac_line: u8,
+    battery_flag: u8,
+    battery_life: u8,
+    _reserved: u8,
+    battery_life_time: u32,
+    battery_full_life_time: u32,
+}
+
+/// E62 — true when the machine is on battery (ACLineStatus == 0).
+/// Desktop/no-battery systems report 1 (AC) or 255 (unknown) → `None`.
+pub fn on_battery() -> Option<bool> {
+    let mut s: RawPowerStatus = unsafe { std::mem::zeroed() };
+    if unsafe { GetSystemPowerStatus(&mut s) } == 0 {
+        return None;
+    }
+    match s.ac_line {
+        0 => Some(true),
+        1 => Some(false),
+        _ => None,
+    }
 }
 
 // ── Process probes: native OpenProcess — no tasklist/taskkill spawn ──────────
@@ -1821,6 +1846,13 @@ mod tests {
         assert!(!super::suspend_process(0));
         assert!(!super::resume_process(0));
         let _ = child.kill();
+    }
+
+    /// E62 — GetSystemPowerStatus must answer without panic; on a box with
+    /// a battery the value is a real bool, on desktops it's AC or unknown.
+    #[test]
+    fn power_status_reads() {
+        let _ = super::on_battery();
     }
 
     #[test]

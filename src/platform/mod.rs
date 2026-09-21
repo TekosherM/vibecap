@@ -75,7 +75,7 @@ pub fn disk_free_bytes_for(dir: &std::path::Path) -> Option<u64> {
 pub use shell::window_rect_on_screen;
 pub use shell::{
     activate_own_app, explorer_verb_enabled, focus_app, frontmost_app_name, list_capture_windows,
-    list_capture_windows_cached, list_monitors, list_running_apps, open_path,
+    list_capture_windows_cached, list_monitors, list_running_apps, on_battery, open_path,
     open_screen_recording_settings, open_with, os_apps_dark, request_screen_recording_access,
     reveal_in_file_manager, run_at_login_enabled, screen_capture_allowed, set_explorer_verb,
     set_run_at_login, set_url_scheme, start_file_drag, url_scheme_enabled, window_tools_hint,

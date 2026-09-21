@@ -801,6 +801,19 @@ pub fn open_with(path: &Path) -> Result<(), String> {
     }
 }
 
+/// E62 — battery state: `Some(true)` on battery, `Some(false)` on AC,
+/// `None` when the OS can't say (desktops without a battery report AC).
+pub fn on_battery() -> Option<bool> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::on_battery()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// E163 — start an OS file drag of `paths` out of the app window. Windows
 /// uses OLE CF_HDROP (modal DoDragDrop loop); other platforms unsupported.
 pub fn start_file_drag(paths: &[std::path::PathBuf]) -> Result<(), String> {

@@ -48,6 +48,9 @@ pub struct SessionState {
     /// E59 — picked DirectShow audio device for recordings; empty = auto.
     #[serde(default)]
     pub audio_device: String,
+    /// E69 — last Window-target pick so the card can show it across restarts.
+    #[serde(default)]
+    pub window_app: String,
     #[serde(default)]
     pub monitor: Option<u32>,
     #[serde(default)]
@@ -201,6 +204,7 @@ impl Default for SessionState {
             fps: 30,
             record_crf: 23,
             audio_device: String::new(),
+            window_app: String::new(),
             monitor: None,
             inbox_snippets: vec![
                 "Looks good".into(),

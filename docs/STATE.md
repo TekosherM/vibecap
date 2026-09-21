@@ -294,3 +294,11 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #65: countdown bubble now cancels on click inside it as well as Esc (label updated); toast unchanged.
 - #66 verified already-shipped: capture-toast Discard → undo-trash = "undo the auto-save", Z undoes the discard.
 - 98/98 tests.
+
+### Capture-card context — battery hint, sparkline, auto-open options, persisted window pick
+- #62: `win32::on_battery` via `GetSystemPowerStatus` (ACLineStatus 0/1/255 → Some(true)/Some(false)/None) re-exported through `platform::on_battery`; hint under the shutter only when on battery AND fps_target > 24.
+- #63: 7-bar activity sparkline next to the RECENT label — day-bucketed `library_items` mtimes, today in accent.
+- #67: Record press passes `.open(Some(true))` to the Options CollapsingHeader for that frame — the persisted header state keeps it open after.
+- #69: `window_app` persisted in session; combo pick and 🎯 Pick overlay both `persist_session` on change; target hint shows "Window: <name>".
+- #68 verified already-shipped (icons tint ACCENT when active).
+- 99/99 tests (power_status_reads).
