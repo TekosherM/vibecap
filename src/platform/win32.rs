@@ -783,6 +783,17 @@ pub fn enum_windows() -> Vec<EnumWindow> {
     state.out
 }
 
+/// E10 — true once per Esc press since the previous call *on this thread*.
+/// `GetAsyncKeyState`'s low bit tracks the edge so a pump polling every
+/// ~250 ms still catches quick taps that the focused app consumed.
+pub fn esc_pressed_edge() -> bool {
+    extern "system" {
+        fn GetAsyncKeyState(vkey: i32) -> i16;
+    }
+    const VK_ESCAPE: i32 = 0x1B;
+    unsafe { GetAsyncKeyState(VK_ESCAPE) & 0x0001 != 0 }
+}
+
 /// Cursor position in virtual-screen pixels (for the window-pick overlay).
 pub fn cursor_pos() -> Option<(i32, i32)> {
     let mut ci = CursorInfo {

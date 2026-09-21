@@ -339,3 +339,10 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #80/#100: HUD chrome is a fixed near-black pill with light ink; hints on dark pills - contrast independent of app theme/backdrop.
 - #85 covered by shutter_click on capture land; #89 by pickable_at self/shell exclusion; #99 by the dedicated overlay viewport.
 - 101/101 tests.
+
+### Region HUD part 2 - move/resize drags, global Esc, pick card, dock
+- #6/#7: press inside an existing box moves it (clamped on screen); a press within 14 px of a corner resizes from the opposite corner; move/resize release keeps the box for nudge/Enter, only fresh drags confirm on mouse-up.
+- #10: pump polls GetAsyncKeyState(VK_ESCAPE) edges while region_open is mirrored, pushes WakeEvent::RegionCancel - a focus-loss can no longer orphan the overlay.
+- #17: window-pick card reads "title · process · Display N".
+- #94: toolbar dock chip (top/bottom) persisted via session hud_toolbar_bottom.
+- 101/101 tests.

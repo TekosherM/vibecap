@@ -107,6 +107,8 @@ pub fn show_region_selector(
     dim_alpha: u8,
     picks_done: u32,
     region_history: &mut Vec<Rect>,
+    // E94 — toolbar docks top or bottom; persisted by the caller.
+    toolbar_bottom: &mut bool,
 ) -> RegionHudResult {
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
@@ -586,23 +588,100 @@ pub fn show_region_selector(
 
                 if !pick_mode {
                     if response.drag_started() {
-                    *was_dragging = true;
                     if let Some(pos) = response.interact_pointer_pos() {
-                        let (p, _) = snap_with_guides(pos, screen, &snap_rects);
-                        *region_start = Some(p);
-                        *region_end = Some(p);
+                        // E6/E7 — a press on an existing box's corner resizes
+                        // from the opposite corner; inside the box moves it;
+                        // anywhere else starts a fresh drag.
+                        let cur = match (*region_start, *region_end) {
+                            (Some(s), Some(e)) => {
+                                let r = Rect::from_two_pos(s, e);
+                                (r.width() >= 8.0 && r.height() >= 8.0).then_some(r)
+                            }
+                            _ => None,
+                        };
+                        let mut mode = 0u8;
+                        let mut anchor = pos;
+                        if let Some(r) = cur {
+                            for c in [
+                                r.left_top(),
+                                r.right_top(),
+                                r.left_bottom(),
+                                r.right_bottom(),
+                            ] {
+                                if pos.distance(c) <= 14.0 {
+                                    mode = 2;
+                                    anchor = Pos2::new(
+                                        r.min.x + r.max.x - c.x,
+                                        r.min.y + r.max.y - c.y,
+                                    );
+                                    break;
+                                }
+                            }
+                            if mode == 0 && r.contains(pos) {
+                                mode = 1;
+                                anchor = pos - r.min.to_vec2();
+                            }
+                        }
+                        ctx.data_mut(|d| {
+                            d.insert_temp(egui::Id::new("rd_mode"), mode);
+                            d.insert_temp(egui::Id::new("rd_grab"), anchor);
+                        });
+                        // Only a fresh drag confirms on release — a move or
+                        // resize leaves the box up for nudge/Enter (E7).
+                        *was_dragging = mode == 0;
+                        if mode == 0 {
+                            let (p, _) = snap_with_guides(pos, screen, &snap_rects);
+                            *region_start = Some(p);
+                            *region_end = Some(p);
+                        }
                     }
                 }
                 if response.dragged() {
+                    let mode: u8 = ctx
+                        .data_mut(|d| d.get_temp(egui::Id::new("rd_mode")))
+                        .unwrap_or(0);
+                    let grab: Pos2 = ctx
+                        .data_mut(|d| d.get_temp(egui::Id::new("rd_grab")))
+                        .unwrap_or(Pos2::ZERO);
                     if let Some(pos) = response.interact_pointer_pos() {
-                        // E78/E79 — snap the dragged corner to screen and
-                        // window edges within 8 px; matched edges paint as
-                        // alignment guides.
-                        let (p, g) = snap_with_guides(pos, screen, &snap_rects);
-                        *region_end = Some(p);
-                        snap_guides = g;
+                        match mode {
+                            // E6 — move: keep the grab offset, clamped on screen.
+                            1 => {
+                                if let (Some(s), Some(e)) = (*region_start, *region_end) {
+                                    let size = Rect::from_two_pos(s, e).size();
+                                    let min = Pos2::new(
+                                        (pos.x - grab.x).clamp(
+                                            screen.min.x,
+                                            (screen.max.x - size.x).max(screen.min.x),
+                                        ),
+                                        (pos.y - grab.y).clamp(
+                                            screen.min.y,
+                                            (screen.max.y - size.y).max(screen.min.y),
+                                        ),
+                                    );
+                                    *region_start = Some(min);
+                                    *region_end = Some(min + size);
+                                }
+                            }
+                            // E7 — corner resize: the opposite corner stays put.
+                            2 => {
+                                let (p, g) = snap_with_guides(pos, screen, &snap_rects);
+                                *region_start = Some(grab);
+                                *region_end = Some(p);
+                                snap_guides = g;
+                            }
+                            _ => {
+                                // E78/E79 — snap the dragged corner to screen and
+                                // window edges within 8 px; matched edges paint
+                                // as alignment guides.
+                                let (p, g) = snap_with_guides(pos, screen, &snap_rects);
+                                *region_end = Some(p);
+                                snap_guides = g;
+                            }
+                        }
                     }
-                    if let (Some(start), Some(end)) = (*region_start, *region_end) {
+                    if mode != 1 {
+                        if let (Some(start), Some(end)) = (*region_start, *region_end) {
                         let mut rect = Rect::from_two_pos(start, end);
                         ctx.input(|i| {
                             if i.modifiers.shift {
@@ -620,15 +699,24 @@ pub fn show_region_selector(
                                 *region_end = Some(rect.max);
                             }
                         });
+                        }
                     }
                 }
                 // Real drag (≥24px) captures on mouse-up. Tiny clicks keep the box for Enter.
                 if response.drag_stopped() {
+                    let mode: u8 = ctx
+                        .data_mut(|d| d.get_temp(egui::Id::new("rd_mode")))
+                        .unwrap_or(0);
+                    ctx.data_mut(|d| d.insert_temp(egui::Id::new("rd_mode"), 0u8));
                     *was_dragging = false;
-                    if let (Some(start), Some(end)) = (*region_start, *region_end) {
-                        let selected = Rect::from_two_pos(start, end);
-                        if selected.width() >= 24.0 && selected.height() >= 24.0 {
-                            result = RegionHudResult::Confirmed { selected, overlay: screen };
+                    // Move/resize drags never confirm — they edit the box.
+                    if mode == 0 {
+                        if let (Some(start), Some(end)) = (*region_start, *region_end) {
+                            let selected = Rect::from_two_pos(start, end);
+                            if selected.width() >= 24.0 && selected.height() >= 24.0 {
+                                result =
+                                    RegionHudResult::Confirmed { selected, overlay: screen };
+                            }
                         }
                     }
                 }
@@ -678,7 +766,14 @@ pub fn show_region_selector(
                 });
                 egui::Area::new(egui::Id::new("region_actions"))
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 12.0))
+                    .anchor(
+                        if *toolbar_bottom {
+                            Align2::CENTER_BOTTOM
+                        } else {
+                            Align2::CENTER_TOP
+                        },
+                        Vec2::new(0.0, if *toolbar_bottom { -12.0 } else { 12.0 }),
+                    )
                     .show(ctx, |ui| {
                         // E100 — the HUD chrome stays neutral dark regardless
                         // of the app theme so it reads over any backdrop.
@@ -772,6 +867,15 @@ pub fn show_region_selector(
                                     }
                                     if ui.button("Cancel").clicked() {
                                         result = RegionHudResult::Cancelled;
+                                    }
+                                    // E94 — dock the toolbar top or bottom.
+                                    let dock = if *toolbar_bottom { "⬆" } else { "⬇" };
+                                    if ui
+                                        .button(RichText::new(dock).size(11.0).color(ink))
+                                        .on_hover_text("Dock toolbar top/bottom")
+                                        .clicked()
+                                    {
+                                        *toolbar_bottom = !*toolbar_bottom;
                                     }
                                 });
                             });

@@ -192,18 +192,18 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 3. **Window-pick for recording** — click a window, record its rect (crop record, no focus juggling). ✓
 4. **Monitor pick** — in pick mode, hover dead space → highlight the whole monitor; click = capture that display. ✓
 5. **Aspect-lock toolbar chips** (Free/1:1/16:9/9:16) in the region HUD, keeping Shift/Alt modifiers. ✓
-6. **Move selection** — Space+drag or middle-drag inside the box repositions it.
-7. **Post-drag edit handles** — resize from corners until Enter/click-outside; release no longer hard-commits.
+6. **Move selection** — Space+drag or middle-drag inside the box repositions it. ✓ (press inside an existing box translates it, clamped on screen; release never confirms a move)
+7. **Post-drag edit handles** — resize from corners until Enter/click-outside; release no longer hard-commits. ✓ (a press within 14 px of a corner resizes from the opposite corner; move/resize release leaves the box for nudge/Enter)
 8. **WASD nudge** alongside arrows (Shift = 10 px). ✓
 9. **Double-click the last-region ghost** to instantly re-capture it. ✓
-10. **Global Esc during pick** — a focus-loss can't orphan the overlay (listen on the pump).
+10. **Global Esc during pick** — a focus-loss can't orphan the overlay (listen on the pump). ✓ (pump polls GetAsyncKeyState(VK_ESCAPE) edges while region_open and pushes WakeEvent::RegionCancel)
 11. **Clipboard-only stills** — copy and discard the file; never touches the library. ✓
 12. **Clipboard format pref** — PNG vs JPEG for copy (PNG preserves sharp text edges).
 13. **Shutter sound** — subtle click on capture; off by default. ✓ (synthesized 25 ms decaying-sine WAV via winmm PlaySoundW, no bundled asset; Settings toggle, off by default)
 14. **Pre-warm backdrop** — reuse the previous snap as the overlay's backdrop instantly, stamped "refreshing…" until the new snap lands. ✓
 15. **PrtScn capture** — optional single-key still via a dedicated hotkey slot. ✓ (opt-in 'PrtScn still' checkbox registers bare PrintScreen globally)
 16. **Z-cycle in window-pick** — scroll wheel steps through overlapping windows under the cursor. ✓
-17. **Pick card shows process + monitor** under the window title.
+17. **Pick card shows process + monitor** under the window title. ✓ (label is now "title · process · Display N")
 18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test). ✓ (was already shipped — `show_countdown_bubble` is its own always-on-top viewport)
 19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu.
 20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %. ✓
@@ -437,7 +437,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 91. **Region coordinates copy** — click W×H plate copies `x,y,w,h` for scripts. ✓ (plate is clickable; copies pixel-space x,y,w,h)
 92. **Region color-sampler mode** — click samples hex under cursor to clipboard (design pick). ✓ (Ctrl+click in loupe mode copies the sampled pixel as #RRGGBB with a copied flash tag)
 93. **Freeze-frame toggle** — optional freeze of backdrop while picking (already static on Windows; make it a toggle for parity).
-94. **HUD remembers toolbar side** — toolbar docks top or bottom per last use.
+94. **HUD remembers toolbar side** — toolbar docks top or bottom per last use. ✓ (chip toggles dock; session hud_toolbar_bottom persists across runs)
 95. **Cancel zone hint** — first-time hint "Esc to cancel" fades after 3 uses. ✓ (session region_pick_count hides the top hints after 3 completed picks)
 96. **Region history stack** — Ctrl+Z steps back through previous rects this session. ✓ (region_history (32-deep) + Ctrl+Z in the HUD restores previous rects)
 97. **Scroll-wheel region resize** — wheel adjusts width, Shift+wheel height. ✓ (scroll adjusts width, Shift+scroll height, clamped to screen)

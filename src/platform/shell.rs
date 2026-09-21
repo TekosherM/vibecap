@@ -828,6 +828,17 @@ pub fn user_env(name: &str) -> Option<String> {
     }
 }
 
+/// E10 — Esc-press edge for the parked pump's global cancel. Windows only.
+#[cfg(target_os = "windows")]
+pub fn esc_pressed_edge() -> bool {
+    super::win32::esc_pressed_edge()
+}
+/// The overlay keeps focus on other platforms — no global Esc edge needed.
+#[cfg(not(target_os = "windows"))]
+pub fn esc_pressed_edge() -> bool {
+    false
+}
+
 /// E202 — subtle shutter click on capture (opt-in). No-op off-Windows.
 pub fn shutter_click() {
     #[cfg(target_os = "windows")]

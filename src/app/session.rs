@@ -73,6 +73,9 @@ pub struct SessionState {
     /// E95 — lifetime completed region picks; first-run HUD hints hide at 3.
     #[serde(default)]
     pub region_pick_count: u32,
+    /// E94 — region HUD toolbar docks to the bottom when set.
+    #[serde(default)]
+    pub hud_toolbar_bottom: bool,
     /// True after we have triggered the macOS Screen Recording permission probe once.
     #[serde(default)]
     pub screen_permission_prompted: bool,
@@ -229,6 +232,7 @@ impl Default for SessionState {
             hotkey_prtscn: false,
             shutter_sound: false,
             region_pick_count: 0,
+            hud_toolbar_bottom: false,
             screen_permission_prompted: false,
             screen_permission_ok: false,
             rail_open: false,

@@ -182,6 +182,8 @@ enum WakeEvent {
     RecordToggle,
     /// E50 — dedicated pause/resume hotkey (Ctrl+Shift+N, opt-in digit).
     PauseToggle,
+    /// E10 — Esc pressed while the region overlay was up but unfocused.
+    RegionCancel,
     Tray(TrayAction),
 }
 
@@ -225,6 +227,9 @@ struct WakeShared {
     /// E250 — files the pump's parked-side watch sweep moved; update()
     /// consumes the count → library refresh + toast.
     watch_moved: std::sync::atomic::AtomicUsize,
+    /// E10 — region overlay is up; the pump polls for a global Esc so a
+    /// focus-loss can't orphan the pick.
+    region_open: AtomicBool,
 }
 
 impl WakeShared {
@@ -333,6 +338,12 @@ fn spawn_wake_pump(
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
             }
             drain_tray_channels(&shared, &ctx);
+            // E10 — while the region overlay is up, poll for a global Esc:
+            // if the overlay lost focus its own Esc handling never fires.
+            #[cfg(windows)]
+            if shared.region_open.load(Ordering::SeqCst) && crate::platform::esc_pressed_edge() {
+                pump_event(&shared, &ctx, WakeEvent::RegionCancel);
+            }
             pump_housekeeping(&shared, &ctx, &mut last_slow);
         }
     });
@@ -811,6 +822,8 @@ pub(crate) struct VibecapApp {
     region_history: Vec<Rect>,
     /// E95 — lifetime completed picks (session); HUD hints hide after 3.
     region_pick_count: u32,
+    /// E94 — region HUD toolbar docks bottom when set (session).
+    hud_toolbar_bottom: bool,
     /// Seconds to wait after the hide before grabbing (menu/tooltip shots,
     /// Snipping-Tool parity). Applies to non-interactive stills only.
     capture_delay_secs: u64,
@@ -1113,6 +1126,7 @@ impl VibecapApp {
             shutter_sound: false,
             region_history: Vec::new(),
             region_pick_count: 0,
+            hud_toolbar_bottom: false,
             save_dir: default_dir,
             wake_shared: Arc::new(WakeShared::default()),
             arm_cancel: Arc::new(AtomicBool::new(false)),
@@ -1502,6 +1516,7 @@ impl VibecapApp {
         self.filmstrip_low_res = s.filmstrip_low_res;
         self.region_dim = s.region_dim.min(200);
         self.region_pick_count = s.region_pick_count;
+        self.hud_toolbar_bottom = s.hud_toolbar_bottom;
         self.library_favorites = s.library_favorites.iter().cloned().collect();
         self.library_flagged = s.library_flagged.iter().cloned().collect();
         self.library_tags = s.library_tags.clone();
@@ -1589,6 +1604,7 @@ impl VibecapApp {
             filmstrip_low_res: self.filmstrip_low_res,
             region_dim: self.region_dim,
             region_pick_count: self.region_pick_count,
+            hud_toolbar_bottom: self.hud_toolbar_bottom,
             library_favorites: self.library_favorites.iter().cloned().collect(),
             library_flagged: self.library_flagged.iter().cloned().collect(),
             inbox_seen_at: self.inbox_seen_stamp.clone(),
@@ -5492,11 +5508,25 @@ impl VibecapApp {
         let hits = crate::platform::windows_at_point(x, y);
         if !hits.is_empty() {
             let w = &hits[self.window_pick_cycle % hits.len()];
-            let label = if w.title.is_empty() {
+            // E17 — pick card shows title + process + which display it's on.
+            let mut label = if w.title.is_empty() {
                 w.process.clone()
             } else {
                 w.title.clone()
             };
+            if !w.title.is_empty()
+                && !w.process.is_empty()
+                && !w.title.to_lowercase().contains(&w.process.to_lowercase())
+            {
+                label = format!("{label} · {}", w.process);
+            }
+            let (cx, cy) = (w.x + w.w / 2, w.y + w.h / 2);
+            if let Some(m) = crate::platform::list_monitors()
+                .iter()
+                .find(|m| cx >= m.x && cx < m.x + m.w && cy >= m.y && cy < m.y + m.h)
+            {
+                label = format!("{label} · Display {}", m.index + 1);
+            }
             self.window_pick_hover_monitor = false;
             return Some((label, w.x, w.y, w.w, w.h));
         }
@@ -5522,6 +5552,8 @@ impl VibecapApp {
         self.window_pick_cycle = 0;
         self.window_pick_last_pos = None;
         self.window_pick_poll_at = None;
+        // E94 — toolbar dock choice is a session pref.
+        self.persist_session();
         self.show_window(ctx);
     }
 
@@ -6216,6 +6248,11 @@ impl eframe::App for VibecapApp {
         self.wake_shared
             .follow_os
             .store(self.theme_follow_os, Ordering::SeqCst);
+        // E10 — pump polls GetAsyncKeyState(Esc) while the overlay is up so
+        // a focus-loss can't orphan the pick.
+        self.wake_shared
+            .region_open
+            .store(self.is_selecting_region, Ordering::SeqCst);
         // Remember which Review editor was last used (rail Review returns here).
         if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
             self.last_review_tab = Some(self.current_tab);
@@ -6569,6 +6606,7 @@ impl eframe::App for VibecapApp {
                 self.region_dim,
                 self.region_pick_count,
                 &mut self.region_history,
+                &mut self.hud_toolbar_bottom,
             ) {
                 RegionHudResult::Continue => {}
                 RegionHudResult::Confirmed { selected, overlay } => {
@@ -6908,6 +6946,13 @@ impl eframe::App for VibecapApp {
                 WakeEvent::Screenshot => hotkey_shots += 1,
                 WakeEvent::RecordToggle => hotkey_recs += 1,
                 WakeEvent::PauseToggle => self.toggle_pause(),
+                WakeEvent::RegionCancel => {
+                    if self.is_selecting_region {
+                        self.pending_region_kind = None;
+                        self.exit_region_overlay(ctx);
+                        self.show_toast("Region select cancelled");
+                    }
+                }
                 WakeEvent::Tray(action) => self.on_tray_action(ctx, action),
             }
         }
