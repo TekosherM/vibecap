@@ -527,6 +527,7 @@ extern "system" {
         data: isize,
     ) -> i32;
     fn GetMonitorInfoW(mon: Hmonitor, info: *mut RawMonitorInfo) -> i32;
+    fn GetClassNameW(hwnd: Hwnd, buf: *mut u16, max: i32) -> i32;
 }
 
 #[link(name = "kernel32")]
@@ -941,6 +942,25 @@ pub fn foreground_process_name() -> Option<String> {
         } else {
             None
         }
+    }
+}
+
+/// E19 — true while the foreground window is an open menu (the Win32 menu
+/// class "#32768" or a known popup-menu class), so a still trigger can
+/// auto-arm a 1 s beat for the menu to stay rendered.
+pub fn foreground_is_menu() -> bool {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return false;
+        }
+        let mut buf = [0u16; 64];
+        let n = GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+        if n <= 0 {
+            return false;
+        }
+        let class = String::from_utf16_lossy(&buf[..n as usize]);
+        class == "#32768" || class == "PopupMenu" || class.starts_with("NetUI")
     }
 }
 
@@ -1483,6 +1503,26 @@ pub fn shutter_click() {
             return;
         }
     }
+    play_wav_once(&wav);
+}
+
+/// E75 — distinct tones per action: a rising chirp when recording starts,
+/// a falling one when it stops. Same synth-and-cache approach as the click.
+pub fn record_tone(start: bool) {
+    let wav = std::env::temp_dir().join(if start {
+        "vibecap_rec_start.wav"
+    } else {
+        "vibecap_rec_stop.wav"
+    });
+    if !wav.exists() {
+        if std::fs::write(&wav, synth_record_wav(start)).is_err() {
+            return;
+        }
+    }
+    play_wav_once(&wav);
+}
+
+fn play_wav_once(wav: &std::path::Path) {
     let wide: Vec<u16> = wav
         .as_os_str()
         .to_string_lossy()
@@ -1496,6 +1536,41 @@ pub fn shutter_click() {
             SND_FILENAME | SND_ASYNC,
         );
     }
+}
+
+/// Rising (start) or falling (stop) pitch glide with a swell envelope.
+fn synth_record_wav(start: bool) -> Vec<u8> {
+    const RATE: u32 = 22050;
+    let ms = if start { 90 } else { 110 };
+    let n = RATE as usize * ms / 1000;
+    let (f0, f1) = if start {
+        (620.0_f32, 980.0)
+    } else {
+        (980.0, 620.0)
+    };
+    let mut data = Vec::with_capacity(44 + n * 2);
+    data.extend_from_slice(b"RIFF");
+    data.extend_from_slice(&(36 + n as u32 * 2).to_le_bytes());
+    data.extend_from_slice(b"WAVEfmt ");
+    data.extend_from_slice(&16u32.to_le_bytes());
+    data.extend_from_slice(&1u16.to_le_bytes());
+    data.extend_from_slice(&1u16.to_le_bytes());
+    data.extend_from_slice(&RATE.to_le_bytes());
+    data.extend_from_slice(&(RATE * 2).to_le_bytes());
+    data.extend_from_slice(&2u16.to_le_bytes());
+    data.extend_from_slice(&16u16.to_le_bytes());
+    data.extend_from_slice(b"data");
+    data.extend_from_slice(&(n as u32 * 2).to_le_bytes());
+    let mut phase = 0.0f32;
+    for i in 0..n {
+        let t = i as f32 / n as f32;
+        let f = f0 + (f1 - f0) * t;
+        phase += f / RATE as f32;
+        let env = (t * std::f32::consts::PI).sin(); // smooth swell, no clicks
+        let s = (phase * std::f32::consts::TAU).sin() * env * 0.3;
+        data.extend_from_slice(&((s * i16::MAX as f32) as i16).to_le_bytes());
+    }
+    data
 }
 
 fn synth_click_wav() -> Vec<u8> {

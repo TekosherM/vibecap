@@ -4470,6 +4470,9 @@ impl VibecapApp {
     /// Post-stop steps — safe only after ffmpeg has written the moov atom.
     fn finish_stop_recording(&mut self, ctx: &egui::Context) {
         self.release_record_exclusion();
+        if self.shutter_sound {
+            crate::platform::record_tone(false);
+        }
         if let Some(mp4) = self.current_mp4_file.clone() {
             if !self.record_markers.is_empty() {
                 let side = mp4.with_extension("markers.txt");
@@ -4957,6 +4960,9 @@ impl VibecapApp {
                 self.is_paused = false;
                 self.accumulated_duration = Duration::ZERO;
                 self.segment_start = Some(Instant::now());
+                if self.shutter_sound {
+                    crate::platform::record_tone(true);
+                }
                 // Excluded path keeps the studio visible as the REC surface;
                 // the floating bar + tray still cover the parked fallback.
                 if cfg!(target_os = "windows") {
@@ -5044,7 +5050,12 @@ impl VibecapApp {
         let monitor = self.capture_monitor;
         let pattern = self.name_pattern.clone();
         let app_token = focus_target.clone();
-        let delay_ms = self.capture_delay_secs.saturating_mul(1000);
+        let mut delay_ms = self.capture_delay_secs.saturating_mul(1000);
+        // E19 — a menu is already open: give it a beat to stay rendered.
+        #[cfg(windows)]
+        if crate::platform::foreground_is_menu() {
+            delay_ms = delay_ms.max(1000);
+        }
 
         std::thread::spawn(move || {
             // Resolve the output name while the compositor is still hiding our
@@ -6475,6 +6486,14 @@ impl eframe::App for VibecapApp {
         if self.silent_mode {
             self.shutter_flash_until = None;
         }
+        // E25 — the HUD ⚡ chip suppresses the flash for one shot only.
+        let no_flash_once = ctx
+            .data_mut(|d| d.get_temp::<bool>(egui::Id::new("hud_no_flash")))
+            .unwrap_or(false);
+        if no_flash_once {
+            self.shutter_flash_until = None;
+            ctx.data_mut(|d| d.remove::<bool>(egui::Id::new("hud_no_flash")));
+        }
         if let Some(until) = self.shutter_flash_until {
             if Instant::now() < until {
                 let rect = ctx.screen_rect();
@@ -6705,6 +6724,8 @@ impl eframe::App for VibecapApp {
                     // Keep the snap — a re-pick within 2 s reuses it (J230).
                     self.pending_region_kind = None;
                     self.exit_region_overlay(ctx);
+                    // E25 — a cancelled pick must not eat the next flash.
+                    ctx.data_mut(|d| d.remove::<bool>(egui::Id::new("hud_no_flash")));
                     self.show_toast("Region select cancelled");
                 }
             }

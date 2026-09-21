@@ -352,3 +352,10 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #35: apply_edge_fx post-bake - Border frame / Shadow (blur+offset) / Torn (deterministic noise jag clears edge alpha); EXPORT segmented + px slider; export_output_dims mirrors the canvas growth.
 - #33 verified: draw_text_box already paints the dark label pill; marked alongside Arrow/Rect/Ellipse/Blur/Highlight/Pad/Watermark/Undo/Resize/Format/Sticker/B-peek which all shipped earlier.
 - 102/102 tests (edge_fx test covers all three variants incl. canvas growth).
+
+### Capture behaviors - sounds, menu delay, no-flash, overwrite
+- #75: record_tone(start) synthesizes a rising/falling pitch-glide WAV (temp-cached, winmm async) — start chirps on is_recording, stop chimes in finish_stop_recording; same opt-in switch as the click.
+- #19: foreground_is_menu() reads the foreground class ("#32768"/PopupMenu/NetUI) and bumps the still delay to >=1 s so open menus render in the grab.
+- #25: HUD toolbar ⚡ chip toggles ctx-data hud_no_flash; the flash paint consumes it once, cancel clears it.
+- #70 verified already-covered: next_seq dedupes auto names; save/export go through the OS overwrite prompt.
+- 102/102 tests.

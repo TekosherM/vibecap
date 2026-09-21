@@ -828,6 +828,28 @@ pub fn show_region_selector(
                                                 d.insert_temp(grid_id, (grid + 1) % 3)
                                             });
                                         }
+                                        // E25 — suppress the shutter flash for
+                                        // this capture only (consumed on land).
+                                        let nf_id = egui::Id::new("hud_no_flash");
+                                        let nf: bool = ctx
+                                            .data_mut(|d| d.get_temp(nf_id))
+                                            .unwrap_or(false);
+                                        if ui
+                                            .selectable_label(
+                                                nf,
+                                                RichText::new("⚡")
+                                                    .size(12.0)
+                                                    .color(if nf {
+                                                        theme::ACCENT()
+                                                    } else {
+                                                        ink
+                                                    }),
+                                            )
+                                            .on_hover_text("No shutter flash on this capture")
+                                            .clicked()
+                                        {
+                                            ctx.data_mut(|d| d.insert_temp(nf_id, !nf));
+                                        }
                                         // E21 — centered-box presets in *pixels*
                                         // for README/demo captures.
                                         for (label, (pw, ph)) in

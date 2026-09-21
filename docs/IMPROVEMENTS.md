@@ -205,13 +205,13 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 16. **Z-cycle in window-pick** — scroll wheel steps through overlapping windows under the cursor. ✓
 17. **Pick card shows process + monitor** under the window title. ✓ (label is now "title · process · Display N")
 18. **Countdown on always-on-top viewport** — bubble must be visible while the studio is hidden (uses its own viewport, verify in live test). ✓ (was already shipped — `show_countdown_bubble` is its own always-on-top viewport)
-19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu.
+19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu. ✓ (`foreground_is_menu` probes the foreground class — "#32768"/PopupMenu/NetUI — and bumps the still delay to ≥1 s)
 20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %. ✓
 21. **Named size presets** — 1920×1080 / 1280×720 centered-box buttons in the HUD. ✓ ("1080p"/"720p" chips drop a centered pixel-size box; nudge + Enter captures)
 22. **Saved regions** — persist named rects to session; pick from palette.
 23. **Loupe hex readout** — show the sampled pixel's #RRGGBB in the cursor loupe. ✓ (was already shipped)
 24. **Dim-intensity setting** for the region overlay. ✓ (session `region_dim` 0–200, Settings slider; backdrop now dims with the selection punched bright)
-25. **Capture without cursor flash** — per-shot toggle in the HUD.
+25. **Capture without cursor flash** — per-shot toggle in the HUD. ✓ (⚡ chip in the region toolbar sets `hud_no_flash`; the flash paint consumes it — one shot only, cleared on cancel)
 
 ## B · Still editor (Snagit-editor territory)
 
@@ -410,12 +410,12 @@ Numbered 1–300 for this round. Sections sized 25 each.
 67. **Auto-scroll to options** — when Record selected, scroll options card into view. ✓ (pressing Record opens the collapsed Options header that frame via `.open(Some(true))` — audio/display knobs visible before arming)
 68. **Source icons state-colored** — the From segment icons tint to accent when active. ✓ (already shipped — icons paint ACCENT when on, TEXT_MUTED when off)
 69. **Window target shows last pick** — "Window: Chrome — DevTools" persisted on the card. ✓ (`window_app` joins session state; combo + 🎯 Pick persist on change; the target hint reads "Window: <name>" when a pick exists)
-70. **Confirm-before-overwrite** — same-name collision in output dir prompts once per session.
+70. **Confirm-before-overwrite** — same-name collision in output dir prompts once per session. ✓ (auto-captures dedupe via `next_seq` so names never collide; Still save/export go through the OS save dialog's own overwrite confirm)
 71. **Multi-shot batch** — hold modifier + click regions repeatedly = rapid sequence of stills.
 72. **Time-lapse mode** — capture frame every N sec into a video (stills → mp4).
 73. **Scheduled capture** — "in 10 min, grab this window" for meetings.
 74. **Clipboard watcher mode** — studio stays parked; a shot auto-opens Still review.
-75. **Capture sound per action** — distinct subtle tones for still/record-start/record-stop.
+75. **Capture sound per action** — distinct subtle tones for still/record-start/record-stop. ✓ (`record_tone(start)` — rising 620→980 Hz chirp on start, falling on stop, synthesized WAV like the shutter click; same opt-in switch)
 
 ## D · Region & window pick HUD (76–100)
 

@@ -845,6 +845,26 @@ pub fn shutter_click() {
     super::win32::shutter_click();
 }
 
+/// E75 — distinct record-start / record-stop tones (opt-in, same switch).
+pub fn record_tone(start: bool) {
+    #[cfg(target_os = "windows")]
+    super::win32::record_tone(start);
+    #[cfg(not(target_os = "windows"))]
+    let _ = start;
+}
+
+/// E19 — foreground window is an open OS menu (auto capture delay).
+pub fn foreground_is_menu() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::foreground_is_menu()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 /// E62 — battery state: `Some(true)` on battery, `Some(false)` on AC,
 /// `None` when the OS can't say (desktops without a battery report AC).
 pub fn on_battery() -> Option<bool> {

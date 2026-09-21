@@ -482,7 +482,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ui.checkbox(&mut app.hotkey_prtscn, "PrtScn still")
                         .on_hover_text("Bare PrtScn takes a screenshot while Vibecap runs");
                     if ui
-                        .checkbox(&mut app.shutter_sound, "Shutter sound")
+                        .checkbox(
+                            &mut app.shutter_sound,
+                            "Capture sounds (shutter + record start/stop)",
+                        )
                         .on_hover_text("Subtle click when a still lands")
                         .changed()
                     {
