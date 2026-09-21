@@ -609,12 +609,12 @@ background chip (112), save-as-copy (116), Esc depth (125).
 236. **Startup time budget** — cold launch → interactive <800 ms; measure and track.
 237. **Memory ceiling check** — long sessions with big thumbs shouldn't exceed ~300 MB.
 238. **PowerShell spawn removal** — replace `frontmost_app_name`/`window_rect_on_screen` shell-outs with `windows` crate calls (round-1 #28, still the biggest latency item). ✓ (raw FFI, no new crate: window/monitors/focus were already native; this tranche removed the last capture-path spawns — PS focus fallback (AppActivate is strictly weaker than AttachThreadInput+lock-clear+verify), `tasklist` pid probes → `OpenProcess`+`GetExitCodeProcess`, `taskkill` → `TerminateProcess` (frag-MP4 makes hard kill safe). PS remains only for toast notifications + update-check fallback — off the capture path)
-239. **Window-list cache** — 500 ms TTL on the pick-list enumeration.
-240. **ffmpeg path resolve once** — resolved at startup, not per-capture.
+239. **Window-list cache** — 500 ms TTL on the pick-list enumeration. ✓ (was already shipped — `WIN_CACHE` 750 ms TTL in `list_capture_windows`, non-blocking `list_capture_windows_cached` for per-frame UI, 2 s callsite TTL + worker dedup via `window_list_rx`)
+240. **ffmpeg path resolve once** — resolved at startup, not per-capture. ✓ (was already shipped — `FFMPEG` Mutex caches discovery in `ffmpeg_path`; `ffmpeg_recheck` re-probes only on explicit user request)
 241. **Starfield precomputation** — star positions hashed once, not per-frame.
 242. **Gradient mesh cache** — sky mesh rebuilt only on resize/theme change, not repaint. ✓ (shape-list cache keyed by rect+mode)
-243. **Toast timer coalescing** — one timer drives all toast lifetimes.
-244. **Session write debounce** — don't serialize+write session on every state change; batch 500 ms.
+243. **Toast timer coalescing** — one timer drives all toast lifetimes. ✓ (satisfied by #250 — the single 1 s repaint tick retires both `toast_message` and `capture_toast`; no per-toast timers exist)
+244. **Session write debounce** — don't serialize+write session on every state change; batch 500 ms. ✓ (`persist_session` now marks `session_dirty` (Cell); `tick_session_write` in update() flushes at most once per 500 ms; `quit_app`/`on_exit` flush synchronously; dirty state requests a repaint so the flush can't starve under repaint-on-demand)
 245. **Log ring-buffer** — `.ffmpeg.log` tail kept in memory for doctor, not re-read from disk.
 246. **Parallel test capture** — smoke tests run gdigrab in parallel with unit tests.
 247. **Binary size audit** — strip symbols, LTO release; target <15 MB installed. ✓ (release profile: `lto = "thin"` + `strip = true`; CGU=1 left off for iteration speed)
@@ -629,7 +629,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 253. **Last-error surface** — persistent "last capture error" in Settings + tray tooltip. ✓ (`last_error` persists error toasts; Settings row + tray idle tooltip)
 254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session. ✓ (`crash.log` in config dir — panic hook appends timestamped info, then chains to the default hook)
 255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem.
-256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry.
+256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry. ✓ (`verify_mp4` decodes one frame on a worker after stop; missing moov → `remux_to_clean_mp4` to `<stem>.repaired.mp4` and Review/recents re-point at the clean file; unrepairable → loud toast)
 257. **Session schema versioning** — migrate old session.json fields cleanly.
 258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash. ✓ (apply_session whitelists tab/density/filter/countdown/fps/digits, floors window dims, rejects inverted rects + insane screen dims)
 259. **Windows CI smoke** — gdigrab one-frame test asserting file size (round-1 #99, still open).
@@ -649,10 +649,10 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 264. **Self-update rollback** — bad update keeps previous binary.
 265. **Instance handshake** — MCP + GUI detect each other; avoid dual capture locks.
 266. **Clock-skew guard** — recording timestamps survive timezone changes mid-clip.
-267. **Output-dir move handling** — deleted/moved dir → recreate or prompt, never silent fail.
+267. **Output-dir move handling** — deleted/moved dir → recreate or prompt, never silent fail. ✓ (was already shipped — `create_dir_all` runs at every capture/record spawn site; `capture_to_dir` + agent record map mkdir errors to loud failures, ffmpeg write failure surfaces via exit status)
 268. **Long-path support** — >260 char paths via `\\?\` prefix on Windows.
 269. **Unicode filename safety** — emoji/non-ASCII in naming tokens don't break ffmpeg args.
-270. **Concurrent capture guard** — two rapid hotkey presses can't spawn two ffmpeg procs.
+270. **Concurrent capture guard** — two rapid hotkey presses can't spawn two ffmpeg procs. ✓ (was already shipped — `still_busy` AtomicBool CAS `swap` in the pump fast path + `screenshot_in_flight`/`still_busy` check in the UI path; second trigger returns early)
 271. **Tray-missing fallback** — if tray creation fails, keep a floating mini-bar alive.
 272. **DPI-change mid-pick** — region rect re-maps if scaling changes while overlay is up.
 273. **Monitor-hotplug handling** — disappearing display re-targets fullscreen gracefully.

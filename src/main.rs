@@ -716,6 +716,12 @@ pub(crate) struct VibecapApp {
     inbox_seen_stamp: String,
     /// E188 — collapsed agent groups in the Inbox pending list.
     inbox_collapsed_agents: std::collections::HashSet<String>,
+    /// E244 — session writes are debounced: `persist_session` only marks
+    /// dirty; update() flushes at a 500 ms cadence, exit paths flush sync.
+    session_dirty: std::cell::Cell<bool>,
+    session_last_write: std::cell::Cell<Option<Instant>>,
+    /// E256 — post-stop MP4 readability probe (worker → drain).
+    mp4_verify_rx: Option<Receiver<(PathBuf, Result<Option<PathBuf>, String>)>>,
     /// Filmstrip decode progress `(done, total)` for the determinate label.
     filmstrip_progress: (usize, usize),
     filmstrip_progress_rx: Option<Receiver<(usize, usize)>>,
@@ -1481,8 +1487,41 @@ impl VibecapApp {
         }
     }
 
+    /// E244 — callers just mark the session dirty; update() coalesces
+    /// bursts of state changes into one write per 500 ms window instead of
+    /// serializing + writing on every slider tick / toast / tab switch.
     pub(crate) fn persist_session(&self) {
-        save_session(&self.session_snapshot());
+        self.session_dirty.set(true);
+        // Guarantee an update() tick so the flush can't starve under
+        // repaint-on-demand.
+        if let Some(c) = &self.ui_ctx {
+            c.request_repaint_after(Duration::from_millis(600));
+        }
+    }
+
+    /// E244 — synchronous flush for exit paths; the debounce must not lose
+    /// the last write on quit.
+    fn flush_session_now(&self) {
+        if self.session_dirty.replace(false) {
+            save_session(&self.session_snapshot());
+        }
+    }
+
+    /// E244 — the debounced flush, called each frame.
+    fn tick_session_write(&mut self) {
+        if !self.session_dirty.get() {
+            return;
+        }
+        let due = self
+            .session_last_write
+            .get()
+            .map(|t| t.elapsed() >= Duration::from_millis(500))
+            .unwrap_or(true);
+        if due {
+            save_session(&self.session_snapshot());
+            self.session_last_write.set(Some(Instant::now()));
+            self.session_dirty.set(false);
+        }
     }
 
     /// Load a still into Still studio and select that tab.
@@ -2533,6 +2572,7 @@ impl VibecapApp {
             let _ = c.kill();
         }
         self.persist_session();
+        self.flush_session_now();
         app::instance::release_gui_lock();
         std::process::exit(0);
     }
@@ -4257,8 +4297,69 @@ impl VibecapApp {
             self.refresh_library();
             self.show_toast("⚠️ Stopped but no video path was set.");
         }
+        // E256 — prove the MP4 is readable before calling the stop a
+        // success: a worker decodes one frame; a missing moov (killed
+        // mid-write) triggers a remux repair instead of a silent bad file.
+        if let Some(mp4) = self.current_mp4_file.clone() {
+            if self.mp4_verify_rx.is_none() {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                self.mp4_verify_rx = Some(rx);
+                let ctx_clone = ctx.clone();
+                std::thread::spawn(move || {
+                    let res = if crate::platform::verify_mp4(&mp4) {
+                        Ok(None)
+                    } else {
+                        let clean = mp4.with_extension("repaired.mp4");
+                        match crate::platform::remux_to_clean_mp4(&mp4, &clean) {
+                            Ok(()) => Ok(Some(clean)),
+                            Err(e) => Err(e),
+                        }
+                    };
+                    let _ = tx.send((mp4, res));
+                    ctx_clone.request_repaint();
+                });
+            }
+        }
         // B52 — a dragged REC bar position lands on disk with the session.
         self.persist_session();
+    }
+
+    /// E256 — land the post-stop readability probe: verified → silent;
+    /// remux repaired → point Review/recents at the clean file;
+    /// unrepairable → loud toast (never a quiet corrupt file).
+    fn drain_mp4_verify(&mut self) {
+        let Some(rx) = self.mp4_verify_rx.as_ref() else {
+            return;
+        };
+        let Ok((mp4, res)) = rx.try_recv() else {
+            return;
+        };
+        self.mp4_verify_rx = None;
+        match res {
+            Ok(None) => {}
+            Ok(Some(clean)) => {
+                if self.edit_file.as_ref() == Some(&mp4) {
+                    self.edit_file = Some(clean.clone());
+                }
+                if self.current_mp4_file.as_ref() == Some(&mp4) {
+                    self.current_mp4_file = Some(clean.clone());
+                }
+                if matches!(&self.last_capture, Some(LastCapture::Clip(p)) if *p == mp4) {
+                    self.last_capture = Some(LastCapture::Clip(clean.clone()));
+                }
+                let name = clean
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("repaired.mp4");
+                self.show_toast(format!("⚠ Recording was unreadable — repaired → {name}"));
+                self.refresh_library();
+            }
+            Err(e) => {
+                self.show_toast(format!(
+                    "⚠ Recording may be unreadable (repair failed: {e})"
+                ));
+            }
+        }
     }
 
     fn load_filmstrip(&mut self, ctx: &egui::Context, file: PathBuf) {
@@ -5900,6 +6001,7 @@ impl eframe::App for VibecapApp {
             self.inbox_seen_stamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         }
         self.persist_session();
+        self.flush_session_now();
         app::instance::release_gui_lock();
     }
 
@@ -6091,6 +6193,8 @@ impl eframe::App for VibecapApp {
         self.drain_window_list();
         self.drain_region_snap(ctx);
         self.drain_filmstrip(ctx);
+        self.drain_mp4_verify();
+        self.tick_session_write();
         // F126 — preview audio follows the flipbook: plays while the clip
         // preview runs, stops on pause / tab switch / clip unload.
         if self.preview_audio_playing
@@ -6199,9 +6303,14 @@ impl eframe::App for VibecapApp {
             || self.filmstrip_rx.is_some()
             || self.region_snap_rx.is_some()
             || self.is_selecting_region
+            || self.mp4_verify_rx.is_some()
         {
             ctx.request_repaint_after(Duration::from_millis(100));
         } else if self.retro.config().enabled {
+            ctx.request_repaint_after(Duration::from_millis(500));
+        } else if self.session_dirty.get() {
+            // E244 — a pending debounced session write needs a tick within
+            // its 500 ms window even when nothing else repaints.
             ctx.request_repaint_after(Duration::from_millis(500));
         } else if self.toast_message.is_some() || self.capture_toast.is_some() {
             // A toast/capture card expires on a timer — one slow tick retires

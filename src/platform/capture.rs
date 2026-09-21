@@ -689,6 +689,33 @@ pub fn remux_to_clean_mp4(src: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// E256 — cheap post-stop readability probe: decode one frame through the
+/// null muxer. A missing `moov` atom (killed mid-write) fails loudly here
+/// even when the file is well over the 512-byte smell test. When ffmpeg
+/// itself is unavailable we can't verify — report readable rather than
+/// cry wolf.
+pub fn verify_mp4(path: &Path) -> bool {
+    let Ok(mut cmd) = super::ffmpeg::ffmpeg_command() else {
+        return true;
+    };
+    cmd.args([
+        "-v",
+        "error",
+        "-i",
+        &path.display().to_string(),
+        "-map",
+        "0:v:0",
+        "-frames:v",
+        "1",
+        "-f",
+        "null",
+        "-",
+    ]);
+    cmd.stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null());
+    cmd.status().map(|s| s.success()).unwrap_or(true)
+}
+
 /// Headless still into `dir`. Creates the directory. Returns the JPEG path.
 pub fn capture_to_dir(dir: &Path, opts: &CaptureOpts) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("could not create output dir: {e}"))?;
@@ -1109,6 +1136,41 @@ mod tests {
         .unwrap();
         let (w, h) = image::image_dimensions(&dest).unwrap();
         assert!(w <= 100 && h <= 80 && w >= 1 && h >= 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// E256 — verify_mp4 must accept a real ffmpeg-written file and reject
+    /// a moov-less / non-video file. Skips when ffmpeg is unavailable.
+    #[test]
+    fn verify_mp4_accepts_real_rejects_garbage() {
+        if !super::super::ffmpeg::ffmpeg_available() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("vibecap_verify_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let good = dir.join("good.mp4");
+        // 1 s of testsrc video — smallest real MP4 ffmpeg can write.
+        let mut gen = super::super::ffmpeg::ffmpeg_command().unwrap();
+        gen.args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=1:size=64x64:rate=5",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(&good)
+        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null());
+        assert!(gen.status().map(|s| s.success()).unwrap_or(false));
+        assert!(verify_mp4(&good), "real mp4 should verify");
+
+        let bad = dir.join("bad.mp4");
+        std::fs::write(&bad, b"not a real mp4, no moov atom here").unwrap();
+        assert!(!verify_mp4(&bad), "garbage should fail verification");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
