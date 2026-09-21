@@ -766,43 +766,57 @@ pub fn spawn_screen_recorder(
 /// agent record path is stopped from a different process (`taskkill` /
 /// SIGKILL), which can never send ffmpeg's graceful `q`. Pair with
 /// `remux_to_clean_mp4` on stop to restore a regular fast-start file.
-pub fn spawn_screen_recorder_opts(
+/// Shared recorder argv builder — used by the real spawn and by
+/// `record start --dry-run` (E280). `dry` skips side effects (window focus)
+/// but still resolves rects so the printed line is the real one.
+fn record_args(
     out_mp4: &Path,
     fps: u32,
     with_audio: bool,
     crop: Option<(i32, i32, i32, i32)>,
     opts: &CaptureOpts,
     frag_mp4: bool,
-) -> Result<Child, String> {
+    dry: bool,
+) -> Result<Vec<String>, String> {
     #[cfg(target_os = "windows")]
-    let focus_ok = windows_focus_ok(opts);
+    let focus_ok = !dry && windows_focus_ok(opts);
     #[cfg(not(target_os = "windows"))]
-    if let Some(app) = opts.window.as_deref() {
-        let _ = focus_app(app);
+    if !dry {
+        if let Some(app) = opts.window.as_deref() {
+            let _ = focus_app(app);
+        }
     }
     let spec = resolve_grab(opts);
     let out_s = path_str(out_mp4)?;
-    let mut cmd = super::ffmpeg::ffmpeg_command()?;
-    cmd.arg("-y");
-    cmd.arg("-hide_banner");
-    cmd.arg("-loglevel").arg("error");
+    let mut a: Vec<String> = vec![
+        "-y".into(),
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+    ];
 
     #[cfg(target_os = "macos")]
     {
         let _ = &spec;
-        cmd.arg("-f").arg("avfoundation");
-        cmd.arg("-r").arg(fps.to_string());
+        a.push("-f".into());
+        a.push("avfoundation".into());
+        a.push("-r".into());
+        a.push(fps.to_string());
         let device = if with_audio { "1:0" } else { "1:none" };
-        cmd.arg("-i").arg(device);
+        a.push("-i".into());
+        a.push(device.into());
     }
 
     #[cfg(target_os = "windows")]
     {
         let _ = with_audio; // system audio via dshow is machine-specific; video-only for now
         let _ = &spec;
-        cmd.arg("-f").arg("gdigrab");
-        cmd.arg("-draw_mouse").arg("1");
-        cmd.arg("-framerate").arg(fps.to_string());
+        a.push("-f".into());
+        a.push("gdigrab".into());
+        a.push("-draw_mouse".into());
+        a.push("1".into());
+        a.push("-framerate".into());
+        a.push(fps.to_string());
         // Explicit pixel crop wins (region recordings via desktop offsets).
         // Otherwise a named window records focused → desktop region
         // (GPU-safe) or unfocused → HWND (occlusion-proof; GPU apps may
@@ -823,7 +837,7 @@ pub fn spawn_screen_recorder_opts(
             None => match opts.window.as_deref() {
                 Some(name) => match window_rect_on_screen(name) {
                     Some((hwnd, x, y, w, h)) => {
-                        if focus_ok {
+                        if focus_ok || dry {
                             (Some(ScreenRect::even(x, y, w, h)), "desktop".to_string())
                         } else {
                             (None, format!("hwnd=0x{hwnd:X}"))
@@ -839,21 +853,32 @@ pub fn spawn_screen_recorder_opts(
             },
         };
         if let Some(r) = offsets {
-            cmd.arg("-offset_x").arg(r.x.to_string());
-            cmd.arg("-offset_y").arg(r.y.to_string());
-            cmd.arg("-video_size").arg(format!("{}x{}", r.w, r.h));
+            a.push("-offset_x".into());
+            a.push(r.x.to_string());
+            a.push("-offset_y".into());
+            a.push(r.y.to_string());
+            a.push("-video_size".into());
+            a.push(format!("{}x{}", r.w, r.h));
         }
-        cmd.arg("-i").arg(&input);
+        a.push("-i".into());
+        a.push(input);
     }
 
     #[cfg(target_os = "linux")]
     {
         let _ = with_audio;
-        cmd.arg("-f").arg("x11grab");
-        cmd.arg("-framerate").arg(fps.to_string());
-        cmd.arg("-video_size")
-            .arg(spec.video_size.as_deref().unwrap_or("1920x1080"));
-        cmd.arg("-i").arg(&spec.input);
+        a.push("-f".into());
+        a.push("x11grab".into());
+        a.push("-framerate".into());
+        a.push(fps.to_string());
+        a.push("-video_size".into());
+        a.push(
+            spec.video_size
+                .clone()
+                .unwrap_or_else(|| "1920x1080".into()),
+        );
+        a.push("-i".into());
+        a.push(spec.input.clone());
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -875,23 +900,65 @@ pub fn spawn_screen_recorder_opts(
         })
     };
     if let Some((w, h, x, y)) = crop {
-        cmd.arg("-vf").arg(format!("crop={}:{}:{}:{}", w, h, x, y));
+        a.push("-vf".into());
+        a.push(format!("crop={}:{}:{}:{}", w, h, x, y));
     }
 
-    cmd.arg("-c:v").arg("libx264");
+    a.push("-c:v".into());
+    a.push("libx264".into());
     // Real-time screen capture: the default "medium" preset saturates a core on
     // laptops and drops gdigrab frames — veryfast keeps up at 30-60fps.
-    cmd.arg("-preset").arg("veryfast");
+    a.push("-preset".into());
+    a.push("veryfast".into());
     // C55 — GUI exposes 18/23/28; None keeps the libx264 default (23).
     if let Some(crf) = opts.crf {
-        cmd.arg("-crf").arg(crf.clamp(0, 51).to_string());
+        a.push("-crf".into());
+        a.push(crf.clamp(0, 51).to_string());
     }
-    cmd.arg("-pix_fmt").arg("yuv420p");
+    a.push("-pix_fmt".into());
+    a.push("yuv420p".into());
     if frag_mp4 {
         // Kill-safe fragments; remuxed to a regular MP4 on stop.
-        cmd.arg("-movflags").arg("frag_keyframe+empty_moov");
+        a.push("-movflags".into());
+        a.push("frag_keyframe+empty_moov".into());
     }
-    cmd.arg(out_s);
+    a.push(out_s.to_string());
+    Ok(a)
+}
+
+/// E280 — resolved recorder argv as a printable shell line (no spawn).
+pub fn record_dry_run_line(out_mp4: &Path, opts: &CaptureOpts) -> Result<String, String> {
+    let args = record_args(out_mp4, 30, false, None, opts, true, true)?;
+    let prog = super::ffmpeg::ffmpeg_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "ffmpeg".into());
+    let mut line = shell_quote(&prog);
+    for a in &args {
+        line.push(' ');
+        line.push_str(&shell_quote(a));
+    }
+    Ok(line)
+}
+
+fn shell_quote(s: &str) -> String {
+    if s.chars().any(|c| c.is_whitespace()) {
+        format!("\"{s}\"")
+    } else {
+        s.to_string()
+    }
+}
+
+pub fn spawn_screen_recorder_opts(
+    out_mp4: &Path,
+    fps: u32,
+    with_audio: bool,
+    crop: Option<(i32, i32, i32, i32)>,
+    opts: &CaptureOpts,
+    frag_mp4: bool,
+) -> Result<Child, String> {
+    let args = record_args(out_mp4, fps, with_audio, crop, opts, frag_mp4, false)?;
+    let mut cmd = super::ffmpeg::ffmpeg_command()?;
+    cmd.args(&args);
     cmd.stdin(Stdio::piped());
 
     // Detach from the caller's terminal:

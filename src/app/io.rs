@@ -134,9 +134,53 @@ pub fn data_uri(path: &Path, max_bytes: u64) -> Result<String, String> {
     Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
 }
 
+/// E279 — stable machine-readable failure codes shared by the CLI
+/// (`error[E_X]: …` / `{"code":…}`) and MCP (`result.errorCode`). Agents
+/// branch on the code; the human text stays free-form.
+pub fn error_code(msg: &str) -> &'static str {
+    let m = msg.to_lowercase();
+    if m.starts_with("usage:") {
+        "E_USAGE"
+    } else if m.contains("already recording") {
+        "E_ALREADY_RECORDING"
+    } else if m.contains("not recording") || m.contains("nothing to stop") {
+        "E_NOT_RECORDING"
+    } else if m.contains("could not find a window") || m.contains("no matching window") {
+        "E_NO_WINDOW"
+    } else if m.contains("refusing to capture") {
+        "E_SELF_CAPTURE"
+    } else if m.contains("budget") {
+        "E_BUDGET"
+    } else if m.contains("ffmpeg") {
+        "E_FFMPEG"
+    } else if m.contains("permission") || m.contains("denied") || m.contains("access") {
+        "E_PERMISSION"
+    } else if m.contains("not found") || m.contains("no such") || m.contains("missing") {
+        "E_NOT_FOUND"
+    } else {
+        "E_FAILED"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn error_code_is_stable() {
+        assert_eq!(
+            error_code("not recording — nothing to stop"),
+            "E_NOT_RECORDING"
+        );
+        assert_eq!(error_code("already recording pid 4"), "E_ALREADY_RECORDING");
+        assert_eq!(
+            error_code("could not find a window matching “x”"),
+            "E_NO_WINDOW"
+        );
+        assert_eq!(error_code("ffmpeg failed: boom"), "E_FFMPEG");
+        assert_eq!(error_code("BUDGET EXHAUSTED"), "E_BUDGET");
+        assert_eq!(error_code("mystery"), "E_FAILED");
+    }
 
     #[test]
     fn file_uri_encodes_spaces_and_backslashes() {

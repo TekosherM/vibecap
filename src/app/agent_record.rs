@@ -80,6 +80,11 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// Public pid liveness check (doctor --fix probes stale state with it).
+pub fn record_pid_alive(pid: u32) -> bool {
+    pid_alive(pid)
+}
+
 fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;

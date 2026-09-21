@@ -35,6 +35,35 @@ fn default_media_dir() -> PathBuf {
     media_dir()
 }
 
+/// E278 — registered MCP tool names, mirrored by the `tools/list` handler
+/// below. Doctor reports this list so a drift between docs and handlers is
+/// visible (`vibecap doctor` → `mcp_tools=`). Keep in sync with tools/list.
+pub const MCP_TOOL_NAMES: &[&str] = &[
+    "vibecap_capture",
+    "vibecap_record_start",
+    "vibecap_record_stop",
+    "vibecap_record_status",
+    "vibecap_record_video",
+    "vibecap_export_gif",
+    "vibecap_start_live_inspection",
+    "vibecap_get_live_frame",
+    "vibecap_stop_live_inspection",
+    "vibecap_set_budget",
+    "vibecap_get_spending",
+    "vibecap_request_feedback",
+    "vibecap_get_feedback",
+    "vibecap_list_feedback",
+    "vibecap_cancel_feedback",
+    "vibecap_list_apps",
+    "vibecap_set_retro",
+    "vibecap_save_retro",
+    "vibecap_bug_report",
+];
+
+pub fn mcp_tool_count() -> usize {
+    MCP_TOOL_NAMES.len()
+}
+
 fn json_str<'a>(args: Option<&'a serde_json::Value>, key: &str) -> Option<&'a str> {
     args.and_then(|a| a.get(key))
         .and_then(|s| s.as_str())
@@ -1168,19 +1197,43 @@ pub fn run_mcp_server() {
                     _ => (format!("Unknown tool: {}", tool_name), true),
                 };
 
-                let response = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": content_text
-                            }
-                        ],
-                        "isError": is_error
-                    }
-                });
+                // E279 — stable errorCode on failures so agents can branch
+                // on the code instead of scraping English. Text is unchanged.
+                let err_code = if is_error {
+                    Some(crate::app::io::error_code(&content_text))
+                } else {
+                    None
+                };
+                let response = if is_error {
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": content_text
+                                }
+                            ],
+                            "isError": true,
+                            "errorCode": err_code
+                        }
+                    })
+                } else {
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": content_text
+                                }
+                            ],
+                            "isError": false
+                        }
+                    })
+                };
                 let _ = writeln!(handle, "{}", response.to_string());
                 let _ = handle.flush();
             }

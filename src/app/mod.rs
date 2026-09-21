@@ -45,7 +45,7 @@ pub use library::{
     category_bytes, date_group_label, filter_items, get_dir_size_bytes, retention_pick,
     scan_media_dir, LibrarySort, LoopPosition, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
 };
-pub use mcp::run_mcp_server;
+pub use mcp::{mcp_tool_count, run_mcp_server, MCP_TOOL_NAMES};
 pub use naming::{format_capture_stem, DEFAULT_PATTERN};
 pub use paths::{default_live_dir, default_media_dir, mcp_live_dir};
 pub use recording::{extract_filmstrip_rgba, finalize_recorder, kill_recorder};

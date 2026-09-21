@@ -624,8 +624,8 @@ background chip (112), save-as-copy (116), Esc depth (125).
 
 ## K · Reliability, diagnostics & telemetry (251–275)
 
-251. **doctor --fix** — auto-remediate missing ffmpeg PATH, bad output dir, stale session.
-252. **doctor JSON mode** — `--json` for agent parsing.
+251. **doctor --fix** — auto-remediate missing ffmpeg PATH, bad output dir, stale session. ✓ (creates missing media/output dirs, clears stale agent-record state + breadcrumb; prints `fix:` lines then the report)
+252. **doctor JSON mode** — `--json` for agent parsing. ✓ (`doctor --json` → full report object incl. monitors, env, `mcp_tool_names`, `stale_record_state`)
 253. **Last-error surface** — persistent "last capture error" in Settings + tray tooltip. ✓ (`last_error` persists error toasts; Settings row + tray idle tooltip)
 254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session. ✓ (`crash.log` in config dir — panic hook appends timestamped info, then chains to the default hook)
 255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem.
@@ -661,14 +661,14 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 
 ## L · CLI / MCP, settings & onboarding (276–300)
 
-276. **`--json` on all CLI verbs** — machine-readable output for agents.
-277. **CLI progress events** — `--record-status --watch` streams JSON lines.
-278. **MCP tool parity check** — doctor verifies every documented tool is registered.
-279. **MCP error codes** — stable `ERR_*` codes agents can branch on.
-280. **CLI dry-run** — `record start --dry-run` validates ffmpeg line without running.
-281. **`vibecap open <id>`** — open a Library item straight in Review from CLI.
-282. **CLI list** — `vibecap list [--type video] [--limit n]` prints media.
-283. **CLI annotate** — `vibecap annotate file.png --arrow x1,y1,x2,y2` headless.
+276. **`--json` on all CLI verbs** — machine-readable output for agents. ✓ (screenshot/record/paths/doctor/list/status all honor --json; errors → `{"ok":false,"code":"E_*","error":…}` on stderr)
+277. **CLI progress events** — `--record-status --watch` streams JSON lines. ✓ (`record status --watch` ticks each second until the recorder exits; NDJSON under --json)
+278. **MCP tool parity check** — doctor verifies every documented tool is registered. ✓ (`MCP_TOOL_NAMES` const mirrors tools/list; doctor reports `mcp_tools=19` + `mcp_tool_names`)
+279. **MCP error codes** — stable `ERR_*` codes agents can branch on. ✓ (`error_code()` classifier → `result.errorCode` on MCP failures + `error[E_*]` on CLI stderr: E_USAGE/E_NOT_RECORDING/E_ALREADY_RECORDING/E_NO_WINDOW/E_SELF_CAPTURE/E_BUDGET/E_FFMPEG/E_PERMISSION/E_NOT_FOUND/E_FAILED)
+280. **CLI dry-run** — `record start --dry-run` validates ffmpeg line without running. ✓ (prints the exact argv — same `record_args` builder as the real spawn, `dry` only skips window focus)
+281. **`vibecap open <id>`** — open a Library item straight in Review from CLI. ✓ (stills → Review via pending-still marker; clips/audio → OS default app)
+282. **CLI list** — `vibecap list [--type video] [--limit n]` prints media. ✓ (newest-first `name\tbytes\tkind`; --json array; --output-dir overrides the scanned dir)
+283. **CLI annotate** — `vibecap annotate file.png --arrow x1,y1,x2,y2` headless. ✓ (ops → headless bake via the GUI's own rasterizer → `<stem>_annotated.png`/`--out`; no ops → opens the Studio annotate surface)
 284. **Settings search** — filter box over all prefs.
 285. **Settings sections as rail** — left-nav inside Settings instead of scroll.
 286. **Setting tooltips** — every toggle explains its effect + default.

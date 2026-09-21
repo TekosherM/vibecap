@@ -40,8 +40,14 @@ Long `--gif` stops print `gif_pending=PATH` and encode in the background; the MP
 | `--display`, `-d` | X11 `DISPLAY` (also `VIBECAP_DISPLAY` / `$DISPLAY`). |
 | `--window`, `--app` | Focus + crop. Linux: x11grab. Windows: gdigrab offsets (never silent fullscreen). macOS stills: `screencapture -l`. |
 | `--gif` | Companion GIF on stop (long clips → `gif_pending=`). |
+| `--json` | Machine-readable output on every verb; errors → `{"code":"E_*","error":…}` on stderr. |
+| `--dry-run` | `record start` only — prints the exact ffmpeg argv, no spawn. |
+| `--watch`, `-w` | `record status` only — one line/sec until the recorder exits (NDJSON under `--json`). |
+| `list [--type k] [--limit n]` | Newest-first media listing (name, bytes, kind; JSON array under `--json`). |
+| `open <name>` | Stills open in the Studio Review; other media in the OS default app. |
+| `annotate <name>` | No ops → Studio annotate surface. `--arrow/--rect/--blur/--text x,y,label …` (0..1 coords) → headless bake to `<stem>_annotated.png`. |
 | `--paths` | Default media dir, ffmpeg path, backend, window-crop hint. |
-| `doctor`, `--doctor` | One-shot diagnostics. |
+| `doctor`, `--doctor` | One-shot diagnostics. `--json` for parsing, `--fix` to create missing dirs / clear stale record state. |
 
 Default when `--output-dir` is omitted: `dirs::video_dir()/Vibecap`, else
 `~/Movies/Vibecap` on macOS, else `~/Vibecap`. Do not guess. Use `--paths`.

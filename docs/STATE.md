@@ -187,3 +187,16 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - List view (#157): session `library_list_view`; ≡/▦ toggle in the header. 26px rows (glyph · name · tags · ★⚑≡ · size) with identical click/select/context/drag semantics; same virtualized-scroll skip as the grid. Context menu extracted to `item_menu` + `MenuActs` sink shared by tiles and rows.
 - OS drag-out (#47/#163): Windows OLE — hand-rolled IDataObject(CF_HDROP)+IDropSource in win32.rs (~400 lines unsafe, no dep). `GetData` hands out a *fresh* HGLOBAL copy each call so the template stays ours; DoDragDrop modal loop; Esc cancels, button-up drops. Dragging a selected tile drags the whole selection. Non-Windows: stub returns Err (silent no-op in UI).
 - Library section fully closed except #159 hover-scrub (needs filmstrip-on-hover machinery) and #167 storage bar.
+
+### CLI / agent tranche — json everywhere, doctor --fix, dry-run, list/open/annotate, error codes
+- `--json` on every CLI verb (#276): screenshot→`{ok,path,bytes}`, record start/stop→`{ok,pid,mp4,gif…}`, status→`{recording,pid,elapsed_secs,…}`, paths→object, list→array, doctor→report object. Failures → `{"ok":false,"code":"E_*","error":…}` on stderr.
+- Stable error codes (#279): `app::io::error_code` classifier → `error[E_X]: msg` on CLI stderr (usage exits 2) and `result.errorCode` on MCP `isError` responses — agents branch on code, humans keep the English.
+- `record start --dry-run` (#280): `record_args` extracted as the single ffmpeg argv builder — spawn and dry-run share it, so the printed line IS the real command (dry only skips window focus).
+- `record status --watch` (#277): one status line/sec until the recorder exits; NDJSON under --json.
+- `doctor --json` (#252) + `doctor --fix` (#251): `DoctorReport` struct feeds text+JSON; --fix creates missing media/output dirs and clears stale agent-record state + breadcrumb (never touches PATH/env).
+- MCP parity (#278): `MCP_TOOL_NAMES` const in mcp.rs (19 tools) → doctor `mcp_tools=`/`mcp_tool_names`; drift between the const and tools/list is visible in the report.
+- `vibecap list [--type k] [--limit n]` (#282): newest-first media scan of the media dir (or --output-dir); `name\tbytes\tkind` text or JSON array.
+- `vibecap open <id>` (#281): name-or-path resolution (path wins, then exact media-dir filename); stills open in Review via the pending-still marker, clips/audio go to the OS default app.
+- `vibecap annotate <file>` (#283): with no ops → pending-still → Studio annotate surface (GUI running or launched fresh). With `--arrow/--rect/--ellipse/--blur/--hl/--spotlight/--measure/--badge/--text` (normalized 0..1 coords, repeatable, `--color`/`--stroke`/`--out`) → headless bake via `bake_annotations` → `<stem>_annotated.png`.
+- `record_pid_alive` made pub for doctor's stale-state probe.
+- 82/82 tests; new coverage: parse for all new verbs/flags, error_code table, resolve_media_target, dry-run argv sanity, headless bake actually draws red pixels.

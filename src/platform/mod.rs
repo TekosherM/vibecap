@@ -21,9 +21,9 @@ mod win32;
 pub use capture::{
     capture_live_frame, capture_screenshot, capture_screenshot_interactive,
     capture_screenshot_opts, capture_screenshot_region, capture_to_dir, crop_image_file,
-    even_screen_rect, export_gif_clip, export_gif_clip_ex, record_screen_clip_opts,
-    remux_to_clean_mp4, spawn_screen_recorder, spawn_screen_recorder_opts, spawn_voice_memo,
-    LiveFormat, ScreenRect,
+    even_screen_rect, export_gif_clip, export_gif_clip_ex, record_dry_run_line,
+    record_screen_clip_opts, remux_to_clean_mp4, spawn_screen_recorder, spawn_screen_recorder_opts,
+    spawn_voice_memo, LiveFormat, ScreenRect,
 };
 pub use ffmpeg::{
     extract_preview_wav, ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path,
