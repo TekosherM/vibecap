@@ -520,11 +520,58 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             if app.capture_audio && app.audio_devices.is_empty() {
                                                 ui.label(
                                                     RichText::new(
-                                                        "No DirectShow audio device — set VIBECAP_AUDIO_DEVICE or the recording will be silent.",
+                                                        "No DirectShow audio device — set VIBECAP_AUDIO_DEVICE or recording will fail.",
                                                     )
                                                     .size(10.0)
                                                     .color(theme::WARN()),
                                                 );
+                                            }
+                                            // E59 — pick the capture device
+                                            // instead of trusting the mic-name
+                                            // heuristic.
+                                            if app.capture_audio && !app.audio_devices.is_empty() {
+                                                let sel = if app.audio_device.is_empty() {
+                                                    "Auto (first mic)".to_string()
+                                                } else {
+                                                    app.audio_device.clone()
+                                                };
+                                                egui::ComboBox::from_id_source("audio_dev")
+                                                    .selected_text(sel)
+                                                    .width(220.0)
+                                                    .show_ui(ui, |ui| {
+                                                        if ui
+                                                            .selectable_label(
+                                                                app.audio_device.is_empty(),
+                                                                "Auto (first mic)",
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            app.audio_device.clear();
+                                                            app.persist_session();
+                                                        }
+                                                        for d in app.audio_devices.clone() {
+                                                            if ui
+                                                                .selectable_label(
+                                                                    app.audio_device == d,
+                                                                    &d,
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                app.audio_device = d;
+                                                                app.persist_session();
+                                                            }
+                                                        }
+                                                    });
+                                                // A picked device that vanished
+                                                // from the list falls back to Auto.
+                                                if !app.audio_device.is_empty()
+                                                    && !app
+                                                        .audio_devices
+                                                        .contains(&app.audio_device)
+                                                {
+                                                    app.audio_device.clear();
+                                                    app.persist_session();
+                                                }
                                             }
                                         }
                                     });

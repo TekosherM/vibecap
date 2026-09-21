@@ -796,6 +796,30 @@ pub fn spawn_screen_recorder(
 /// Shared recorder argv builder — used by the real spawn and by
 /// `record start --dry-run` (E280). `dry` skips side effects (window focus)
 /// but still resolves rects so the printed line is the real one.
+/// Resolve the DirectShow audio input name: explicit GUI pick →
+/// `VIBECAP_AUDIO_DEVICE` env → mic-name heuristic → first enumerated
+/// device → None (caller must error honestly rather than record silence).
+#[cfg(target_os = "windows")]
+fn resolve_dshow_device(preferred: Option<&str>) -> Option<String> {
+    if let Some(p) = preferred.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(p.to_string());
+    }
+    if let Ok(v) = std::env::var("VIBECAP_AUDIO_DEVICE") {
+        let t = v.trim();
+        if !t.is_empty() {
+            return Some(t.to_string());
+        }
+    }
+    let devs = super::ffmpeg::list_audio_input_devices();
+    devs.iter()
+        .find(|n| {
+            let l = n.to_ascii_lowercase();
+            l.contains("microphone") || l.contains("mic")
+        })
+        .cloned()
+        .or_else(|| devs.into_iter().next())
+}
+
 fn record_args(
     out_mp4: &Path,
     fps: u32,
@@ -836,7 +860,6 @@ fn record_args(
 
     #[cfg(target_os = "windows")]
     {
-        let _ = with_audio; // system audio via dshow is machine-specific; video-only for now
         let _ = &spec;
         a.push("-f".into());
         a.push("gdigrab".into());
@@ -889,6 +912,22 @@ fn record_args(
         }
         a.push("-i".into());
         a.push(input);
+        // E36/E37 — "Include audio" was previously a lie on Windows:
+        // `with_audio` was discarded and the recording was always silent.
+        // A second dshow input lets ffmpeg default-map video+audio.
+        if with_audio {
+            let dev = resolve_dshow_device(opts.audio_device.as_deref()).ok_or_else(|| {
+                "Include audio is on but no DirectShow audio device was found — \
+                 plug in a mic or set VIBECAP_AUDIO_DEVICE"
+                    .to_string()
+            })?;
+            a.push("-f".into());
+            a.push("dshow".into());
+            a.push("-i".into());
+            a.push(format!("audio={dev}"));
+            a.push("-c:a".into());
+            a.push("aac".into());
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -1037,20 +1076,9 @@ pub fn spawn_voice_memo(out_audio: &Path) -> Result<Child, String> {
 
     #[cfg(target_os = "windows")]
     {
-        // Device names vary; override with VIBECAP_AUDIO_DEVICE (DirectShow audio= name).
-        let device = std::env::var("VIBECAP_AUDIO_DEVICE")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| {
-                super::ffmpeg::list_audio_input_devices()
-                    .into_iter()
-                    .find(|n| {
-                        let l = n.to_ascii_lowercase();
-                        l.contains("microphone") || l.contains("mic")
-                    })
-            })
-            .or_else(|| super::ffmpeg::list_audio_input_devices().into_iter().next())
-            .unwrap_or_else(|| "virtual-audio-capturer".into());
+        // Device names vary; shared resolver: env → mic heuristic → first,
+        // legacy fallback keeps voice memos working on bare machines.
+        let device = resolve_dshow_device(None).unwrap_or_else(|| "virtual-audio-capturer".into());
         cmd.args([
             "-f",
             "dshow",
@@ -1137,6 +1165,45 @@ mod tests {
         let (w, h) = image::image_dimensions(&dest).unwrap();
         assert!(w <= 100 && h <= 80 && w >= 1 && h >= 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// E59 — with_audio + a picked device must emit a dshow audio input
+    /// and an aac codec, not silently record video-only.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn record_args_includes_dshow_audio_when_picked() {
+        let opts = CaptureOpts::default().with_audio_device("TestMic (USB)");
+        let args = record_args(
+            std::path::Path::new("C:\\out\\v.mp4"),
+            30,
+            true,
+            None,
+            &opts,
+            true,
+            true, // dry — no window focus side effects
+        )
+        .unwrap();
+        let joined = args.join(" ");
+        assert!(joined.contains("dshow"), "{joined}");
+        assert!(joined.contains("audio=TestMic (USB)"), "{joined}");
+        assert!(joined.contains("-c:a aac"), "{joined}");
+
+        // No device and no auto-resolvable input → honest error, never a
+        // silent recording. (Only holds when the machine genuinely has no
+        // audio device — env override forces it for the test.)
+        std::env::set_var("VIBECAP_AUDIO_DEVICE", "");
+        let no_dev = record_args(
+            std::path::Path::new("C:\\out\\v.mp4"),
+            30,
+            true,
+            None,
+            &CaptureOpts::default(),
+            true,
+            true,
+        );
+        if super::super::ffmpeg::list_audio_input_devices().is_empty() {
+            assert!(no_dev.is_err(), "expected loud failure without a device");
+        }
     }
 
     /// E256 — verify_mp4 must accept a real ffmpeg-written file and reject

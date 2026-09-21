@@ -24,6 +24,9 @@ pub struct CaptureOpts {
     /// Real-time libx264 quality for recordings (`-crf`). `None` keeps the
     /// ffmpeg default (23).
     pub crf: Option<u8>,
+    /// E59 — DirectShow audio device name for recordings (Windows).
+    /// `None` = auto-resolve (env → mic-name heuristic → first device).
+    pub audio_device: Option<String>,
 }
 
 impl CaptureOpts {
@@ -34,6 +37,7 @@ impl CaptureOpts {
             draw_mouse: false,
             monitor: None,
             crf: None,
+            audio_device: None,
         }
     }
 
@@ -49,6 +53,12 @@ impl CaptureOpts {
 
     pub fn with_crf(mut self, crf: u8) -> Self {
         self.crf = Some(crf);
+        self
+    }
+
+    /// E59 — empty/whitespace means auto-resolve.
+    pub fn with_audio_device(mut self, dev: &str) -> Self {
+        self.audio_device = empty_to_none(Some(dev.to_string()));
         self
     }
 

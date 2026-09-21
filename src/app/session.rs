@@ -45,6 +45,9 @@ pub struct SessionState {
     /// C55 — recording quality (libx264 `-crf`): 18 sharp / 23 balanced / 28 small.
     #[serde(default = "default_crf")]
     pub record_crf: u8,
+    /// E59 — picked DirectShow audio device for recordings; empty = auto.
+    #[serde(default)]
+    pub audio_device: String,
     #[serde(default)]
     pub monitor: Option<u32>,
     #[serde(default)]
@@ -197,6 +200,7 @@ impl Default for SessionState {
             draw_mouse: false,
             fps: 30,
             record_crf: 23,
+            audio_device: String::new(),
             monitor: None,
             inbox_snippets: vec![
                 "Looks good".into(),

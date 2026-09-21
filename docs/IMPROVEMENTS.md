@@ -70,8 +70,8 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 33. **Naming tokens** `{app}-{date}-{seq}` with a live preview in Settings. Default `screenshot_YYYY-MM-DD_HH-MM-SS.jpg` is unreadable in a folder of 200.
 34. **Save-to last folder vs default media dir.** Agents pass `--output-dir`; GUI always uses `save_dir`. Add “set as agent default” so GUI and CLI agree (`VIBECAP_OUTPUT_DIR`).
 35. **GIF as a first-class shutter action** (still / record / GIF). Today GIF is an export from Clip or `--gif` on stop.
-36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies.
-37. **Disable or warn the audio switch** on Windows until a device is detected (`ffmpeg -list_devices`).
+36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies. ◑ (the lie is fixed — Windows recordings now add a real dshow audio input and fail loudly when no device resolves; live level meter still open)
+37. **Disable or warn the audio switch** on Windows until a device is detected (`ffmpeg -list_devices`). ✓ (async device probe + warn row existed; now the recording actually carries audio — and with zero devices the spawn errors honestly instead of recording silence)
 38. **FPS 24/30/60 + custom.** Segmented 30/60 only (`settings_tab.rs`). 24 is enough for bug clips and half the disk. ✓ (was already shipped — 24/30/60 chips in Settings)
 39. **Cursor draw toggle** for stills (`-draw_mouse 0` hardcoded). Demos want the pointer; bug stills often don’t. ✓ (was already shipped — 'Draw cursor on stills' switch → `draw_mouse` session field → `-draw_mouse`)
 40. **Self-capture guard.** If the only “window” match is Vibecap, refuse Window target (Fullscreen already tries `last_front_app`).
@@ -399,7 +399,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 56. **Recents carousel** — horizontal scroll when >3 items instead of hiding them.
 57. **"Waiting for capture" state** — while armed+hidden, the studio (if shown) should say so.
 58. **Options card quick toggles** — cursor/audio/display as icon toggles, not buried in disclosure.
-59. **Audio device picker** — dropdown of dshow devices when Include audio is on.
+59. **Audio device picker** — dropdown of dshow devices when Include audio is on. ✓ (combo under the switch lists enumerated devices + Auto; pick persists via session `audio_device`; a vanished device falls back to Auto)
 60. **Estimated file size** — live "≈4 MB/min @ 30fps" under Record. ✓ (STORAGE group in Options, scaled by fps + monitor mpx)
 61. **Disk-space guard** — warn <500 MB free on the target dir before arming. ✓ (GetDiskFreeSpaceExW; warning under shutter + free-space line in STORAGE)
 62. **Battery-aware hint** — on battery, suggest 24 fps / shorter clips.
@@ -585,8 +585,8 @@ background chip (112), save-as-copy (116), Esc depth (125).
 215. **Auto-update channel** — staged: check → download → apply on exit.
 216. **Context-menu verb** — Explorer right-click "Annotate with Vibecap" on images. ✓ (HKCU `SystemFileAssociations\image` verb → `"vibecap.exe" annotate "%1"` — one PerceivedType key covers .png/.jpg/.webp/…, no elevation; raw RegCreateKeyExW/RegDeleteTreeW FFI in win32.rs; Settings checkbox installs/removes; verb lands in Review via the pending-still handoff whether the GUI is running or cold)
 217. **Share target** — Windows share contract so apps can send Vibecap images.
-218. **Startup-on-login option** — tray-only resident mode.
-219. **Notification-area copy** — all "menu bar" strings fixed for Windows.
+218. **Startup-on-login option** — tray-only resident mode. ✓ (was already shipped — run-at-login registers `"<exe>" --hidden`; `--hidden` starts parked in the tray)
+219. **Notification-area copy** — all "menu bar" strings fixed for Windows. ✓ (was already shipped — user-visible strings are cfg-gated ("notification area / system tray" on Windows); remaining hits are code comments)
 220. **Windows permissions card** — mic/loopback device, tray status, gdigrab test.
 221. **First-run health check** — ffmpeg, write-perms, DPI awareness, tray — one green card.
 222. **Crash-recovery** — unsaved annotations/session state restored on relaunch. ✓ (two halves: `review_draft.json` — debounced 800 ms draft of the Still editor's strokes as a serializable mirror (stickers as base64 PNGs), canvas-rect included so `sync_annotation_canvas` re-projects into the new layout; on launch a draft whose still still exists restores into Review without a tab switch. Plus orphaned-recorder recovery: a dead pid + frag-MP4 on disk → background remux to a clean MP4, state + breadcrumb discarded, result toasts)

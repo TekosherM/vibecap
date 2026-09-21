@@ -537,6 +537,8 @@ pub(crate) struct VibecapApp {
     current_tab: AppTab,
     capture_target: CaptureTarget,
     capture_audio: bool,
+    /// E59 — picked DirectShow audio device (empty = auto-resolve).
+    audio_device: String,
     fps_target: u32,
     /// C55 — recording quality (libx264 `-crf`): 18 sharp / 23 balanced / 28 small.
     record_crf: u8,
@@ -1366,6 +1368,7 @@ impl VibecapApp {
             _ => 23,
         };
         self.capture_monitor = s.monitor;
+        self.audio_device = s.audio_device.clone();
         if !s.inbox_snippets.is_empty() {
             self.inbox_snippets = s.inbox_snippets;
         }
@@ -1458,6 +1461,7 @@ impl VibecapApp {
             draw_mouse: self.draw_mouse,
             fps: self.fps_target,
             record_crf: self.record_crf,
+            audio_device: self.audio_device.clone(),
             monitor: self.capture_monitor,
             inbox_snippets: self.inbox_snippets.clone(),
             hotkey_shot_digit: self.hotkey_shot_digit,
@@ -4111,13 +4115,9 @@ impl VibecapApp {
                 format!("Window: {short}")
             }
         };
-        // Audio flag only shows where recording actually honors it —
-        // gdigrab ignores `with_audio` on Windows today.
-        let audio = if cfg!(target_os = "macos") && self.capture_audio {
-            " · mic"
-        } else {
-            ""
-        };
+        // Audio flag shows wherever recording honors it — dshow input on
+        // Windows, avfoundation on macOS.
+        let audio = if self.capture_audio { " · mic" } else { "" };
         let marks = if self.record_markers.is_empty() {
             String::new()
         } else {
@@ -4628,7 +4628,8 @@ impl VibecapApp {
             .with_monitor(self.capture_monitor),
             _ => CaptureOpts::default().with_monitor(self.capture_monitor),
         }
-        .with_crf(self.record_crf);
+        .with_crf(self.record_crf)
+        .with_audio_device(&self.audio_device);
 
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.record_spawn_rx = Some(rx);
