@@ -40,8 +40,8 @@ pub use feedback::{
     touch_feedback_poll, FeedbackRequest, FeedbackResponse,
 };
 pub use io::{
-    data_uri, file_uri, take_pending_still, write_json_atomic, write_pending_still,
-    write_pending_still_error,
+    data_uri, file_uri, take_pending_cmd, take_pending_still, write_json_atomic,
+    write_pending_still, write_pending_still_error,
 };
 pub use library::{
     category_bytes, date_group_label, filter_items, get_dir_size_bytes, retention_pick,

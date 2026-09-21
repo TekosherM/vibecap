@@ -54,6 +54,27 @@ pub fn take_pending_still() -> Option<Result<PathBuf, String>> {
     }
 }
 
+// ── E210 CLI poke — command handoff to a running (or next-launched) GUI ──────
+
+fn pending_cmd_path() -> PathBuf {
+    vibecap_config_dir().join("pending_cmd.txt")
+}
+
+/// `vibecap poke <cmd>` writes one word: show|hide|screenshot|record|stop.
+pub fn write_pending_cmd(cmd: &str) {
+    let _ = std::fs::create_dir_all(vibecap_config_dir());
+    let _ = std::fs::write(pending_cmd_path(), cmd.as_bytes());
+}
+
+/// Consume a queued poke, if any.
+pub fn take_pending_cmd() -> Option<String> {
+    let p = pending_cmd_path();
+    let raw = std::fs::read_to_string(&p).ok()?;
+    let _ = std::fs::remove_file(&p);
+    let cmd = raw.trim().to_string();
+    (!cmd.is_empty()).then_some(cmd)
+}
+
 /// D68 — `file:///…` URI for a capture path (percent-encoded, forward slashes).
 pub fn file_uri(path: &Path) -> String {
     let mut s = path.to_string_lossy().replace('\\', "/");

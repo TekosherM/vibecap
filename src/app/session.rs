@@ -116,6 +116,13 @@ pub struct SessionState {
     /// E157 — compact list view instead of the tile grid.
     #[serde(default)]
     pub library_list_view: bool,
+    /// E206 — tray double-click action: "open" | "screenshot" | "record".
+    #[serde(default = "default_tray_dblclick")]
+    pub tray_dblclick: String,
+    /// E211 — folder polled for media files to move into the library
+    /// (empty = off).
+    #[serde(default)]
+    pub watch_folder: String,
 }
 
 fn default_theme_dark() -> String {
@@ -152,6 +159,10 @@ fn default_retention_value() -> u32 {
 
 fn default_clip_autoplay() -> bool {
     true
+}
+
+fn default_tray_dblclick() -> String {
+    "open".into()
 }
 
 /// Existing installs without the field skip the wizard.
@@ -205,6 +216,8 @@ impl Default for SessionState {
             retention_value: 30,
             retention_auto: false,
             library_list_view: false,
+            tray_dblclick: default_tray_dblclick(),
+            watch_folder: String::new(),
         }
     }
 }

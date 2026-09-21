@@ -573,12 +573,12 @@ background chip (112), save-as-copy (116), Esc depth (125).
 203. **Hotkey conflict detect** — warn when binding collides with OS/browser.
 204. **Tray recent-captures** — last 5 items submenu with copy/reveal. ✓ (5 slots follow the library scan; click opens the file)
 205. **Tray pause/resume** — during record.
-206. **Tray double-click action** — configurable (screenshot / open / record).
+206. **Tray double-click action** — configurable (screenshot / open / record). ✓ (Settings → "Tray double-click" segmented; TrayIconEvent::DoubleClick → TrayAction::DoubleClick resolved per session `tray_dblclick`. Single clicks defer one 400 ms double-click window via shared PENDING_CLICK state — consumed by both the visible-path `poll_actions` and the parked pump's `drain_tray_channels` — so a configured screenshot/record no longer pops the studio first. When the action IS "open" clicks stay instant: a double just shows twice)
 207. **Tray icon state** — REC blink baked into icon while recording. ✓ (was already shipped — IconPhase rec disc + arc)
 208. **Tray recording elapsed** — tooltip shows `REC 02:41`. ✓ (was already shipped — `Recording {clock}` tooltip)
 209. **Single-instance GUI** — second launch focuses first unless `--mcp`/`--screenshot`. ✓ (was already shipped — `gui.lock` pid file + `activate_own_app`)
-210. **CLI poke** — `vibecap --capture` forwards to the running instance.
-211. **Watch-folder import** — monitor a dir, auto-add shots.
+210. **CLI poke** — `vibecap --capture` forwards to the running instance. ✓ (`vibecap poke <show|hide|screenshot|record|stop>` writes a `pending_cmd.txt` marker the GUI polls each frame → running instance acts on it (lock-fail still focuses it); cold launch picks the marker up on its first frames. Usage errors → E_USAGE exit 2)
+211. **Watch-folder import** — monitor a dir, auto-add shots. ✓ (Settings → "Watch folder" Choose…/Off; 3 s poll in update() moves settled files (mtime ≥2 s — skips in-flight copies) with a media extension into the media dir, `_2` suffix on name collisions, rename with copy+delete cross-volume fallback; toast + library refresh on import)
 212. **Portable mode** — config/session beside the exe.
 213. **Profile export/import** — settings + hotkeys as one file. ✓ (Settings → Export/Import profile… → `.vcap-profile` zip: manifest.json + session.json via the store-only zip writer/reader; import validates, serde defaults fill fields the file predates, session-only state — tab, open editors, window size, wizard, permission probes — is masked so an export can't yank the importer's UI)
 214. **Update checker** — GitHub Releases poll, opt-in, changelog toast. ✓ (worker-thread check — the old sync curl blocked the UI; "Check on launch" session toggle (off = fully offline); newer tag → changelog toast + Settings shows notes preview + Download ↗ opening the release page)

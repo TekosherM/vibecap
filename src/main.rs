@@ -339,6 +339,7 @@ fn pump_needs_wake(ev: &WakeEvent, parked: bool, still_busy: bool) -> bool {
             | WakeEvent::Show
             | WakeEvent::Tray(TrayAction::ToggleRecord)
             | WakeEvent::Tray(TrayAction::Show)
+            | WakeEvent::Tray(TrayAction::DoubleClick)
             | WakeEvent::Tray(TrayAction::Quit)
     )
 }
@@ -420,15 +421,32 @@ fn pump_still_event(shared: &Arc<WakeShared>, ctx: &egui::Context) {
 fn drain_tray_channels(shared: &Arc<WakeShared>, ctx: &egui::Context) {
     let mut woke = false;
     while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-        if let TrayIconEvent::Click {
-            button: tray_icon::MouseButton::Left,
-            button_state: tray_icon::MouseButtonState::Up,
-            ..
-        } = event
-        {
-            pump_event(shared, ctx, WakeEvent::Tray(TrayAction::Show));
-            woke = true;
+        match event {
+            TrayIconEvent::Click {
+                button: tray_icon::MouseButton::Left,
+                button_state: tray_icon::MouseButtonState::Up,
+                ..
+            } => {
+                if let Some(a) = tray_ui::tray_click_up() {
+                    pump_event(shared, ctx, WakeEvent::Tray(a));
+                    woke = true;
+                }
+            }
+            TrayIconEvent::DoubleClick {
+                button: tray_icon::MouseButton::Left,
+                ..
+            } => {
+                pump_event(shared, ctx, WakeEvent::Tray(tray_ui::tray_double_click()));
+                woke = true;
+            }
+            _ => {}
         }
+    }
+    // E206 — a parked click that outlived the double-click window was a real
+    // single click; the 250 ms pump tick checks this even while hidden.
+    if let Some(a) = tray_ui::tray_click_expired() {
+        pump_event(shared, ctx, WakeEvent::Tray(a));
+        woke = true;
     }
     while let Ok(event) = MenuEvent::receiver().try_recv() {
         let action = shared
@@ -839,6 +857,12 @@ pub(crate) struct VibecapApp {
     img_preview_tex: Option<egui::TextureHandle>,
     img_preview_params: String,
     img_source_dims: String,
+
+    /// E206 — tray double-click action: "open" | "screenshot" | "record".
+    tray_dblclick: String,
+    /// E211 — folder polled for media to move into the library; "" = off.
+    watch_folder: String,
+    watch_last_scan: Option<std::time::Instant>,
 
     // First-run wizard (Phase 3)
     wizard_open: bool,
@@ -1281,6 +1305,11 @@ impl VibecapApp {
         self.retention_value = s.retention_value.max(1);
         self.retention_auto = s.retention_auto;
         self.library_list_view = s.library_list_view;
+        self.tray_dblclick = match s.tray_dblclick.as_str() {
+            "screenshot" | "record" => s.tray_dblclick.clone(),
+            _ => "open".into(),
+        };
+        self.watch_folder = s.watch_folder;
         self.inbox_seen_stamp = s.inbox_seen_at.clone();
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
@@ -1353,6 +1382,8 @@ impl VibecapApp {
             retention_value: self.retention_value,
             retention_auto: self.retention_auto,
             library_list_view: self.library_list_view,
+            tray_dblclick: self.tray_dblclick.clone(),
+            watch_folder: self.watch_folder.clone(),
         }
     }
 
@@ -2459,6 +2490,12 @@ impl VibecapApp {
         match action {
             TrayAction::Show => self.show_window(ctx),
             TrayAction::Hide => self.hide_to_tray(ctx),
+            // E206 — configurable double-click (default: open studio).
+            TrayAction::DoubleClick => match self.tray_dblclick.as_str() {
+                "screenshot" => self.trigger_capture(ctx, true),
+                "record" => self.on_tray_action(ctx, TrayAction::ToggleRecord),
+                _ => self.show_window(ctx),
+            },
             TrayAction::Screenshot => {
                 // Capture without forcing the main window up (tray-first workflow).
                 self.trigger_capture(ctx, true);
@@ -5115,6 +5152,146 @@ impl VibecapApp {
         }
     }
 
+    /// E210 — `vibecap poke <cmd>` handoff: a CLI process (or a second
+    /// launch that lost the instance lock) drops a command marker here.
+    fn poll_pending_cmd(&mut self, ctx: &egui::Context) {
+        let Some(cmd) = app::take_pending_cmd() else {
+            return;
+        };
+        match cmd.as_str() {
+            "show" => self.show_window(ctx),
+            "hide" => self.hide_to_tray(ctx),
+            "screenshot" => self.trigger_capture(ctx, true),
+            "record" => self.on_tray_action(ctx, TrayAction::ToggleRecord),
+            "stop" => {
+                if self.is_recording {
+                    self.stop_recording(ctx);
+                } else {
+                    self.show_toast("Not recording");
+                }
+            }
+            other => self.show_toast(format!("Unknown poke: {other}")),
+        }
+    }
+
+    /// E211 — watch-folder intake: files that settle (mtime ≥2s ago) move
+    /// into the media dir and land in Library.
+    fn tick_watch_folder(&mut self) {
+        let dir = self.watch_folder.trim().to_string();
+        if dir.is_empty() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        if self
+            .watch_last_scan
+            .map(|t| now.duration_since(t) < std::time::Duration::from_secs(3))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.watch_last_scan = Some(now);
+        let dir = PathBuf::from(dir);
+        let media = self.save_dir.clone();
+        let mut moved = 0usize;
+        let mut failed = 0usize;
+        if let Ok(rd) = std::fs::read_dir(&dir) {
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let is_media = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| {
+                        matches!(
+                            e.to_ascii_lowercase().as_str(),
+                            "jpg"
+                                | "jpeg"
+                                | "png"
+                                | "gif"
+                                | "webp"
+                                | "mp4"
+                                | "mov"
+                                | "webm"
+                                | "mkv"
+                                | "m4a"
+                                | "wav"
+                                | "mp3"
+                        )
+                    })
+                    .unwrap_or(false);
+                if !is_media {
+                    continue;
+                }
+                // Skip files still being written (copied/dropped <2s ago).
+                let settled = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .map(|t| {
+                        std::time::SystemTime::now()
+                            .duration_since(t)
+                            .map(|d| d.as_secs() >= 2)
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(true);
+                if !settled {
+                    continue;
+                }
+                let name = match path.file_name() {
+                    Some(n) => n.to_string_lossy().to_string(),
+                    None => continue,
+                };
+                // Unique destination: append _2, _3, … on collision.
+                let mut dest = media.join(&name);
+                if dest.exists() {
+                    let stem = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "import".into());
+                    let ext = path
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let mut n = 2u32;
+                    loop {
+                        dest = media.join(format!("{stem}_{n}.{ext}"));
+                        if !dest.exists() {
+                            break;
+                        }
+                        n += 1;
+                        if n > 999 {
+                            break;
+                        }
+                    }
+                }
+                // Move = rename within a volume; copy+delete across volumes.
+                let ok = std::fs::rename(&path, &dest)
+                    .or_else(|_| {
+                        std::fs::copy(&path, &dest).and_then(|_| std::fs::remove_file(&path))
+                    })
+                    .is_ok();
+                if ok {
+                    moved += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+        }
+        if moved > 0 {
+            self.refresh_library();
+            self.show_toast(format!(
+                "Watch folder imported {moved} file{}",
+                if moved == 1 { "" } else { "s" }
+            ));
+        }
+        if failed > 0 {
+            self.show_toast(format!(
+                "⚠ Watch folder: {failed} file(s) could not be moved"
+            ));
+        }
+    }
+
     fn show_annotation(&mut self, ui: &mut egui::Ui) {
         if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
             self.is_annotating = false;
@@ -5573,10 +5750,16 @@ impl eframe::App for VibecapApp {
 
         // Always reclaim a finished screenshot first (file marker is authoritative).
         self.poll_pending_still(ctx);
+        // E210 — CLI pokes land as a marker file; dispatch each frame.
+        self.poll_pending_cmd(ctx);
         // E222 — crash-recovery drains: orphan remux result + annotation
         // draft debounce.
         self.drain_recovery();
         self.tick_review_draft();
+        // E206 — mirror the configured double-click action for both drains.
+        tray_ui::set_dblclick_is_open(self.tray_dblclick == "open");
+        // E211 — watch-folder intake poll (3 s cadence inside).
+        self.tick_watch_folder();
 
         // Startup Screen Recording check: cheap, prompt-free preflight first.
         // Granted users are never asked again; the system dialog appears only

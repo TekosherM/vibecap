@@ -41,6 +41,9 @@ pub enum CliAction {
     /// E283 — load a still into the Studio annotate surface (via the
     /// pending-still marker the GUI already polls).
     Annotate,
+    /// E210 — `vibecap poke <show|hide|screenshot|record|stop>` — forwards a
+    /// command to the running instance (or the next one to launch).
+    Poke,
     Mcp,
     Gui {
         hidden: bool,
@@ -228,6 +231,10 @@ pub fn parse_args(args: &[String]) -> CliArgs {
         CliAction::Doctor
     } else if has("--mcp") || has("mcp") {
         CliAction::Mcp
+    } else if first == Some("poke") {
+        // E210 — before the bare-word `screenshot` check so
+        // `poke screenshot` doesn't misfire into a headless capture.
+        CliAction::Poke
     } else if has("--screenshot") || has("screenshot") {
         CliAction::Screenshot
     } else if has("--record-start") {
@@ -253,7 +260,7 @@ pub fn parse_args(args: &[String]) -> CliArgs {
         CliAction::Gui { hidden, no_tray }
     };
     let target = match action {
-        CliAction::Open | CliAction::Annotate => tokens.get(1).cloned(),
+        CliAction::Open | CliAction::Annotate | CliAction::Poke => tokens.get(1).cloned(),
         _ => None,
     };
 
@@ -296,6 +303,7 @@ Usage:
                    [--ellipse …] [--hl …] [--spotlight …] [--measure …]
                    [--badge x,y] [--text x,y,label] [--color red|#rrggbb]
                    [--stroke PX] [--out FILE]
+  vibecap poke <show|hide|screenshot|record|stop>
   vibecap doctor [--json] [--fix]
   vibecap --mcp
   vibecap --paths
@@ -332,6 +340,8 @@ Flags:
   --arrow/--rect/…    Headless annotate ops (repeatable); see Usage
   --out               annotate output file (default <stem>_annotated.png)
   --color, --stroke   annotate pen color (name|#rrggbb) and width
+  poke <cmd>          Forward show|hide|screenshot|record|stop to the GUI —
+                      running instance or the next launch (E210)
   --paths             Print default media dir, config dir, backend
   doctor, --doctor    Diagnostics: ffmpeg, monitors, audio, stdio, window crop
   --no-tray           Disable system tray (window close quits the app)
@@ -893,6 +903,28 @@ pub fn run_headless(cli: &CliArgs) -> Option<i32> {
                 Err(e) => Some(cli_fail(cli, &e)),
             }
         }
+        CliAction::Poke => {
+            // E210 — forward a command to the running GUI (or the next one to
+            // launch) via the pending_cmd marker the GUI polls each frame.
+            let cmd = cli.target.as_deref().unwrap_or("show");
+            let valid = ["show", "hide", "screenshot", "record", "stop"];
+            if !valid.contains(&cmd) {
+                return Some(usage_fail(
+                    cli,
+                    "usage: vibecap poke <show|hide|screenshot|record|stop>",
+                ));
+            }
+            crate::app::io::write_pending_cmd(cmd);
+            if cli.json {
+                println!("{}", serde_json::json!({"ok": true, "poke": cmd}));
+            } else {
+                println!("poked {cmd}");
+            }
+            // Fall through to the GUI path: a running instance consumes the
+            // marker after the lock-fail focus; a cold launch picks it up in
+            // poll_pending_cmd on its first frames.
+            None
+        }
         CliAction::Mcp | CliAction::Gui { .. } => None,
     }
 }
@@ -968,6 +1000,9 @@ mod tests {
         let c = parse_args(&argv("annotate still.png"));
         assert_eq!(c.action, CliAction::Annotate);
         assert_eq!(c.target.as_deref(), Some("still.png"));
+        let c = parse_args(&argv("poke screenshot"));
+        assert_eq!(c.action, CliAction::Poke);
+        assert_eq!(c.target.as_deref(), Some("screenshot"));
     }
 
     #[test]

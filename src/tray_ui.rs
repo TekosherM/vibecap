@@ -16,6 +16,8 @@ use tray_icon::{
 pub enum TrayAction {
     Show,
     Hide,
+    /// E206 — left double-click; the app resolves it via `tray_dblclick`.
+    DoubleClick,
     Screenshot,
     /// Re-fire the last capture — same rect/window/fullscreen, same kind.
     RepeatLast,
@@ -32,6 +34,65 @@ pub enum TrayAction {
     /// Open the i-th most recent capture in the default app.
     OpenRecent(u8),
     Quit,
+}
+
+// ── E206 double-click deferral ────────────────────────────────────────────────
+// A double-click arrives as Click(down) Click(up) Click(down) DoubleClick —
+// the first Click(up) precedes the DoubleClick event, so a plain click handler
+// would fire Show *before* we learn it was a double-click. The first click is
+// parked here for one double-click window instead; the parked pump drains it
+// too, so the deferral works while hidden.
+//
+// When the configured double-click action IS "open studio", deferring buys
+// nothing — clicks act immediately and a double just shows twice (harmless).
+
+static PENDING_CLICK: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+static DBLCLICK_IS_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+const DBLCLICK_WAIT_MS: u64 = 400;
+
+/// update() mirrors the setting each frame: configured action == open?
+pub fn set_dblclick_is_open(open: bool) {
+    DBLCLICK_IS_OPEN.store(open, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A left-click release: Some(Show) to act now, or None when deferred to see
+/// whether a DoubleClick follows.
+pub fn tray_click_up() -> Option<TrayAction> {
+    if DBLCLICK_IS_OPEN.load(std::sync::atomic::Ordering::Relaxed) {
+        return Some(TrayAction::Show);
+    }
+    if let Ok(mut p) = PENDING_CLICK.lock() {
+        *p = Some(std::time::Instant::now());
+    }
+    None
+}
+
+/// The OS double-click: cancel any parked click, return the action.
+pub fn tray_double_click() -> TrayAction {
+    if let Ok(mut p) = PENDING_CLICK.lock() {
+        *p = None;
+    }
+    TrayAction::DoubleClick
+}
+
+/// A parked click that outlived the double-click window → it was a real
+/// single click.
+pub fn tray_click_expired() -> Option<TrayAction> {
+    let due = PENDING_CLICK
+        .lock()
+        .ok()
+        .and_then(|p| {
+            (*p).filter(|t| t.elapsed() >= std::time::Duration::from_millis(DBLCLICK_WAIT_MS))
+        })
+        .is_some();
+    if due {
+        if let Ok(mut p) = PENDING_CLICK.lock() {
+            *p = None;
+        }
+        Some(TrayAction::Show)
+    } else {
+        None
+    }
 }
 
 /// Live capture state for menu-bar progress + menu labels.
@@ -383,14 +444,27 @@ impl TrayController {
         let mut actions = Vec::new();
 
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if let TrayIconEvent::Click {
-                button: tray_icon::MouseButton::Left,
-                button_state: tray_icon::MouseButtonState::Up,
-                ..
-            } = event
-            {
-                actions.push(TrayAction::Show);
+            match event {
+                TrayIconEvent::Click {
+                    button: tray_icon::MouseButton::Left,
+                    button_state: tray_icon::MouseButtonState::Up,
+                    ..
+                } => {
+                    if let Some(a) = tray_click_up() {
+                        actions.push(a);
+                    }
+                }
+                TrayIconEvent::DoubleClick {
+                    button: tray_icon::MouseButton::Left,
+                    ..
+                } => {
+                    actions.push(tray_double_click());
+                }
+                _ => {}
             }
+        }
+        if let Some(a) = tray_click_expired() {
+            actions.push(a);
         }
 
         while let Ok(event) = MenuEvent::receiver().try_recv() {

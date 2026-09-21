@@ -478,6 +478,51 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             Err(e) => app.show_toast(format!("Explorer verb failed: {e}")),
                         }
                     }
+                    setting_row(ui, "Tray double-click", |ui| {
+                        let mut sel: &'static str = match app.tray_dblclick.as_str() {
+                            "screenshot" => "screenshot",
+                            "record" => "record",
+                            _ => "open",
+                        };
+                        if segmented(
+                            ui,
+                            &mut sel,
+                            &[
+                                ("open", "Open"),
+                                ("screenshot", "Screenshot"),
+                                ("record", "Record"),
+                            ],
+                        ) {
+                            app.tray_dblclick = sel.to_string();
+                            app.persist_session();
+                        }
+                    });
+                    setting_row(ui, "Watch folder", |ui| {
+                        ui.horizontal(|ui| {
+                            let set = !app.watch_folder.trim().is_empty();
+                            if btn_small(ui, "Choose…") {
+                                if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                                    app.watch_folder = d.display().to_string();
+                                    app.watch_last_scan = None;
+                                    app.persist_session();
+                                    app.show_toast("Watching — files dropped here move into Library");
+                                }
+                            }
+                            if set && btn_small(ui, "Off") {
+                                app.watch_folder.clear();
+                                app.persist_session();
+                            }
+                            ui.label(
+                                RichText::new(if set {
+                                    app.watch_folder.as_str()
+                                } else {
+                                    "off"
+                                })
+                                .size(10.5)
+                                .color(theme::TEXT_DIM()),
+                            );
+                        });
+                    });
                 }
                 ui.add_space(theme::SP_2);
                 ui.horizontal(|ui| {
