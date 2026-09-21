@@ -6,7 +6,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 
 **Landed on this tree (do not re-implement):** P0 capture contract (#1–#15, #21–#24, #31–#33, #81–#83), `vibecap doctor`, GUI lock, naming tokens, library hygiene, Still crop/text/badges, Clip presets/markers, Inbox j/k/pin/snooze, tray Approve/Deny, `gif_pending` for long GIFs, macOS still `-l` crop. See [STATE.md](STATE.md).
 
-**Still open (local equivalents, not CapCut):** live HWND thumbnails (#22), library hover-scrub of many video frames (#43), OS drag-out to Explorer (#47), voice waveform (#77), hotkey rebind without restart (#81 applies next launch), macOS *record* window crop (#29 stills only).
+**Still open (local equivalents, not CapCut):** live HWND thumbnails (#22), voice waveform (#77), hotkey rebind without restart (#81 applies next launch), macOS *record* window crop (#29 stills only).
 
 **Already done — do not re-propose:** Loop rail, Graphite tokens, shutter strip, toast cards, empty states, ⌘K palette, density, light theme, session restore, region thirds/loupe, countdown, retro buffer, bug pack, window picker (name list), dual-pane inbox, Clip flipbook, Still studio, tray brand icon, agent recorder detach, ffmpeg path resolve.
 
@@ -82,7 +82,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 
 41. **Kill remaining emoji** in the library toolbar (`🔄 Refresh`, `🗑 Delete`, `📂 Open in Finder`) — `library_tab.rs` still uses them; rail icons do not. ✓ (verified — library toolbar is text-only; 🎙 remains only as a category glyph)
 42. **Grid of thumbnails**, not a checkbox list of names. Decode off-thread; cache beside the file (`.vibecap/thumbs/`). ✓
-43. **Hover-scrub for videos** (reuse filmstrip extract at 1 fps).
+43. **Hover-scrub for videos** (reuse filmstrip extract at 1 fps). ✓ (landed with #159 — 8-frame strips via `extract_scrub_frames`, cursor-x picks the frame)
 44. **Date groups:** Today / Yesterday / This week / Earlier. Flat newest-first page of 40 is a dump. ✓
 45. **Search** filename + sidecar `.txt` notes. ✓ (search box hits names + `.notes.txt`/`.txt` sidecars)
 46. **Shift-click range select** in addition to checkbox + Select all shown. ✓ (Ctrl/Shift-click Explorer semantics + Select all shown)
@@ -520,7 +520,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 156. **Date groups** — Today/Yesterday/This week/Earlier headers (round-1 open item). ✓ (was already shipped)
 157. **List view** — dense row alternative to the tile grid. ✓ (≡/▦ toggle in the header, session-backed; 26px rows: glyph · name · tags · ★⚑≡ badges · size; same click/select/context/drag semantics)
 158. **Tile size slider** — S/M/L thumbnails. ✓ (segmented S/M/L in header)
-159. **Hover-scrub** — moving across a video tile plays frames (filmstrip reuse).
+159. **Hover-scrub** — moving across a video tile plays frames (filmstrip reuse). ✓ (`extract_scrub_frames` — 8 frames @192px via ffmpeg into a distinct `frames_scrub/` dir so it can't clobber the editor's `frames_temp/`; worker → persistent `scrub_tx/rx` channel → `drain_scrub` uploads textures; hover over a Video/GIF tile picks the frame by cursor-x fraction and paints it over the thumb; cache capped at 32 paths)
 160. **Hover quick-actions** — copy/reveal/delete overlay on tiles. ✓ (★/⧉/↗ ghost strip on hover; delete lives in the right-click menu)
 161. **Multi-select ops** — bulk export ZIP, bulk delete, bulk tag. ✓ (ZIP + delete on the selection bar; tag editor applies to the whole selection when the item is in one)
 162. **Export selection as ZIP** — one archive via system dialog. ✓ (same as round-2 #77)
@@ -528,7 +528,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 164. **Drag in to import** — drop files onto Library to copy in. ✓ (dropped_files → copy to media dir + rescan)
 165. **Duplicate detection** — content-hash warning badge. ✓ (same as round-2 #80)
 166. **Retention rules** — keep N days/files; run on idle. ✓ (same as round-2 #79 — "run on idle" is the opt-in auto-sweep on launch)
-167. **Storage bar** — per-type usage + "free X by cleaning frames_temp".
+167. **Storage bar** — per-type usage + "free X by cleaning frames_temp". ✓ (segmented bar under the Library toolbar: Screenshots/Videos/GIFs/Audio/Notes sized from `category_bytes` over the scan + a dim cache segment = `reclaimable_bytes` (frames_temp, frames_scrub, live/, .vibecap thumbs — all regenerable); hover tooltip lists per-type totals; "Clean N MB" runs `clean_reclaimable` — media files never touched; recomputed on every library scan)
 168. **Recently deleted** — undo_trash surfaced as a shelf with restore. ✓ (same as round-2 #84)
 169. **Open-with menu** — per item, system default vs pick app. ✓ (same as round-2 #82)
 170. **Thumbnail repair** — regenerate missing/failed thumbs in background. ✓ (same as round-2 #81)

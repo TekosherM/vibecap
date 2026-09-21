@@ -185,6 +185,70 @@ pub fn extract_filmstrip_rgba(
     Ok((frames, fps, duration))
 }
 
+/// E159 — hover-scrub strip: a handful of small RGBA frames spread across
+/// the clip for library-tile scrubbing. Distinct `frames_scrub/` dir so it
+/// never collides with the editor's `frames_temp/` filmstrip extraction.
+pub fn extract_scrub_frames(
+    file: &Path,
+    count: u32,
+    max_w: u32,
+) -> Result<Vec<(u32, u32, Vec<u8>)>, String> {
+    if !file.exists() {
+        return Err(format!("Video file missing: {}", file.display()));
+    }
+    let out_dir = file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("frames_scrub");
+    let _ = std::fs::remove_dir_all(&out_dir);
+    std::fs::create_dir_all(&out_dir).map_err(|e| format!("Could not create frames_scrub: {e}"))?;
+
+    let duration = crate::platform::probe_duration(file).unwrap_or(0.0);
+    let fps = if duration > 0.5 {
+        (count.max(1) as f64 / duration).clamp(0.1, 8.0)
+    } else {
+        1.0
+    };
+    let out = out_dir.join("scrub_%02d.jpg");
+    let file_s = file
+        .to_str()
+        .ok_or_else(|| "Video path is not valid UTF-8".to_string())?;
+    let mut cmd = crate::platform::ffmpeg_command()?;
+    cmd.args([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        file_s,
+        "-vf",
+        &format!("fps={fps},scale={max_w}:-2:flags=fast_bilinear"),
+        "-vframes",
+        &count.max(1).to_string(),
+        &out.to_string_lossy(),
+    ]);
+    let run = crate::platform::run_ffmpeg(cmd, "ffmpeg scrub-strip");
+
+    let mut frames = Vec::new();
+    if run.is_ok() {
+        for i in 1..=count.max(1) {
+            let p = out_dir.join(format!("scrub_{i:02}.jpg"));
+            if let Ok(img) = image::open(&p) {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                if w > 0 && h > 0 {
+                    frames.push((w, h, rgba.into_raw()));
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&out_dir);
+    if frames.is_empty() {
+        return Err("No frames extracted".into());
+    }
+    Ok(frames)
+}
+
 /// Mean absolute difference between two same-sized RGBA frames on a
 /// subsampled grid (every 64th pixel) — 0.0 is identical, 255.0 opposite.
 /// Cheap enough to run over a 64-frame filmstrip without a worker.

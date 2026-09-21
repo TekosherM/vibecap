@@ -392,6 +392,44 @@ pub fn category_bytes(items: &[MediaItem], cat: MediaCategory) -> u64 {
         .sum()
 }
 
+/// E167 — recursive byte total for a directory tree (0 when missing).
+pub fn dir_tree_size(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if meta.is_file() {
+                total += meta.len();
+            } else if meta.is_dir() {
+                total += dir_tree_size(&entry.path());
+            }
+        }
+    }
+    total
+}
+
+/// E167 — regenerable bytes under the media root: filmstrip/scrub scratch
+/// dirs, live-capture sessions, and the `.vibecap` thumb cache. All of it
+/// is safe to delete (thumbs regenerate on demand).
+pub fn reclaimable_bytes(save_dir: &Path) -> u64 {
+    ["frames_temp", "frames_scrub", "live", ".vibecap"]
+        .iter()
+        .map(|d| dir_tree_size(&save_dir.join(d)))
+        .sum()
+}
+
+/// E167 — remove the reclaimable dirs (thumbs regenerate; frames_* and
+/// live/ sessions are scratch). Returns freed bytes.
+pub fn clean_reclaimable(save_dir: &Path) -> u64 {
+    let freed = reclaimable_bytes(save_dir);
+    for d in ["frames_temp", "frames_scrub", "live", ".vibecap"] {
+        let _ = std::fs::remove_dir_all(save_dir.join(d));
+    }
+    freed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,5 +523,28 @@ mod tests {
         assert!(retention_pick(&v, 2, 5, now).is_empty());
         // Off → nothing.
         assert!(retention_pick(&v, 0, 30, now).is_empty());
+    }
+
+    /// E167 — reclaimable counts the scratch/cache dirs recursively and
+    /// `clean_reclaimable` frees them without touching media files.
+    #[test]
+    fn reclaimable_counts_and_cleans() {
+        let dir = std::env::temp_dir().join(format!("vibecap_reclaim_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let live = dir.join("live").join("session-1");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::write(live.join("f.raw"), vec![1u8; 1000]).unwrap();
+        let thumbs = dir.join(".vibecap").join("thumbs");
+        std::fs::create_dir_all(&thumbs).unwrap();
+        std::fs::write(thumbs.join("t.jpg"), vec![2u8; 500]).unwrap();
+        // A real media file beside them must survive.
+        std::fs::write(dir.join("shot.png"), vec![3u8; 700]).unwrap();
+
+        assert_eq!(reclaimable_bytes(&dir), 1500);
+        assert_eq!(dir_tree_size(&dir), 2200);
+        assert_eq!(clean_reclaimable(&dir), 1500);
+        assert_eq!(reclaimable_bytes(&dir), 0);
+        assert!(dir.join("shot.png").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

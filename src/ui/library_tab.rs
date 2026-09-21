@@ -438,6 +438,86 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.add_space(4.0);
     }
 
+    // E167 — storage bar: per-type usage across the media root plus the
+    // reclaimable cache segment (thumbs + scratch dirs regenerate).
+    {
+        let segs: [(MediaCategory, egui::Color32); 5] = [
+            (MediaCategory::Screenshot, theme::PRIMARY()),
+            (MediaCategory::Video, theme::ACCENT()),
+            (MediaCategory::Gif, theme::SUCCESS()),
+            (MediaCategory::Audio, theme::WARN()),
+            (MediaCategory::Note, theme::TEXT_DIM()),
+        ];
+        let parts: Vec<(&'static str, u64, egui::Color32)> = segs
+            .iter()
+            .map(|(cat, color)| {
+                (
+                    cat.label(),
+                    crate::app::library::category_bytes(&app.library_items, *cat),
+                    *color,
+                )
+            })
+            .collect();
+        let media_total: u64 = parts.iter().map(|(_, b, _)| b).sum();
+        let cache = app.library_reclaimable;
+        let total = media_total + cache;
+        if total > 0 {
+            ui.horizontal(|ui| {
+                let bar_w = (ui.available_width() - 210.0).max(120.0);
+                let (bar_rect, bar_resp) =
+                    ui.allocate_exact_size(Vec2::new(bar_w, 6.0), egui::Sense::hover());
+                let bp = ui.painter_at(bar_rect);
+                bp.rect_filled(bar_rect, 3.0, theme::SURFACE_2());
+                let mut x = bar_rect.left();
+                for (_label, bytes, color) in &parts {
+                    if *bytes == 0 {
+                        continue;
+                    }
+                    let w = (*bytes as f32 / total as f32) * bar_rect.width();
+                    let r = Rect::from_min_size(
+                        egui::pos2(x, bar_rect.top()),
+                        Vec2::new(w, bar_rect.height()),
+                    );
+                    bp.rect_filled(r, 3.0, *color);
+                    x += w;
+                }
+                if cache > 0 {
+                    let w = (cache as f32 / total as f32) * bar_rect.width();
+                    let r = Rect::from_min_size(
+                        egui::pos2(x, bar_rect.top()),
+                        Vec2::new(w, bar_rect.height()),
+                    );
+                    // Hatch-free dim segment — cache reads as "not real media".
+                    bp.rect_filled(r, 3.0, theme::TEXT_DIM().gamma_multiply(0.45));
+                }
+                bar_resp.on_hover_text(format!(
+                    "Screenshots {} · Videos {} · GIFs {} · Audio {} · cache {}",
+                    crate::app::library::format_size(parts[0].1),
+                    crate::app::library::format_size(parts[1].1),
+                    crate::app::library::format_size(parts[2].1),
+                    crate::app::library::format_size(parts[3].1),
+                    crate::app::library::format_size(cache),
+                ));
+                ui.label(
+                    RichText::new(crate::app::library::format_size(total))
+                        .size(10.5)
+                        .color(theme::TEXT_MUTED()),
+                );
+                if cache > 0
+                    && ui
+                        .small_button(format!("Clean {}", crate::app::library::format_size(cache)))
+                        .on_hover_text("Delete thumbs cache + capture scratch dirs (regenerable)")
+                        .clicked()
+                {
+                    let freed = crate::app::library::clean_reclaimable(&app.save_dir);
+                    app.library_reclaimable = 0;
+                    app.show_toast(format!("Freed {}", crate::app::library::format_size(freed)));
+                }
+            });
+            ui.add_space(4.0);
+        }
+    }
+
     if total_filtered == 0 {
         empty_state(
             ui,
@@ -800,6 +880,36 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     egui::FontId::proportional(26.0),
                                     theme::TEXT_DIM(),
                                 );
+                            }
+
+                            // E159 — hover-scrub: sweep the pointer across a
+                            // clip tile to preview its frames (extracted
+                            // off-thread, cached per path).
+                            if hovered
+                                && matches!(
+                                    item.category,
+                                    MediaCategory::Video | MediaCategory::Gif
+                                )
+                            {
+                                if let Some(strip) = app.scrub_cache.get(&item.path) {
+                                    if let Some(pos) = resp.hover_pos() {
+                                        let frac = ((pos.x - thumb_rect.left())
+                                            / thumb_rect.width())
+                                        .clamp(0.0, 0.999);
+                                        let tex = &strip[(frac * strip.len() as f32) as usize];
+                                        paint.image(
+                                            tex.id(),
+                                            thumb_rect,
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(0.0, 0.0),
+                                                egui::pos2(1.0, 1.0),
+                                            ),
+                                            egui::Color32::WHITE,
+                                        );
+                                    }
+                                } else {
+                                    app.request_scrub(item.path.clone(), ui.ctx());
+                                }
                             }
 
                             // Selection badge: accent check when selected, a faint

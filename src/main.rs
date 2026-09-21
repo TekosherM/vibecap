@@ -6,7 +6,7 @@ mod tray_ui;
 mod ui;
 
 use chrono::Local;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use egui::{
     Align2, Color32, FontId, Frame, Pos2, Rect, RichText, Stroke, UserAttentionType, Vec2,
@@ -634,6 +634,15 @@ pub(crate) struct VibecapApp {
     retention_swept: bool,
     /// E157 — compact list view instead of the tile grid.
     library_list_view: bool,
+    /// E159 — hover-scrub frame cache: clip path → decoded strip textures.
+    scrub_cache: std::collections::HashMap<PathBuf, Vec<egui::TextureHandle>>,
+    /// E159 — clips with a scrub-strip extraction in flight.
+    scrub_pending: std::collections::HashSet<PathBuf>,
+    /// E159 — persistent extraction channel (tx cloned per worker spawn).
+    scrub_tx: Option<Sender<(PathBuf, Result<Vec<(u32, u32, Vec<u8>)>, String>)>>,
+    scrub_rx: Option<Receiver<(PathBuf, Result<Vec<(u32, u32, Vec<u8>)>, String>)>>,
+    /// E167 — regenerable bytes under the media root (cache/scratch dirs).
+    library_reclaimable: u64,
     /// E189 — Inbox "new since last visit" watermark (`%Y-%m-%d %H:%M:%S`,
     /// lexicographically comparable to `created_at`).
     inbox_seen_stamp: String,
@@ -2844,6 +2853,60 @@ impl VibecapApp {
 
     /// Kick a media-dir scan on a worker — never on the UI thread. Startup and
     /// post-capture both go through here; results land in drain_library_scan.
+    /// E159 — queue a scrub-strip extraction for a hovered clip tile.
+    /// No-op while one is already in flight for the same path or cached.
+    pub(crate) fn request_scrub(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if self.scrub_cache.contains_key(&path) || !self.scrub_pending.insert(path.clone()) {
+            return;
+        }
+        if self.scrub_tx.is_none() {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            self.scrub_tx = Some(tx);
+            self.scrub_rx = Some(rx);
+        }
+        let Some(tx) = self.scrub_tx.clone() else {
+            return;
+        };
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let r = crate::app::recording::extract_scrub_frames(&path, 8, 192);
+            let _ = tx.send((path, r));
+            ctx_clone.request_repaint();
+        });
+    }
+
+    /// E159 — land decoded scrub strips as textures; drop failures quietly
+    /// (the static thumb stays). Cache is capped — clears fully past 32.
+    fn drain_scrub(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.scrub_rx.as_ref() else {
+            return;
+        };
+        while let Ok((path, res)) = rx.try_recv() {
+            self.scrub_pending.remove(&path);
+            if let Ok(frames) = res {
+                let textures: Vec<egui::TextureHandle> = frames
+                    .into_iter()
+                    .map(|(w, h, rgba)| {
+                        ctx.load_texture(
+                            "scrub",
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [w as usize, h as usize],
+                                &rgba,
+                            ),
+                            egui::TextureOptions::LINEAR,
+                        )
+                    })
+                    .collect();
+                if !textures.is_empty() {
+                    self.scrub_cache.insert(path, textures);
+                }
+            }
+        }
+        if self.scrub_cache.len() > 32 {
+            self.scrub_cache.clear();
+        }
+    }
+
     fn refresh_library(&mut self) {
         self.library_selected.retain(|p| p.exists());
         if self.library_scan_rx.is_some() {
@@ -2873,6 +2936,8 @@ impl VibecapApp {
         };
         self.library_scan_rx = None;
         app::thumbs::cleanup_frames_temp(&self.save_dir);
+        // E167 — reclaimable scratch/cache bytes for the storage bar.
+        self.library_reclaimable = crate::app::library::reclaimable_bytes(&self.save_dir);
         let warmup: Vec<PathBuf> = items.iter().take(40).map(|i| i.path.clone()).collect();
         app::thumbs::warmup_thumbs(warmup);
         // Orphaned thumbs (media deleted via Explorer) + LRU byte cap.
@@ -5818,6 +5883,8 @@ impl eframe::App for VibecapApp {
         self.tick_watch_folder();
         // E225 — OS dark-mode follow (3 s registry poll inside).
         self.tick_os_theme(ctx);
+        // E159 — hover-scrub strip results land as textures.
+        self.drain_scrub(ctx);
 
         // Startup Screen Recording check: cheap, prompt-free preflight first.
         // Granted users are never asked again; the system dialog appears only
