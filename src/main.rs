@@ -830,6 +830,10 @@ pub(crate) struct VibecapApp {
     update_status: String,
     /// E214 — in-flight GitHub check; Some = a worker is fetching.
     update_rx: Option<crossbeam_channel::Receiver<Result<crate::app::update::ReleaseInfo, String>>>,
+    /// E215 — in-flight release download (worker → staged exe path).
+    update_dl_rx: Option<crossbeam_channel::Receiver<Result<std::path::PathBuf, String>>>,
+    /// E215 — a staged `<exe>.new` ready to swap on restart.
+    update_staged: Option<std::path::PathBuf>,
     /// Last successful release payload (drives the Download button + notes).
     update_info: Option<crate::app::update::ReleaseInfo>,
     /// E222 — in-flight orphan-recording remux from a dead previous run.
@@ -1177,6 +1181,13 @@ impl VibecapApp {
         // E214 — opt-in launch check; a newer release surfaces as a toast.
         if app.update_check_on_launch {
             app.start_update_check();
+        }
+        // E215 — a previous run may have staged <exe>.new (survives
+        // restarts); and a successful swap leaves <exe>.old to delete.
+        crate::app::update::cleanup_old_binary();
+        if crate::app::update::staged_update_exists() {
+            app.update_staged = crate::app::update::staged_update_path();
+            app.update_status = "update staged — restart to apply".into();
         }
         app
     }
@@ -2756,6 +2767,46 @@ impl VibecapApp {
     }
 
     /// E214 — release check on a worker; the UI never blocks on curl.
+    /// E215 — download the platform asset and stage `<exe>.new` on a
+    /// worker. The swap itself happens in `apply_staged_and_restart`.
+    fn start_update_download(&mut self, url: String) {
+        if self.update_dl_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let ctx_clone = self.ui_ctx.clone();
+        std::thread::spawn(move || {
+            let res = crate::app::update::download_and_stage(&url);
+            let _ = tx.send(res);
+            if let Some(c) = ctx_clone {
+                c.request_repaint();
+            }
+        });
+        self.update_dl_rx = Some(rx);
+        self.update_status = "downloading update…".into();
+    }
+
+    /// E215 — drain the download worker; on success the staged path lands
+    /// in `update_staged` and the Settings card offers Restart-to-apply.
+    fn drain_update_download(&mut self) {
+        let Some(rx) = self.update_dl_rx.as_ref() else {
+            return;
+        };
+        let Ok(res) = rx.try_recv() else {
+            return;
+        };
+        self.update_dl_rx = None;
+        match res {
+            Ok(p) => {
+                self.update_staged = Some(p);
+                self.update_status = "update staged — restart to apply".into();
+            }
+            Err(e) => {
+                self.update_status = format!("update download failed: {e}");
+            }
+        }
+    }
+
     fn start_update_check(&mut self) {
         if self.update_rx.is_some() {
             return;
@@ -6199,6 +6250,7 @@ impl eframe::App for VibecapApp {
         self.drain_region_snap(ctx);
         self.drain_filmstrip(ctx);
         self.drain_mp4_verify();
+        self.drain_update_download();
         self.tick_session_write();
         // F126 — preview audio follows the flipbook: plays while the clip
         // preview runs, stops on pause / tab switch / clip unload.

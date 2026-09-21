@@ -272,3 +272,11 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - REC-bar source line now shows "· mic" on Windows too (the suppression existed because audio was ignored).
 - Verified already-shipped: #218 (`--hidden` + run-at-login registers tray-resident), #219 (user-visible "menu bar" strings already cfg-gated to "notification area / system tray").
 - 97/97 tests (record_args_includes_dshow_audio_when_picked — argv carries dshow+audio=+aac; no-device errors when the machine truly has none).
+
+### Auto-update apply — staged download + rename-swap relaunch
+- #215: `ReleaseInfo.asset_url` picks the release asset matching this target triple (`target_asset_substr` covers win-msvc/macOS arm+x86/linux-gnu; None elsewhere → button hidden).
+- `download_and_stage` (worker): curl → `.vibecap-update/update.pkg` beside the exe → `tar -xf` (bsdtar reads both the Windows zip and the unix tar.gz) → shallow walk finds `vibecap[.exe]` at root or one nesting level → sanity gate (>500 KB + MZ/ELF/Mach-O magic) → staged to `<exe>.new`. Verified against the real v0.3.0 zip — binary nests one level deep.
+- `apply_staged_and_restart`: rename running exe → `.old` (Windows permits renaming a running exe; same-volume so atomic), `.new` → exe name; rollback if the second rename fails so an install never lacks a runnable binary. Relaunch via `cmd /C "ping -n 3 … & start "" "<exe>""` (~2 s delay so the new process can't see this one's gui.lock; unix: `sh -c sleep+spawn`).
+- Startup: `cleanup_old_binary` deletes the parked `.old` and any <500 KB `.new` (crashed download); a valid `.new` sets `update_staged` → Settings shows "Restart to apply update" even across restarts.
+- Settings card: "Download update" (platform asset) + "Release page ↗" + tag; "Downloading…" while in flight.
+- 98/98 tests (parse_release_json_picks_platform_asset — triple-matched URL from the assets array; no-assets → None).

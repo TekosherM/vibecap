@@ -611,10 +611,24 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     }
                 });
                 // E214 — newer release: notes preview + download link.
-                if let Some(info) = &app.update_info {
+                if let Some(info) = app.update_info.clone() {
                     if info.newer {
                         ui.horizontal(|ui| {
-                            if btn_secondary(ui, "Download ↗") {
+                            let downloading = app.update_dl_rx.is_some();
+                            if let Some(url) = info.asset_url.clone() {
+                                if btn_secondary(
+                                    ui,
+                                    if downloading {
+                                        "Downloading…"
+                                    } else {
+                                        "Download update"
+                                    },
+                                ) && !downloading
+                                {
+                                    app.start_update_download(url);
+                                }
+                            }
+                            if btn_secondary(ui, "Release page ↗") {
                                 let _ = open::that(&info.url);
                             }
                             ui.label(
@@ -627,6 +641,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     .size(10.5)
                                     .color(theme::TEXT_DIM()),
                             );
+                        }
+                    }
+                }
+                // E215 — a staged binary waits beside the exe; applying it
+                // swaps + relaunches after a short delay.
+                if app.update_staged.is_some() {
+                    if btn_secondary(ui, "Restart to apply update") {
+                        match crate::app::update::apply_staged_and_restart() {
+                            Ok(()) => app.quit_app(),
+                            Err(e) => app.show_toast(format!("Update failed: {e}")),
                         }
                     }
                 }
