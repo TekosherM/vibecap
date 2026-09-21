@@ -392,12 +392,12 @@ Numbered 1–300 for this round. Sections sized 25 each.
 ## C · Capture tab & flow (51–75)
 
 51. **Per-target memory** — remember Region vs Window per session *and* per hour-of-day.
-52. **Shutter button split-menu** — chevron on Screenshot offering Region/Window/Full variants without leaving the row.
-53. **Capture preview strip on hover** — hovering a recent tile grows it 1.5× with play.
+52. **Shutter button split-menu** — chevron on Screenshot offering Region/Window/Full variants without leaving the row. ✓ (▾ next to the shutter pops one-shot variants: capture once as Full/Region/Window, then restores the persisted From pick)
+53. **Capture preview strip on hover** — hovering a recent tile grows it 1.5× with play. ✓ (`animate_bool` grow 120×68→180×102; video tiles reuse `scrub_cache` frames advanced by time at 6 fps — the hover lags the size change one frame by design)
 54. **Drag recent tile out** — straight to Explorer/Slack from the capture card. ✓ (`Sense::click_and_drag` + `drag_started` → `platform::start_file_drag` OLE CF_HDROP; drag-threshold means plain clicks never start a drag)
 55. **Recent tile quick-actions** — hover overlay: copy / annotate / delete on recents. ✓ (📋 copy path + 🗑 delete-to-undo-trash chips at the tile's top-right; pointer-in-rect containment so the overlay doesn't flicker when the pointer enters a chip)
 56. **Recents carousel** — horizontal scroll when >3 items instead of hiding them. ✓ (8 newest items, `ScrollArea::horizontal` wraps the tile row)
-57. **"Waiting for capture" state** — while armed+hidden, the studio (if shown) should say so.
+57. **"Waiting for capture" state** — while armed+hidden, the studio (if shown) should say so. ✓ ("⏳ Waiting for capture — grab in progress…" line under the shutter while `screenshot_in_flight`/`still_busy`)
 58. **Options card quick toggles** — cursor/audio/display as icon toggles, not buried in disclosure.
 59. **Audio device picker** — dropdown of dshow devices when Include audio is on. ✓ (combo under the switch lists enumerated devices + Auto; pick persists via session `audio_device`; a vanished device falls back to Auto)
 60. **Estimated file size** — live "≈4 MB/min @ 30fps" under Record. ✓ (STORAGE group in Options, scaled by fps + monitor mpx)
@@ -405,8 +405,8 @@ Numbered 1–300 for this round. Sections sized 25 each.
 62. **Battery-aware hint** — on battery, suggest 24 fps / shorter clips.
 63. **Capture history sparkline** — tiny 7-day activity graph on the Capture card.
 64. **Quick-capture tray-free mode** — double-press hotkey within 500 ms = instant region with last settings.
-65. **Countdown cancel UX** — click anywhere or Esc during countdown aborts cleanly with toast.
-66. **Post-capture inline undo** — toast gets an Undo for 5 s on auto-save.
+65. **Countdown cancel UX** — click anywhere or Esc during countdown aborts cleanly with toast. ✓ (Esc was already wired; now `pointer.any_pressed` inside the bubble cancels too — label reads "Esc or click to cancel")
+66. **Post-capture inline undo** — toast gets an Undo for 5 s on auto-save. ✓ (the capture toast's Discard routes to the 12 s undo-trash — "undo the save" and Z undoes the discard)
 67. **Auto-scroll to options** — when Record selected, scroll options card into view.
 68. **Source icons state-colored** — the From segment icons tint to accent when active.
 69. **Window target shows last pick** — "Window: Chrome — DevTools" persisted on the card.

@@ -665,14 +665,15 @@ pub fn show_countdown_bubble(ctx: &egui::Context, seconds_left: u32) -> bool {
                                 );
                                 ui.add_space(theme::SP_2);
                                 ui.label(
-                                    RichText::new("Esc to cancel")
+                                    RichText::new("Esc or click to cancel")
                                         .size(12.0)
                                         .color(theme::TEXT_DIM()),
                                 );
                             });
                         });
                 });
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            // E65 — Esc or a click inside the bubble aborts the countdown.
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.pointer.any_pressed()) {
                 cancelled = true;
             }
         },

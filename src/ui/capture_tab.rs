@@ -95,6 +95,21 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         ) {
                             match act {
                                 ShutterAction::Screenshot => app.trigger_capture(ctx, true),
+                                // E52 — one-shot variant: borrow the target
+                                // for this capture, then restore the From pick.
+                                ShutterAction::ShotFull
+                                | ShutterAction::ShotRegion
+                                | ShutterAction::ShotWindow => {
+                                    let t = match act {
+                                        ShutterAction::ShotFull => CaptureTarget::Fullscreen,
+                                        ShutterAction::ShotRegion => CaptureTarget::Region,
+                                        _ => CaptureTarget::Window,
+                                    };
+                                    let prev = app.capture_target;
+                                    app.capture_target = t;
+                                    app.trigger_capture(ctx, true);
+                                    app.capture_target = prev;
+                                }
                                 ShutterAction::RecordToggle => {
                                     if app.is_recording {
                                         app.stop_recording(ctx);
@@ -106,6 +121,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 }
                                 ShutterAction::Gif => app.trigger_gif_clip(ctx),
                             }
+                        }
+                        // E57 — if a capture owns the park but the studio is
+                        // visible anyway (tray open, CLI poke), say so instead
+                        // of looking idle.
+                        if app.screenshot_in_flight
+                            || app
+                                .wake_shared
+                                .still_busy
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                        {
+                            ui.add_space(theme::SP_1);
+                            ui.label(
+                                RichText::new("⏳ Waiting for capture — grab in progress…")
+                                    .size(11.0)
+                                    .color(theme::WARN()),
+                            );
                         }
                         if app.record_excluded {
                             ui.add_space(theme::SP_1);
@@ -416,13 +447,31 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             let mut open: Option<(std::path::PathBuf, bool)> = None;
                                             let mut copy_path: Option<std::path::PathBuf> = None;
                                             let mut delete_path: Option<std::path::PathBuf> = None;
+                                            let mut hovered_now: Option<std::path::PathBuf> = None;
+                                            let mut scrub_want: Option<std::path::PathBuf> = None;
+                                            // E53 — hover state from the
+                                            // previous frame drives the grow
+                                            // animation (size feeds the rect,
+                                            // so same-frame hover would lag a
+                                            // frame anyway).
+                                            let hover_prev = app.recent_hover.clone();
                                             for (path, is_video, tex) in &app.recent_thumbs {
+                                                let grow_id = ui
+                                                    .make_persistent_id(("recent_grow", path));
+                                                let grow = ui.ctx().animate_bool(
+                                                    grow_id,
+                                                    hover_prev.as_ref() == Some(path),
+                                                );
+                                                let size = egui::Vec2::new(
+                                                    120.0 + 60.0 * grow,
+                                                    68.0 + 34.0 * grow,
+                                                );
                                                 let resp = egui::Frame::none()
                                                     .stroke(Stroke::new(1.0_f32, theme::BORDER()))
                                                     .rounding(theme::rounding_md())
                                                     .show(ui, |ui| {
                                                         let img = egui::Image::new(tex)
-                                                            .fit_to_exact_size(egui::Vec2::new(120.0, 68.0))
+                                                            .fit_to_exact_size(size)
                                                             .rounding(theme::rounding_md());
                                                         let r = ui.add(img);
                                                         if *is_video {
@@ -453,6 +502,37 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                                             .map(|f| f.to_string_lossy().to_string())
                                                             .unwrap_or_default()
                                                     ));
+                                                if resp.hovered() {
+                                                    hovered_now = Some(path.clone());
+                                                    // E53 — play-on-hover:
+                                                    // reuse the Library scrub
+                                                    // frames, advanced by time.
+                                                    if *is_video {
+                                                        if let Some(frames) =
+                                                            app.scrub_cache.get(path)
+                                                        {
+                                                            if !frames.is_empty() {
+                                                                let fi = (ui.ctx().input(|i| {
+                                                                    i.time
+                                                                }) * 6.0)
+                                                                    as usize
+                                                                    % frames.len();
+                                                                ui.painter().image(
+                                                                    frames[fi].id(),
+                                                                    resp.rect,
+                                                                    egui::Rect::from_min_max(
+                                                                        egui::pos2(0.0, 0.0),
+                                                                        egui::pos2(1.0, 1.0),
+                                                                    ),
+                                                                    egui::Color32::WHITE,
+                                                                );
+                                                                ui.ctx().request_repaint();
+                                                            }
+                                                        } else {
+                                                            scrub_want = Some(path.clone());
+                                                        }
+                                                    }
+                                                }
                                                 // E54 — OS-level drag-out straight
                                                 // from the tile (Windows shell drag).
                                                 if resp.drag_started() {
@@ -501,6 +581,10 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                                     open = Some((path.clone(), *is_video));
                                                 }
                                                 ui.add_space(theme::SP_2);
+                                            }
+                                            app.recent_hover = hovered_now;
+                                            if let Some(p) = scrub_want {
+                                                app.request_scrub(p, ctx);
                                             }
                                             if let Some(p) = copy_path {
                                                 if let Ok(mut b) = arboard::Clipboard::new() {

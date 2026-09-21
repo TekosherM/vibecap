@@ -938,6 +938,11 @@ pub fn funnel_stripe(ui: &mut Ui, icon: Icon, title: &str, hint: &str) -> bool {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ShutterAction {
     Screenshot,
+    /// E52 — one-shot variant from the split-menu: capture once with this
+    /// target without changing the persisted From selection.
+    ShotFull,
+    ShotRegion,
+    ShotWindow,
     RecordToggle,
     Gif,
 }
@@ -976,6 +981,35 @@ pub fn shutter_strip(
                 {
                     action = Some(ShutterAction::Screenshot);
                 }
+
+                // E52 — split-menu: one-shot Region/Window/Full variants
+                // without touching the From selector.
+                let chev =
+                    egui::Button::new(RichText::new("▾").color(theme::TEXT_MUTED()).size(13.0))
+                        .fill(theme::SURFACE_2())
+                        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                        .rounding(theme::rounding_md());
+                let chev_resp = ui
+                    .add_sized([26.0, 48.0], chev)
+                    .on_hover_text("Capture once as…");
+                egui::popup::popup_below_widget(
+                    ui,
+                    ui.make_persistent_id("shot_split_menu"),
+                    &chev_resp,
+                    egui::popup::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
+                        for (label, act) in [
+                            ("Full screen", ShutterAction::ShotFull),
+                            ("Region…", ShutterAction::ShotRegion),
+                            ("Window…", ShutterAction::ShotWindow),
+                        ] {
+                            if ui.button(label).clicked() {
+                                action = Some(act);
+                                ui.close_menu();
+                            }
+                        }
+                    },
+                );
 
                 ui.add_space(theme::SP_2);
 

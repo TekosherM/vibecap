@@ -286,3 +286,11 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #55: pointer-in-rect hover overlay with 📋 copy-path (arboard) + 🗑 delete via `delete_library_paths` (12 s undo-trash, Z to undo) at the tile's top-right; containment check instead of `resp.hovered()` so entering a chip doesn't flicker the overlay away.
 - #56: `take(8)` + `ScrollArea::horizontal` — recents scroll instead of truncating at 3; thumb worker loads all 8.
 - 98/98 tests.
+
+### Capture-card polish part 2 — split-menu, hover-grow/play, waiting state, countdown cancel
+- #52: ▾ chevron beside the shutter pops one-shot Full/Region/Window variants; the variant borrows `capture_target` for the trigger then restores the persisted From pick.
+- #53: `animate_bool` grow 120×68→180×102 on hover (hover state lags a frame via `recent_hover` since size feeds the rect); hovered video tiles reuse `scrub_cache` frames advanced at 6 fps — actual play-on-hover, falls back to `request_scrub` on first hover.
+- #57: "⏳ Waiting for capture" line under the shutter while `screenshot_in_flight`/`still_busy` — covers tray-open or poke while a capture owns the park.
+- #65: countdown bubble now cancels on click inside it as well as Esc (label updated); toast unchanged.
+- #66 verified already-shipped: capture-toast Discard → undo-trash = "undo the auto-save", Z undoes the discard.
+- 98/98 tests.

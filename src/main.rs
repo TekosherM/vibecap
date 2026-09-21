@@ -634,6 +634,9 @@ pub(crate) struct VibecapApp {
     pub(crate) recent_thumbs: Vec<(PathBuf, bool, egui::TextureHandle)>,
     pub(crate) recent_thumbs_rx: Option<Receiver<Vec<(PathBuf, bool, egui::ColorImage)>>>,
     pub(crate) recent_key: String,
+    /// E53 — which recent tile was hovered last frame; drives the grow
+    /// animation + scrub play (hover must lag the size change by a frame).
+    pub(crate) recent_hover: Option<PathBuf>,
     /// "All" | category labels from MediaCategory::label()
     library_filter: String,
     /// Grid ordering (LibrarySort). Date sorts keep the group headers.
@@ -1128,6 +1131,7 @@ impl VibecapApp {
             recent_thumbs: Vec::new(),
             recent_thumbs_rx: None,
             recent_key: String::new(),
+            recent_hover: None,
             window_list_rx: None,
             front_app_rx: None,
             audio_devices_rx: None,
