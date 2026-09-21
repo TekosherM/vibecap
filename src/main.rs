@@ -599,6 +599,21 @@ pub(crate) struct VibecapApp {
     library_favorites: std::collections::HashSet<String>,
     /// E83 — "needs attention" flags on library items (file names, persisted).
     library_flagged: std::collections::HashSet<String>,
+    /// E76 — library tags: file name → tags (session-backed).
+    library_tags: std::collections::BTreeMap<String, Vec<String>>,
+    /// E76 — active tag chip (ANDs with the category filter).
+    library_tag_filter: Option<String>,
+    /// E76 — tag editor popup: target item name + edit buffer.
+    library_tag_edit: Option<String>,
+    library_tag_edit_buf: String,
+    /// E79 — retention rule (session): 0 off / 1 older-than-days / 2 newest-N.
+    retention_mode: u8,
+    retention_value: u32,
+    retention_auto: bool,
+    /// E79 — one auto-sweep per launch at most.
+    retention_swept: bool,
+    /// E157 — compact list view instead of the tile grid.
+    library_list_view: bool,
     /// E189 — Inbox "new since last visit" watermark (`%Y-%m-%d %H:%M:%S`,
     /// lexicographically comparable to `created_at`).
     inbox_seen_stamp: String,
@@ -1241,6 +1256,11 @@ impl VibecapApp {
         self.region_dim = s.region_dim.min(200);
         self.library_favorites = s.library_favorites.iter().cloned().collect();
         self.library_flagged = s.library_flagged.iter().cloned().collect();
+        self.library_tags = s.library_tags.clone();
+        self.retention_mode = s.retention_mode;
+        self.retention_value = s.retention_value.max(1);
+        self.retention_auto = s.retention_auto;
+        self.library_list_view = s.library_list_view;
         self.inbox_seen_stamp = s.inbox_seen_at.clone();
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
@@ -1305,6 +1325,11 @@ impl VibecapApp {
             library_favorites: self.library_favorites.iter().cloned().collect(),
             library_flagged: self.library_flagged.iter().cloned().collect(),
             inbox_seen_at: self.inbox_seen_stamp.clone(),
+            library_tags: self.library_tags.clone(),
+            retention_mode: self.retention_mode,
+            retention_value: self.retention_value,
+            retention_auto: self.retention_auto,
+            library_list_view: self.library_list_view,
         });
     }
 
@@ -2590,6 +2615,12 @@ impl VibecapApp {
             tray.set_recents(&names);
         }
         self.library_items = items;
+        // E79 — auto retention sweep once per launch (opt-in; files go to a
+        // persistent retention_trash dir, never hard-deleted).
+        if self.retention_auto && self.retention_mode != 0 && !self.retention_swept {
+            self.retention_swept = true;
+            self.apply_retention(true);
+        }
         if self.library_scan_pending {
             self.library_scan_pending = false;
             self.refresh_library();
@@ -2666,6 +2697,92 @@ impl VibecapApp {
         }
     }
 
+    /// E76 — set tags for item name(s) from a comma-separated buffer
+    /// (lowercased, trimmed, deduped; empty clears the entry).
+    pub(crate) fn set_library_tags(&mut self, names: &[String], raw: &str) {
+        let mut tags: Vec<String> = Vec::new();
+        for t in raw.split(',') {
+            let t = t.trim().to_ascii_lowercase();
+            if !t.is_empty() && !tags.contains(&t) {
+                tags.push(t);
+            }
+        }
+        for name in names {
+            if tags.is_empty() {
+                self.library_tags.remove(name);
+            } else {
+                self.library_tags.insert(name.clone(), tags.clone());
+            }
+        }
+        self.persist_session();
+    }
+
+    /// E76 — every tag present in the library, most-used first (chip row).
+    pub(crate) fn library_tag_index(&self) -> Vec<(String, usize)> {
+        let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+        for item in &self.library_items {
+            if let Some(tags) = self.library_tags.get(&item.name) {
+                for t in tags {
+                    *counts.entry(t.clone()).or_default() += 1;
+                }
+            }
+        }
+        let mut v: Vec<_> = counts.into_iter().collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        v
+    }
+
+    /// E79 — files the current retention rule would sweep.
+    fn retention_candidates(&self) -> Vec<PathBuf> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        app::retention_pick(
+            &self.library_items,
+            self.retention_mode,
+            self.retention_value,
+            now,
+        )
+        .into_iter()
+        .map(|i| self.library_items[i].path.clone())
+        .collect()
+    }
+
+    /// E79 — move retention candidates into a *persistent* trash folder
+    /// (recoverable — deliberately not the 12s undo window).
+    pub(crate) fn apply_retention(&mut self, auto: bool) {
+        let cands = self.retention_candidates();
+        if cands.is_empty() {
+            if !auto {
+                self.show_toast("Retention: nothing to sweep");
+            }
+            return;
+        }
+        let trash_dir = vibecap_config_dir()
+            .join("retention_trash")
+            .join(Local::now().format("%Y%m%d_%H%M%S%3f").to_string());
+        let _ = std::fs::create_dir_all(&trash_dir);
+        let mut n = 0usize;
+        for p in &cands {
+            let Some(name) = p.file_name() else { continue };
+            let dest = trash_dir.join(name);
+            if std::fs::rename(p, &dest).is_ok()
+                || (std::fs::copy(p, &dest).is_ok() && std::fs::remove_file(p).is_ok())
+            {
+                n += 1;
+                self.library_selected.remove(p);
+            }
+        }
+        if n > 0 {
+            self.refresh_library();
+            self.show_toast(format!(
+                "Retention swept {n} file(s) → {}",
+                trash_dir.display()
+            ));
+        }
+    }
+
     fn library_filtered(&self) -> Vec<&MediaItem> {
         let q = self.library_search.trim().to_ascii_lowercase();
         // E154 — the ★ chip is a pseudo-category over favorited file names.
@@ -2682,6 +2799,19 @@ impl VibecapApp {
                 .collect()
         } else {
             filter_items(&self.library_items, &self.library_filter)
+        };
+        // E76 — a selected tag chip ANDs onto the category filter.
+        let base: Vec<&MediaItem> = match &self.library_tag_filter {
+            Some(tag) => base
+                .into_iter()
+                .filter(|i| {
+                    self.library_tags
+                        .get(&i.name)
+                        .map(|ts| ts.iter().any(|t| t == tag))
+                        .unwrap_or(false)
+                })
+                .collect(),
+            None => base,
         };
         let mut out: Vec<&MediaItem> = base
             .into_iter()

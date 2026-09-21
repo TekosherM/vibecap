@@ -98,6 +98,21 @@ pub struct SessionState {
     /// B52 — remembered REC bar position `[x, y]` in screen px.
     #[serde(default)]
     pub rec_bar_pos: Option<[i32; 2]>,
+    /// E76 — library tags: file name → tag list (survives a moved media dir).
+    #[serde(default)]
+    pub library_tags: std::collections::BTreeMap<String, Vec<String>>,
+    /// E79 — retention rule: 0 off / 1 older-than-N-days / 2 keep-newest-N.
+    #[serde(default)]
+    pub retention_mode: u8,
+    /// E79 — rule value (days or count).
+    #[serde(default = "default_retention_value")]
+    pub retention_value: u32,
+    /// E79 — auto-sweep once per launch (off by default — destructive).
+    #[serde(default)]
+    pub retention_auto: bool,
+    /// E157 — compact list view instead of the tile grid.
+    #[serde(default)]
+    pub library_list_view: bool,
 }
 
 fn default_theme_dark() -> String {
@@ -126,6 +141,10 @@ fn default_hotkey_rec() -> u8 {
 
 fn default_region_dim() -> u8 {
     110
+}
+
+fn default_retention_value() -> u32 {
+    30
 }
 
 fn default_clip_autoplay() -> bool {
@@ -177,6 +196,11 @@ impl Default for SessionState {
             library_flagged: Vec::new(),
             inbox_seen_at: String::new(),
             rec_bar_pos: None,
+            library_tags: std::collections::BTreeMap::new(),
+            retention_mode: 0,
+            retention_value: 30,
+            retention_auto: false,
+            library_list_view: false,
         }
     }
 }

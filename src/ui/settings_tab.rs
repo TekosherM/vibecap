@@ -209,6 +209,52 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             });
 
+            // ── Library ──────────────────────────────────────────
+            section_card(ui, "LIBRARY", |ui| {
+                setting_row(ui, "Retention", |ui| {
+                    if segmented(
+                        ui,
+                        &mut app.retention_mode,
+                        &[(0u8, "Off"), (1, "Older than"), (2, "Keep newest")],
+                    ) {
+                        app.persist_session();
+                    }
+                });
+                if app.retention_mode != 0 {
+                    ui.horizontal_wrapped(|ui| {
+                        let lab = if app.retention_mode == 1 { "days" } else { "files" };
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut app.retention_value)
+                                    .speed(1)
+                                    .range(1..=100000),
+                            )
+                            .changed()
+                        {
+                            app.persist_session();
+                        }
+                        ui.label(
+                            RichText::new(lab)
+                                .size(11.0)
+                                .color(theme::TEXT_MUTED()),
+                        );
+                        if switch(ui, "Auto-sweep on launch", &mut app.retention_auto) {
+                            app.persist_session();
+                        }
+                        if btn_secondary(ui, "Sweep now") {
+                            app.apply_retention(false);
+                        }
+                    });
+                    ui.label(
+                        RichText::new(
+                            "Swept files move to retention_trash — recoverable, never hard-deleted.",
+                        )
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                    );
+                }
+            });
+
             // Power-user internals collapse — the simple path stays above.
             egui::CollapsingHeader::new(
                 RichText::new("Advanced · capture internals & retro buffer")

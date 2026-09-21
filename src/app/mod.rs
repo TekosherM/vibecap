@@ -42,8 +42,8 @@ pub use io::{
     write_pending_still_error,
 };
 pub use library::{
-    category_bytes, date_group_label, filter_items, get_dir_size_bytes, scan_media_dir,
-    LibrarySort, LoopPosition, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
+    category_bytes, date_group_label, filter_items, get_dir_size_bytes, retention_pick,
+    scan_media_dir, LibrarySort, LoopPosition, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
 };
 pub use mcp::run_mcp_server;
 pub use naming::{format_capture_stem, DEFAULT_PATTERN};

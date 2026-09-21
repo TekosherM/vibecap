@@ -130,6 +130,28 @@ pub struct MediaItem {
     pub dupe: bool,
 }
 
+/// E79 — indices of items a retention rule would sweep.
+/// mode 1: mtime older than `value` days; mode 2: all but the newest `value`.
+pub fn retention_pick(items: &[MediaItem], mode: u8, value: u32, now_secs: u64) -> Vec<usize> {
+    match mode {
+        1 => {
+            let cutoff = now_secs.saturating_sub(value as u64 * 86_400);
+            items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.modified_secs < cutoff)
+                .map(|(n, _)| n)
+                .collect()
+        }
+        2 => {
+            let mut idx: Vec<usize> = (0..items.len()).collect();
+            idx.sort_by_key(|&i| std::cmp::Reverse(items[i].modified_secs));
+            idx.into_iter().skip(value as usize).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Where a media item sits in the capture → review → annotate → ask → answer loop.
 /// Heuristic from filename/category (Phase 1c chrome) — not a full graph.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -435,5 +457,33 @@ mod tests {
         assert!(v[0].dupe && v[1].dupe);
         assert!(!v[2].dupe);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retention_pick_days_and_count() {
+        let mk = |secs: u64| MediaItem {
+            path: PathBuf::from(format!("{secs}.png")),
+            name: String::new(),
+            size_str: String::new(),
+            size_bytes: 0,
+            category: MediaCategory::Screenshot,
+            modified_secs: secs,
+            dupe: false,
+        };
+        let now = 10_000_000u64;
+        // a: 5 days old · b: 40 days old · c: 1 day old
+        let v = vec![
+            mk(now - 5 * 86_400),
+            mk(now - 40 * 86_400),
+            mk(now - 86_400),
+        ];
+        // Older-than-30-days → only b.
+        assert_eq!(retention_pick(&v, 1, 30, now), vec![1]);
+        // Keep newest 2 → only b (oldest) swept.
+        assert_eq!(retention_pick(&v, 2, 2, now), vec![1]);
+        // Keep newest 5 → nothing swept.
+        assert!(retention_pick(&v, 2, 5, now).is_empty());
+        // Off → nothing.
+        assert!(retention_pick(&v, 0, 30, now).is_empty());
     }
 }

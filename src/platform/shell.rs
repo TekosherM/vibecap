@@ -801,6 +801,20 @@ pub fn open_with(path: &Path) -> Result<(), String> {
     }
 }
 
+/// E163 — start an OS file drag of `paths` out of the app window. Windows
+/// uses OLE CF_HDROP (modal DoDragDrop loop); other platforms unsupported.
+pub fn start_file_drag(paths: &[std::path::PathBuf]) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::start_file_drag(paths)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = paths;
+        Err("drag-out is not supported on this platform".into())
+    }
+}
+
 /// Window target in physical desktop pixels `(hwnd, x, y, w, h)` for the first
 /// visible, non-minimized top-level window whose process name or title
 /// contains `name` (case-insensitive). `None` when no such window exists.

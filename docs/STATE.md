@@ -180,3 +180,10 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - Review-queue flag (#83): session `library_flagged` (file names, like favorites); ⚑ badge painted top-left on flagged tiles, "⚑ Flag for review" context toggle, "⚑ n" pseudo-category chip (hidden when empty).
 - Open-with (#82): `platform::open_with` — Windows `rundll32 shell32.dll,OpenAs_RunDLL` system chooser; macOS reveals in Finder (no shell picker exists); Linux falls back to default handler.
 - Deferred: #76 tags (needs a real tag-editor UI surface), #79 retention (auto-delete wants a designed trash/retention policy first).
+
+### Library final tranche — tags, retention, list view, OS drag-out
+- Tags (#76/#155): session `library_tags` (BTreeMap name→tags, lowercased/deduped). 🏷 Tags… context entry opens a modal editor; applies to the whole selection when the item is in one. Tag chips row (top-12 by count) ANDs onto the category filter; tiles/rows show tag text.
+- Retention (#79/#166): Settings LIBRARY card — Off / Older-than-N-days / Keep-newest-N + "Sweep now" + opt-in auto-sweep on launch (`retention_swept` once-per-launch flag). Swept files move to `vibecap_config_dir()/retention_trash/<stamp>/` — persistent, recoverable, never hard-deleted. `retention_pick` is a pure fn in library.rs (tested).
+- List view (#157): session `library_list_view`; ≡/▦ toggle in the header. 26px rows (glyph · name · tags · ★⚑≡ · size) with identical click/select/context/drag semantics; same virtualized-scroll skip as the grid. Context menu extracted to `item_menu` + `MenuActs` sink shared by tiles and rows.
+- OS drag-out (#47/#163): Windows OLE — hand-rolled IDataObject(CF_HDROP)+IDropSource in win32.rs (~400 lines unsafe, no dep). `GetData` hands out a *fresh* HGLOBAL copy each call so the template stays ours; DoDragDrop modal loop; Esc cancels, button-up drops. Dragging a selected tile drags the whole selection. Non-Windows: stub returns Err (silent no-op in UI).
+- Library section fully closed except #159 hover-scrub (needs filmstrip-on-hover machinery) and #167 storage bar.

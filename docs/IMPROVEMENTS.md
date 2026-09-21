@@ -86,7 +86,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 44. **Date groups:** Today / Yesterday / This week / Earlier. Flat newest-first page of 40 is a dump. ✓
 45. **Search** filename + sidecar `.txt` notes. ✓ (search box hits names + `.notes.txt`/`.txt` sidecars)
 46. **Shift-click range select** in addition to checkbox + Select all shown. ✓ (Ctrl/Shift-click Explorer semantics + Select all shown)
-47. **Drag out to Explorer/Finder**; drag in to import (images/mp4). ✓ partially — drag-in shipped (drop files → copy to media dir + rescan); OS drag-out still needs a native drag source.
+47. **Drag out to Explorer/Finder**; drag in to import (images/mp4). ✓ both — drag-in copies to media dir + rescan; drag-out is a real OLE CF_HDROP source on Windows (drag a tile/row out, whole selection when in one).
 48. **Hide sidecar clutter** — `.txt`, `.m4a`, `.ffmpeg.log`, `frames_temp/`, `*.clean.mp4` leftovers. Library already skips `vibecap_region_snap_*` and dotfiles; extend the denylist. ✓ (denylist now covers `.notes.txt`/`.markers.txt` sidecars alongside `.ffmpeg.log`/`.clean.mp4`/`frames_temp`)
 49. **Storage bar per category** (screenshots vs video) with one “free 80% by deleting live frames” action. Live-stats row exists on Capture; Library should show the same numbers. ✓ (was already shipped — 'Stills X · Video Y · Live frames Z (n)' line + Free-live-frames action)
 50. **Open in Clip vs Still is heuristic on extension.** GIFs should offer both “trim as clip” and “still frame”. ✓ (GIF context menu gains 'Trim as clip' alongside Still review)
@@ -274,10 +274,10 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 
 74. **Filename search** (beyond date-group browsing). ✓
 75. **Favorites / pins** — float to top. ✓ (session `library_favorites`; ★ hover/context toggle, float-first within each group, "★" filter chip)
-76. **Tags** with filter chips.
+76. **Tags** with filter chips. ✓ (session `library_tags` name→tags; 🏷 Tags… context editor — bulk-applies to selection; "🏷 tag n" chip row ANDs onto the filter)
 77. **Export selection as ZIP**. ✓ (store-only `app::zip` writer — CRC32, central dir, name dedupe; "Export ZIP" on the selection bar → save dialog)
 78. **Sort** — date/size/duration/name. ✓ (⇅ menu: Newest/Oldest/Largest/Smallest/Name/Type)
-79. **Retention rules** — keep N days or N files.
+79. **Retention rules** — keep N days or N files. ✓ (Settings LIBRARY: Off / Older-than-N-days / Keep-newest-N; "Sweep now" + opt-in auto-sweep on launch; files move to persistent retention_trash — never hard-deleted)
 80. **Duplicate detection** — content-hash same-shot warnings. ✓ (`mark_duplicates`: size-collision files get head+tail+len fingerprint; ≡ badge on dupes)
 81. **Thumbnail repair** — regenerate missing thumbs. ✓ (⋯ "Repair thumbnails" → drops zero-byte thumbs + regenerates, worker thread)
 82. **Open-with…** menu per item. ✓ (`platform::open_with` — Windows `OpenAs_RunDLL` chooser; Finder reveal on macOS; default handler on Linux)
@@ -516,21 +516,21 @@ background chip (112), save-as-copy (116), Esc depth (125).
 152. **Search sidecars** — `.txt` notes + transcript text indexed. ✓ (library search reads `.notes.txt` + `.txt` beside each item; sidecars hidden from grid via denylist)
 153. **Sort menu** — date/size/duration/name/type. ✓ (⇅ menu; non-date sorts drop group headers)
 154. **Favorites** — ★ floats to top, filter chip. ✓ (same as round-2 #75)
-155. **Tags** — free-form tags + colored filter chips.
+155. **Tags** — free-form tags + colored filter chips. ✓ (same as round-2 #76)
 156. **Date groups** — Today/Yesterday/This week/Earlier headers (round-1 open item). ✓ (was already shipped)
-157. **List view** — dense row alternative to the tile grid.
+157. **List view** — dense row alternative to the tile grid. ✓ (≡/▦ toggle in the header, session-backed; 26px rows: glyph · name · tags · ★⚑≡ badges · size; same click/select/context/drag semantics)
 158. **Tile size slider** — S/M/L thumbnails. ✓ (segmented S/M/L in header)
 159. **Hover-scrub** — moving across a video tile plays frames (filmstrip reuse).
 160. **Hover quick-actions** — copy/reveal/delete overlay on tiles. ✓ (★/⧉/↗ ghost strip on hover; delete lives in the right-click menu)
-161. **Multi-select ops** — bulk export ZIP, bulk delete, bulk tag.
-162. **Export selection as ZIP** — one archive via system dialog.
-163. **Drag out to Explorer** — real OS drag source (open since round 1).
+161. **Multi-select ops** — bulk export ZIP, bulk delete, bulk tag. ✓ (ZIP + delete on the selection bar; tag editor applies to the whole selection when the item is in one)
+162. **Export selection as ZIP** — one archive via system dialog. ✓ (same as round-2 #77)
+163. **Drag out to Explorer** — real OS drag source (open since round 1). ✓ (Windows: hand-rolled OLE CF_HDROP IDataObject+IDropSource in win32.rs, no new dep; drag a tile/row out → modal DoDragDrop; drags the whole selection when in one)
 164. **Drag in to import** — drop files onto Library to copy in. ✓ (dropped_files → copy to media dir + rescan)
 165. **Duplicate detection** — content-hash warning badge. ✓ (same as round-2 #80)
-166. **Retention rules** — keep N days/files; run on idle.
+166. **Retention rules** — keep N days/files; run on idle. ✓ (same as round-2 #79 — "run on idle" is the opt-in auto-sweep on launch)
 167. **Storage bar** — per-type usage + "free X by cleaning frames_temp".
 168. **Recently deleted** — undo_trash surfaced as a shelf with restore. ✓ (same as round-2 #84)
-169. **Open-with menu** — per item, system default vs pick app.
+169. **Open-with menu** — per item, system default vs pick app. ✓ (same as round-2 #82)
 170. **Thumbnail repair** — regenerate missing/failed thumbs in background. ✓ (same as round-2 #81)
 171. **Sidecar hygiene** — extend denylist; sweep stale `frames_temp`, `.clean.mp4`, `.ffmpeg.log`.
 172. **GIF↔clip routing** — GIFs offer both "trim as clip" and "still frame". ✓ ("Trim as clip" in the context menu; Open still routes GIFs to the Still editor)

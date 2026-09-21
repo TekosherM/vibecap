@@ -8,6 +8,7 @@
 #![cfg(windows)]
 
 use std::ffi::c_void;
+use std::os::windows::ffi::OsStrExt;
 
 type Hwnd = *mut c_void;
 
@@ -1058,6 +1059,462 @@ pub fn stop_sound() {
     unsafe {
         PlaySoundW(std::ptr::null(), std::ptr::null_mut(), 0);
     }
+}
+
+// ---------------------------------------------------------------------------
+// E163 — OLE file drag-out (CF_HDROP). Minimal hand-rolled IDataObject +
+// IDropSource so Library tiles can be dragged straight into Explorer,
+// Discord, browsers, etc. Blocks inside DoDragDrop's modal loop until the
+// drop completes or is cancelled.
+// ---------------------------------------------------------------------------
+
+type Hresult = i32;
+
+const S_OK: Hresult = 0;
+const E_NOINTERFACE: Hresult = 0x8000_4002u32 as i32;
+const E_NOTIMPL: Hresult = 0x8000_4001u32 as i32;
+const E_OUTOFMEMORY: Hresult = 0x8000_700Eu32 as i32;
+const DV_E_FORMATETC: Hresult = 0x8004_0064u32 as i32;
+const OLE_E_ADVISENOTSUPPORTED: Hresult = 0x8004_0003u32 as i32;
+const DRAGDROP_S_DROP: Hresult = 0x0004_0100;
+const DRAGDROP_S_CANCEL: Hresult = 0x0004_0101;
+const DRAGDROP_S_USEDEFAULTCURSORS: Hresult = 0x0004_0102;
+
+const CF_HDROP: u16 = 15;
+const TYMED_HGLOBAL: u32 = 1;
+const DVASPECT_CONTENT: u32 = 1;
+const DROPEFFECT_COPY: u32 = 1;
+const MK_LBUTTON: u32 = 0x0001;
+const GMEM_MOVEABLE_ZEROINIT: u32 = 0x0042;
+
+#[link(name = "ole32")]
+extern "system" {
+    fn OleInitialize(reserved: *mut c_void) -> i32;
+    fn OleUninitialize();
+    fn DoDragDrop(data: *mut c_void, src: *mut c_void, ok: u32, effect: *mut u32) -> i32;
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GlobalAlloc(flags: u32, bytes: usize) -> *mut c_void;
+    fn GlobalLock(h: *mut c_void) -> *mut c_void;
+    fn GlobalUnlock(h: *mut c_void) -> i32;
+    fn GlobalFree(h: *mut c_void) -> *mut c_void;
+    fn GlobalSize(h: *mut c_void) -> usize;
+}
+
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+struct DragGuid {
+    d1: u32,
+    d2: u16,
+    d3: u16,
+    d4: [u8; 8],
+}
+
+const IID_IUNKNOWN: DragGuid = DragGuid {
+    d1: 0,
+    d2: 0,
+    d3: 0,
+    d4: [0xC0, 0, 0, 0, 0, 0, 0, 0x46],
+};
+const IID_IDATAOBJECT: DragGuid = DragGuid {
+    d1: 0x0000_010E,
+    d2: 0,
+    d3: 0,
+    d4: [0xC0, 0, 0, 0, 0, 0, 0, 0x46],
+};
+const IID_IDROPSOURCE: DragGuid = DragGuid {
+    d1: 0x0000_0121,
+    d2: 0,
+    d3: 0,
+    d4: [0xC0, 0, 0, 0, 0, 0, 0, 0x46],
+};
+
+#[repr(C)]
+struct DragFormatEtc {
+    cf_format: u16,
+    ptd: *mut c_void,
+    dw_aspect: u32,
+    lindex: i32,
+    tymed: u32,
+}
+
+#[repr(C)]
+struct DragStgMedium {
+    tymed: u32,
+    handle: *mut c_void,
+    unk_for_release: *mut c_void,
+}
+
+#[repr(C)]
+struct DropSource {
+    vtbl: *const DropSourceVtbl,
+    refs: u32,
+}
+
+#[repr(C)]
+struct DropSourceVtbl {
+    query_interface:
+        unsafe extern "system" fn(*mut DropSource, *const DragGuid, *mut *mut c_void) -> Hresult,
+    add_ref: unsafe extern "system" fn(*mut DropSource) -> u32,
+    release: unsafe extern "system" fn(*mut DropSource) -> u32,
+    query_continue_drag: unsafe extern "system" fn(*mut DropSource, i32, u32) -> Hresult,
+    give_feedback: unsafe extern "system" fn(*mut DropSource, u32) -> Hresult,
+}
+
+#[repr(C)]
+struct DragDataObject {
+    vtbl: *const DragDataVtbl,
+    refs: u32,
+    hdrop: *mut c_void,
+}
+
+#[repr(C)]
+struct DragDataVtbl {
+    query_interface: unsafe extern "system" fn(
+        *mut DragDataObject,
+        *const DragGuid,
+        *mut *mut c_void,
+    ) -> Hresult,
+    add_ref: unsafe extern "system" fn(*mut DragDataObject) -> u32,
+    release: unsafe extern "system" fn(*mut DragDataObject) -> u32,
+    get_data: unsafe extern "system" fn(
+        *mut DragDataObject,
+        *const DragFormatEtc,
+        *mut DragStgMedium,
+    ) -> Hresult,
+    get_data_here: unsafe extern "system" fn(
+        *mut DragDataObject,
+        *const DragFormatEtc,
+        *mut DragStgMedium,
+    ) -> Hresult,
+    query_get_data: unsafe extern "system" fn(*mut DragDataObject, *const DragFormatEtc) -> Hresult,
+    get_canonical_format_etc: unsafe extern "system" fn(
+        *mut DragDataObject,
+        *const DragFormatEtc,
+        *mut DragFormatEtc,
+    ) -> Hresult,
+    set_data: unsafe extern "system" fn(
+        *mut DragDataObject,
+        *const DragFormatEtc,
+        *mut DragStgMedium,
+        i32,
+    ) -> Hresult,
+    enum_format_etc:
+        unsafe extern "system" fn(*mut DragDataObject, u32, *mut *mut c_void) -> Hresult,
+    d_advise: unsafe extern "system" fn(
+        *mut DragDataObject,
+        *const DragFormatEtc,
+        u32,
+        *mut c_void,
+        *mut u32,
+    ) -> Hresult,
+    d_unadvise: unsafe extern "system" fn(*mut DragDataObject, u32) -> Hresult,
+    enum_d_advise: unsafe extern "system" fn(*mut DragDataObject, *mut *mut c_void) -> Hresult,
+}
+
+static DROP_SRC_VTBL: DropSourceVtbl = DropSourceVtbl {
+    query_interface: src_query_interface,
+    add_ref: src_add_ref,
+    release: src_release,
+    query_continue_drag: src_query_continue_drag,
+    give_feedback: src_give_feedback,
+};
+
+static DATA_VTBL: DragDataVtbl = DragDataVtbl {
+    query_interface: data_query_interface,
+    add_ref: data_add_ref,
+    release: data_release,
+    get_data: data_get_data,
+    get_data_here: data_get_data_here,
+    query_get_data: data_query_get_data,
+    get_canonical_format_etc: data_get_canonical,
+    set_data: data_set_data,
+    enum_format_etc: data_enum_format_etc,
+    d_advise: data_d_advise,
+    d_unadvise: data_d_unadvise,
+    enum_d_advise: data_enum_d_advise,
+};
+
+unsafe extern "system" fn src_query_interface(
+    this: *mut DropSource,
+    iid: *const DragGuid,
+    out: *mut *mut c_void,
+) -> Hresult {
+    if out.is_null() {
+        return E_NOINTERFACE;
+    }
+    let g = unsafe { &*iid };
+    if *g == IID_IUNKNOWN || *g == IID_IDROPSOURCE {
+        unsafe { *out = this as *mut c_void };
+        src_add_ref(this);
+        S_OK
+    } else {
+        unsafe { *out = std::ptr::null_mut() };
+        E_NOINTERFACE
+    }
+}
+
+unsafe extern "system" fn src_add_ref(this: *mut DropSource) -> u32 {
+    let o = unsafe { &mut *this };
+    o.refs += 1;
+    o.refs
+}
+
+unsafe extern "system" fn src_release(this: *mut DropSource) -> u32 {
+    let o = unsafe { &mut *this };
+    o.refs -= 1;
+    let n = o.refs;
+    if n == 0 {
+        drop(unsafe { Box::from_raw(this) });
+    }
+    n
+}
+
+unsafe extern "system" fn src_query_continue_drag(
+    _this: *mut DropSource,
+    escape_pressed: i32,
+    key_state: u32,
+) -> Hresult {
+    if escape_pressed != 0 {
+        DRAGDROP_S_CANCEL
+    } else if key_state & MK_LBUTTON == 0 {
+        DRAGDROP_S_DROP
+    } else {
+        S_OK
+    }
+}
+
+unsafe extern "system" fn src_give_feedback(_this: *mut DropSource, _effect: u32) -> Hresult {
+    DRAGDROP_S_USEDEFAULTCURSORS
+}
+
+fn fmt_offers_hdrop(fmt: &DragFormatEtc) -> bool {
+    fmt.cf_format == CF_HDROP
+        && (fmt.tymed & TYMED_HGLOBAL) != 0
+        && fmt.lindex == -1
+        && fmt.dw_aspect == DVASPECT_CONTENT
+}
+
+unsafe extern "system" fn data_query_interface(
+    this: *mut DragDataObject,
+    iid: *const DragGuid,
+    out: *mut *mut c_void,
+) -> Hresult {
+    if out.is_null() {
+        return E_NOINTERFACE;
+    }
+    let g = unsafe { &*iid };
+    if *g == IID_IUNKNOWN || *g == IID_IDATAOBJECT {
+        unsafe { *out = this as *mut c_void };
+        data_add_ref(this);
+        S_OK
+    } else {
+        unsafe { *out = std::ptr::null_mut() };
+        E_NOINTERFACE
+    }
+}
+
+unsafe extern "system" fn data_add_ref(this: *mut DragDataObject) -> u32 {
+    let o = unsafe { &mut *this };
+    o.refs += 1;
+    o.refs
+}
+
+unsafe extern "system" fn data_release(this: *mut DragDataObject) -> u32 {
+    let o = unsafe { &mut *this };
+    o.refs -= 1;
+    let n = o.refs;
+    if n == 0 {
+        drop(unsafe { Box::from_raw(this) });
+    }
+    n
+}
+
+/// Fresh HGLOBAL copy — each GetData hands over ownership, so the template
+/// stays ours to free regardless of what the drop target does.
+unsafe fn dup_hdrop(src: *mut c_void) -> *mut c_void {
+    if src.is_null() {
+        return std::ptr::null_mut();
+    }
+    let size = unsafe { GlobalSize(src) };
+    let dst = unsafe { GlobalAlloc(GMEM_MOVEABLE_ZEROINIT, size) };
+    if dst.is_null() {
+        return std::ptr::null_mut();
+    }
+    let s = unsafe { GlobalLock(src) };
+    let d = unsafe { GlobalLock(dst) };
+    if !s.is_null() && !d.is_null() {
+        unsafe { std::ptr::copy_nonoverlapping(s as *const u8, d as *mut u8, size) };
+    }
+    if !s.is_null() {
+        unsafe { GlobalUnlock(src) };
+    }
+    if !d.is_null() {
+        unsafe { GlobalUnlock(dst) };
+    }
+    dst
+}
+
+unsafe extern "system" fn data_get_data(
+    this: *mut DragDataObject,
+    fmt: *const DragFormatEtc,
+    stg: *mut DragStgMedium,
+) -> Hresult {
+    if fmt.is_null() || stg.is_null() {
+        return DV_E_FORMATETC;
+    }
+    if !fmt_offers_hdrop(unsafe { &*fmt }) {
+        return DV_E_FORMATETC;
+    }
+    let copy = unsafe { dup_hdrop((*this).hdrop) };
+    if copy.is_null() {
+        return E_OUTOFMEMORY;
+    }
+    let m = unsafe { &mut *stg };
+    m.tymed = TYMED_HGLOBAL;
+    m.handle = copy;
+    m.unk_for_release = std::ptr::null_mut();
+    S_OK
+}
+
+unsafe extern "system" fn data_get_data_here(
+    _this: *mut DragDataObject,
+    _fmt: *const DragFormatEtc,
+    _stg: *mut DragStgMedium,
+) -> Hresult {
+    E_NOTIMPL
+}
+
+unsafe extern "system" fn data_query_get_data(
+    _this: *mut DragDataObject,
+    fmt: *const DragFormatEtc,
+) -> Hresult {
+    if !fmt.is_null() && fmt_offers_hdrop(unsafe { &*fmt }) {
+        S_OK
+    } else {
+        DV_E_FORMATETC
+    }
+}
+
+unsafe extern "system" fn data_get_canonical(
+    _this: *mut DragDataObject,
+    _in: *const DragFormatEtc,
+    _out: *mut DragFormatEtc,
+) -> Hresult {
+    E_NOTIMPL
+}
+
+unsafe extern "system" fn data_set_data(
+    _this: *mut DragDataObject,
+    _fmt: *const DragFormatEtc,
+    _stg: *mut DragStgMedium,
+    _release: i32,
+) -> Hresult {
+    E_NOTIMPL
+}
+
+unsafe extern "system" fn data_enum_format_etc(
+    _this: *mut DragDataObject,
+    _dir: u32,
+    out: *mut *mut c_void,
+) -> Hresult {
+    if !out.is_null() {
+        unsafe { *out = std::ptr::null_mut() };
+    }
+    E_NOTIMPL
+}
+
+unsafe extern "system" fn data_d_advise(
+    _this: *mut DragDataObject,
+    _fmt: *const DragFormatEtc,
+    _flags: u32,
+    _sink: *mut c_void,
+    _conn: *mut u32,
+) -> Hresult {
+    OLE_E_ADVISENOTSUPPORTED
+}
+
+unsafe extern "system" fn data_d_unadvise(_this: *mut DragDataObject, _conn: u32) -> Hresult {
+    OLE_E_ADVISENOTSUPPORTED
+}
+
+unsafe extern "system" fn data_enum_d_advise(
+    _this: *mut DragDataObject,
+    _out: *mut *mut c_void,
+) -> Hresult {
+    OLE_E_ADVISENOTSUPPORTED
+}
+
+/// DROPFILES header + double-NUL-terminated UTF-16 path list in an HGLOBAL.
+fn build_hdrop(paths: &[std::path::PathBuf]) -> Option<*mut c_void> {
+    let mut wide: Vec<u16> = Vec::new();
+    for p in paths {
+        wide.extend(p.as_os_str().encode_wide());
+        wide.push(0);
+    }
+    wide.push(0); // list terminator
+    let total = 20 + wide.len() * 2;
+    unsafe {
+        let h = GlobalAlloc(GMEM_MOVEABLE_ZEROINIT, total);
+        if h.is_null() {
+            return None;
+        }
+        let p = GlobalLock(h) as *mut u8;
+        if p.is_null() {
+            GlobalFree(h);
+            return None;
+        }
+        *(p as *mut u32) = 20; // pFiles — list starts right after the header
+        *(p.add(4) as *mut i32) = 0; // pt.x
+        *(p.add(8) as *mut i32) = 0; // pt.y
+        *(p.add(12) as *mut i32) = 0; // fNC
+        *(p.add(16) as *mut i32) = 1; // fWide
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), p.add(20) as *mut u16, wide.len());
+        GlobalUnlock(h);
+        Some(h)
+    }
+}
+
+/// E163 — start a modal OLE drag of `paths` (CF_HDROP). Blocks in
+/// DoDragDrop's message loop until the drop completes or is cancelled.
+pub fn start_file_drag(paths: &[std::path::PathBuf]) -> Result<(), String> {
+    if paths.is_empty() {
+        return Err("nothing to drag".into());
+    }
+    let Some(hdrop) = build_hdrop(paths) else {
+        return Err("could not build the file list".into());
+    };
+    unsafe {
+        let hr = OleInitialize(std::ptr::null_mut());
+        if hr < 0 {
+            GlobalFree(hdrop);
+            return Err(format!("OLE init failed (0x{hr:08X})"));
+        }
+        let data = Box::into_raw(Box::new(DragDataObject {
+            vtbl: &DATA_VTBL,
+            refs: 1,
+            hdrop,
+        }));
+        let src = Box::into_raw(Box::new(DropSource {
+            vtbl: &DROP_SRC_VTBL,
+            refs: 1,
+        }));
+        let mut effect = 0u32;
+        let _ = DoDragDrop(
+            data as *mut c_void,
+            src as *mut c_void,
+            DROPEFFECT_COPY,
+            &mut effect,
+        );
+        // Drop our refs — OLE's own addrefs were released inside the call.
+        data_release(data);
+        src_release(src);
+        GlobalFree(hdrop); // template; targets received fresh copies
+        OleUninitialize();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
