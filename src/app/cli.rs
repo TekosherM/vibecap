@@ -391,7 +391,9 @@ pub fn paths_text() -> String {
         .map(|h| format!("window_crop={h}\n"))
         .unwrap_or_default();
     format!(
-        "media_dir={}\nconfig_dir={}\noutput_dir_default={}\nbackend={}\nffmpeg={}\nDISPLAY={}\nVIBECAP_OUTPUT_DIR={}\n{extra}",
+        // E91 — the stdio line is how agents diagnose "Could not open file":
+        // a windows_subsystem GUI has no console handles for ffmpeg to inherit.
+        "media_dir={}\nconfig_dir={}\noutput_dir_default={}\nbackend={}\nffmpeg={}\nDISPLAY={}\nVIBECAP_OUTPUT_DIR={}\ngui_stdio={}\n{extra}",
         media_dir_display(),
         crate::platform::config_dir().display(),
         resolve_output_dir(None).display(),
@@ -399,6 +401,11 @@ pub fn paths_text() -> String {
         ffmpeg,
         std::env::var("DISPLAY").unwrap_or_else(|_| "(unset)".into()),
         std::env::var("VIBECAP_OUTPUT_DIR").unwrap_or_else(|_| "(unset)".into()),
+        if cfg!(windows) && cfg!(not(debug_assertions)) {
+            "detached (windows_subsystem)"
+        } else {
+            "inherited"
+        },
         extra = extra,
     )
 }

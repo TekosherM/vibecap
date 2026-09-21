@@ -4397,7 +4397,11 @@ impl VibecapApp {
         };
         self.mp4_verify_rx = None;
         match res {
-            Ok(None) => {}
+            Ok(None) => {
+                // E94 — clean stop: the recorder log is noise, not signal.
+                // Kept only when verify/repair says the MP4 is suspect.
+                let _ = std::fs::remove_file(mp4.with_extension("ffmpeg.log"));
+            }
             Ok(Some(clean)) => {
                 if self.edit_file.as_ref() == Some(&mp4) {
                     self.edit_file = Some(clean.clone());

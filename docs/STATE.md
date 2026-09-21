@@ -302,3 +302,10 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #69: `window_app` persisted in session; combo pick and 🎯 Pick overlay both `persist_session` on change; target hint shows "Window: <name>".
 - #68 verified already-shipped (icons tint ACCENT when active).
 - 99/99 tests (power_status_reads).
+
+### Audit pass — 48 items verified already-shipped and marked
+- Invariants #1-9, #11-13, #15-17, #20-21, #23-28, #35, #40: all confirmed live in code (stdio detach, park/restore, region viewport, REC bar, gdigrab offsets, loud --window errors, negative origins, HiDPI snapshot-map, moov verify+remux+log-tail, pixel-space last-region + chip, monitor picker, countdown viewport, shutter flash, sampling loupe, real window rows, auto-refresh, focus hint, minimized greying, EnumWindows, spawn cache, GIF shutter, self-capture guard).
+- Inbox #71-80 all shipped (j/k, snooze, tray quick-reply, poll age, answered-search, snippets, compose lock, markdown-lite, deep links).
+- System #89-98, #100 shipped (single-instance, update checker+apply, ps1 smoke, gif_pending, doctor, shared still path, budget toast, capture_flow.rs, current STATE).
+- New code: #91 `--paths` prints `gui_stdio=detached (windows_subsystem)`; #94 `.ffmpeg.log` deleted on verify-clean stop, kept on repair/failure.
+- 99/99 tests.
