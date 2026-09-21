@@ -1212,6 +1212,52 @@ pub fn explorer_verb_installed() -> bool {
     }
 }
 
+// ── E187 — vibecap:// deep links (HKCU URL-protocol registration) ────────
+
+const SCHEME_KEY: &str = r"Software\Classes\vibecap";
+
+/// Register `vibecap://…` → `"<exe>" "%1"` (no elevation — HKCU Classes).
+pub fn url_scheme_install(exe: &std::path::Path) -> Result<(), String> {
+    let exe_s = exe.display().to_string();
+    reg_create_set(SCHEME_KEY, None, "URL:Vibecap")?;
+    reg_create_set(SCHEME_KEY, Some("URL Protocol"), "")?;
+    reg_create_set(
+        &format!("{SCHEME_KEY}\\shell\\open\\command"),
+        None,
+        &format!("\"{exe_s}\" \"%1\""),
+    )
+}
+
+pub fn url_scheme_remove() -> Result<(), String> {
+    unsafe {
+        let rc = RegDeleteTreeW(HKEY_CURRENT_USER, wide(SCHEME_KEY).as_ptr());
+        if rc == 0 || rc == ERROR_FILE_NOT_FOUND {
+            Ok(())
+        } else {
+            Err(format!("registry delete failed ({rc})"))
+        }
+    }
+}
+
+pub fn url_scheme_installed() -> bool {
+    unsafe {
+        let mut key: isize = 0;
+        let rc = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(&format!("{SCHEME_KEY}\\shell\\open\\command")).as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        );
+        if rc == 0 {
+            RegCloseKey(key);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 // ── Preview audio (F126) — winmm PlaySoundW loops the extracted WAV. ──
 
 const SND_ASYNC: u32 = 0x0001;

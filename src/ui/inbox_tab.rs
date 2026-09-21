@@ -326,9 +326,66 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             }),
                                     );
                                     ui.add_space(theme::SP_2);
-                                    for req in &rest_pending {
-                                        thread_row(app, ui, req, true);
-                                        ui.add_space(4.0);
+                                    // E188 — when >1 agent is waiting, fold
+                                    // the queue into per-agent groups with
+                                    // collapsible headers; single-agent
+                                    // queues stay flat.
+                                    let agents: std::collections::HashSet<&str> = rest_pending
+                                        .iter()
+                                        .map(|r| r.agent_label.as_str())
+                                        .collect();
+                                    if agents.len() > 1 {
+                                        let mut groups: Vec<(String, Vec<&FeedbackRequest>)> =
+                                            Vec::new();
+                                        for r in &rest_pending {
+                                            let key = if r.agent_label.is_empty() {
+                                                "agent".to_string()
+                                            } else {
+                                                r.agent_label.clone()
+                                            };
+                                            match groups.iter_mut().find(|(k, _)| *k == key) {
+                                                Some((_, v)) => v.push(r),
+                                                None => groups.push((key, vec![r])),
+                                            }
+                                        }
+                                        for (agent, rows) in groups {
+                                            let collapsed =
+                                                app.inbox_collapsed_agents.contains(&agent);
+                                            let head = format!(
+                                                "{} {} ({})",
+                                                if collapsed { "▸" } else { "▾" },
+                                                agent,
+                                                rows.len()
+                                            );
+                                            if ui
+                                                .button(
+                                                    RichText::new(head)
+                                                        .size(11.0)
+                                                        .color(theme::TEXT_MUTED()),
+                                                )
+                                                .on_hover_text("Collapse/expand this agent's queue")
+                                                .clicked()
+                                            {
+                                                if collapsed {
+                                                    app.inbox_collapsed_agents.remove(&agent);
+                                                } else {
+                                                    app.inbox_collapsed_agents.insert(agent);
+                                                }
+                                            }
+                                            if !collapsed {
+                                                for req in rows {
+                                                    ui.indent("grp", |ui| {
+                                                        thread_row(app, ui, req, true);
+                                                    });
+                                                    ui.add_space(4.0);
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        for req in &rest_pending {
+                                            thread_row(app, ui, req, true);
+                                            ui.add_space(4.0);
+                                        }
                                     }
                                 }
 
@@ -543,6 +600,26 @@ fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pe
         if pending {
             app.feedback_choice.clear();
         }
+    }
+}
+
+/// E193 — per-kind reply templates: a screenshot-review prompt and an
+/// approval prompt get different canned replies than a free-text one.
+fn reply_templates(req: &FeedbackRequest) -> &'static [&'static str] {
+    match req.preferred_reply.as_str() {
+        "annotate" if !req.media_path.is_empty() => &[
+            "Marked it up — see the annotation",
+            "Looks right as-is",
+            "Retake: wrong window",
+            "Retake: too blurry",
+        ],
+        "voice" => &[
+            "Listen to the voice note",
+            "Re-record — too long",
+            "Transcribe it for me",
+        ],
+        "choice" => &["Go with my pick", "Your call — proceed", "Hold off"],
+        _ => &["Looks good", "Needs changes", "Try again", "Skip it"],
     }
 }
 
@@ -774,6 +851,22 @@ fn show_conversation_detail(
                         .color(theme::SUCCESS()),
                 );
             }
+            // E193 — reply templates keyed on what the agent asked for:
+            // annotate/voice/choice threads get different quick replies.
+            ui.horizontal_wrapped(|ui| {
+                for t in reply_templates(req) {
+                    if ui
+                        .small_button(*t)
+                        .on_hover_text("Insert into the reply")
+                        .clicked()
+                    {
+                        if !app.feedback_draft.is_empty() {
+                            app.feedback_draft.push(' ');
+                        }
+                        app.feedback_draft.push_str(t);
+                    }
+                }
+            });
             ui.add(
                 egui::TextEdit::multiline(&mut app.feedback_draft)
                     .hint_text("Reply to the agent… (`code`, https://link) — Ctrl+Enter sends")

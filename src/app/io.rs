@@ -81,6 +81,32 @@ pub fn take_pending_cmd() -> Option<String> {
     (!cmd.is_empty()).then_some(cmd)
 }
 
+// ── E187 deep links — vibecap://… handoff to the running/next GUI ──────────
+
+fn pending_deep_path() -> PathBuf {
+    vibecap_config_dir().join("pending_deep.txt")
+}
+
+/// Marker-existence probe for the pump thread (must not consume).
+pub fn pending_deep_waiting() -> bool {
+    pending_deep_path().exists()
+}
+
+/// A `vibecap://…` invocation writes the URL for the GUI to consume.
+pub fn write_pending_deep(url: &str) {
+    let _ = std::fs::create_dir_all(vibecap_config_dir());
+    let _ = std::fs::write(pending_deep_path(), url.as_bytes());
+}
+
+/// Consume a queued deep link, if any.
+pub fn take_pending_deep() -> Option<String> {
+    let p = pending_deep_path();
+    let raw = std::fs::read_to_string(&p).ok()?;
+    let _ = std::fs::remove_file(&p);
+    let url = raw.trim().to_string();
+    (!url.is_empty()).then_some(url)
+}
+
 /// D68 — `file:///…` URI for a capture path (percent-encoded, forward slashes).
 pub fn file_uri(path: &Path) -> String {
     let mut s = path.to_string_lossy().replace('\\', "/");

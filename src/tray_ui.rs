@@ -29,8 +29,10 @@ pub enum TrayAction {
     GoInbox,
     GoSettings,
     BugReport,
-    ApproveFirst,
-    DenyFirst,
+    /// E180 — approve/deny the i-th pending agent question (0-2) straight
+    /// from the tray menu, without showing the window.
+    ApproveIdx(u8),
+    DenyIdx(u8),
     /// Open the i-th most recent capture in the default app.
     OpenRecent(u8),
     Quit,
@@ -134,12 +136,15 @@ pub struct TrayController {
     inbox_id: tray_icon::menu::MenuId,
     settings_id: tray_icon::menu::MenuId,
     bug_id: tray_icon::menu::MenuId,
-    approve_id: tray_icon::menu::MenuId,
-    deny_id: tray_icon::menu::MenuId,
     quit_id: tray_icon::menu::MenuId,
     /// Last-5 captures — fixed ids, labels update as the library scans.
     recent_items: Vec<MenuItem>,
     recent_ids: Vec<tray_icon::menu::MenuId>,
+    /// E180 — 3 quick-reply slots: each is (approve, deny) for the i-th
+    /// pending question; labels mirror the question text.
+    quick_header: MenuItem,
+    quick_items: Vec<(MenuItem, MenuItem)>,
+    quick_ids: Vec<(tray_icon::menu::MenuId, tray_icon::menu::MenuId)>,
     last_progress_key: String,
 }
 
@@ -181,10 +186,23 @@ impl TrayController {
         let inbox_item = MenuItem::new("Inbox", true, None);
         let settings_item = MenuItem::new("Settings", true, None);
 
+        // ── E180 — quick-reply slots: 3 pending questions, approve/deny ──
+        let quick_header = MenuItem::new("Agent replies — none pending", false, None);
+        let quick_items: Vec<(MenuItem, MenuItem)> = (0..3)
+            .map(|_| {
+                (
+                    MenuItem::new("· (empty)", false, None),
+                    MenuItem::new("· (empty)", false, None),
+                )
+            })
+            .collect();
+        let quick_ids: Vec<_> = quick_items
+            .iter()
+            .map(|(a, d)| (a.id().clone(), d.id().clone()))
+            .collect();
+
         // ── Tools ───────────────────────────────────────────────
         let bug_item = MenuItem::new("Bug Report Pack", true, None);
-        let approve_item = MenuItem::new("Approve first pending", true, None);
-        let deny_item = MenuItem::new("Deny first pending", true, None);
 
         // ── App ─────────────────────────────────────────────────
         let quit_item = MenuItem::new("Quit Vibecap", true, None);
@@ -200,8 +218,6 @@ impl TrayController {
         let inbox_id = inbox_item.id().clone();
         let settings_id = settings_item.id().clone();
         let bug_id = bug_item.id().clone();
-        let approve_id = approve_item.id().clone();
-        let deny_id = deny_item.id().clone();
         let quit_id = quit_item.id().clone();
 
         let menu = Menu::new();
@@ -228,8 +244,13 @@ impl TrayController {
             &inbox_item,
             &settings_item,
             &PredefinedMenuItem::separator(),
-            &approve_item,
-            &deny_item,
+            &quick_header,
+            &quick_items[0].0,
+            &quick_items[0].1,
+            &quick_items[1].0,
+            &quick_items[1].1,
+            &quick_items[2].0,
+            &quick_items[2].1,
             &PredefinedMenuItem::separator(),
             &bug_item,
             &PredefinedMenuItem::separator(),
@@ -264,11 +285,12 @@ impl TrayController {
             inbox_id,
             settings_id,
             bug_id,
-            approve_id,
-            deny_id,
             quit_id,
             recent_items,
             recent_ids,
+            quick_header,
+            quick_items,
+            quick_ids,
             last_progress_key: String::new(),
         })
     }
@@ -429,14 +451,47 @@ impl TrayController {
             (self.inbox_id.clone(), TrayAction::GoInbox),
             (self.settings_id.clone(), TrayAction::GoSettings),
             (self.bug_id.clone(), TrayAction::BugReport),
-            (self.approve_id.clone(), TrayAction::ApproveFirst),
-            (self.deny_id.clone(), TrayAction::DenyFirst),
             (self.quit_id.clone(), TrayAction::Quit),
         ];
         for (i, id) in self.recent_ids.iter().enumerate() {
             v.push((id.clone(), TrayAction::OpenRecent(i as u8)));
         }
+        for (i, (a, d)) in self.quick_ids.iter().enumerate() {
+            v.push((a.clone(), TrayAction::ApproveIdx(i as u8)));
+            v.push((d.clone(), TrayAction::DenyIdx(i as u8)));
+        }
         v
+    }
+
+    /// E180 — mirror the pending agent questions into the 3 quick-reply
+    /// slots: "✓ question…" / "✗ question…". Empty slots disable.
+    pub fn set_quick_pending(&mut self, questions: &[String]) {
+        self.quick_header.set_text(if questions.is_empty() {
+            "Agent replies — none pending"
+        } else {
+            "Agent replies"
+        });
+        for (i, (appr, deny)) in self.quick_items.iter().enumerate() {
+            match questions.get(i) {
+                Some(q) => {
+                    let t: String = if q.chars().count() > 38 {
+                        format!("{}…", q.chars().take(37).collect::<String>())
+                    } else {
+                        q.clone()
+                    };
+                    appr.set_text(format!("✓ {t}"));
+                    appr.set_enabled(true);
+                    deny.set_text(format!("✗ {t}"));
+                    deny.set_enabled(true);
+                }
+                None => {
+                    appr.set_text("· (no pending question)");
+                    appr.set_enabled(false);
+                    deny.set_text("·");
+                    deny.set_enabled(false);
+                }
+            }
+        }
     }
 
     /// Drain pending tray / menu events (non-blocking).
@@ -491,14 +546,26 @@ impl TrayController {
                 actions.push(TrayAction::GoSettings);
             } else if id == self.bug_id {
                 actions.push(TrayAction::BugReport);
-            } else if id == self.approve_id {
-                actions.push(TrayAction::ApproveFirst);
-            } else if id == self.deny_id {
-                actions.push(TrayAction::DenyFirst);
             } else if id == self.quit_id {
                 actions.push(TrayAction::Quit);
             } else if let Some(i) = self.recent_ids.iter().position(|r| *r == id) {
                 actions.push(TrayAction::OpenRecent(i as u8));
+            } else if let Some((i, approve)) =
+                self.quick_ids.iter().enumerate().find_map(|(i, (a, d))| {
+                    if *a == id {
+                        Some((i, true))
+                    } else if *d == id {
+                        Some((i, false))
+                    } else {
+                        None
+                    }
+                })
+            {
+                actions.push(if approve {
+                    TrayAction::ApproveIdx(i as u8)
+                } else {
+                    TrayAction::DenyIdx(i as u8)
+                });
             }
         }
 

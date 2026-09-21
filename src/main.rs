@@ -337,9 +337,9 @@ fn spawn_wake_pump(
 /// silently and the toast waits for the next wake.
 fn pump_housekeeping(shared: &Arc<WakeShared>, ctx: &egui::Context, last_slow: &mut Instant) {
     let parked = shared.parked.load(Ordering::SeqCst);
-    // CLI poke marker: cheap stat each slice; a parked window must be
-    // restored for update() to consume it.
-    if app::pending_cmd_waiting() {
+    // CLI poke + deep-link markers: cheap stat each slice; a parked window
+    // must be restored for update() to consume them.
+    if app::pending_cmd_waiting() || app::pending_deep_waiting() {
         if parked {
             pump_event(shared, ctx, WakeEvent::Show);
         } else {
@@ -706,9 +706,16 @@ pub(crate) struct VibecapApp {
     scrub_rx: Option<Receiver<(PathBuf, Result<Vec<(u32, u32, Vec<u8>)>, String>)>>,
     /// E167 — regenerable bytes under the media root (cache/scratch dirs).
     library_reclaimable: u64,
+    /// E180 — pending-question key last pushed to the tray quick slots.
+    tray_quick_key: String,
+    /// E180 — request ids bound to the 3 tray quick-reply slots, synced
+    /// whenever `set_quick_pending` pushes labels.
+    tray_quick_ids: Vec<String>,
     /// E189 — Inbox "new since last visit" watermark (`%Y-%m-%d %H:%M:%S`,
     /// lexicographically comparable to `created_at`).
     inbox_seen_stamp: String,
+    /// E188 — collapsed agent groups in the Inbox pending list.
+    inbox_collapsed_agents: std::collections::HashSet<String>,
     /// Filmstrip decode progress `(done, total)` for the determinate label.
     filmstrip_progress: (usize, usize),
     filmstrip_progress_rx: Option<Receiver<(usize, usize)>>,
@@ -823,6 +830,8 @@ pub(crate) struct VibecapApp {
     review_draft_changed_at: Option<std::time::Instant>,
     /// E216 — cached "Annotate with Vibecap" registry state for Settings.
     explorer_verb_state: Option<bool>,
+    /// E187 — vibecap:// URL-scheme registration state (mirrors registry).
+    url_scheme_state: Option<bool>,
     hotkey_shot_digit: u8,
     hotkey_rec_digit: u8,
     /// Digits currently registered with the OS — rebind unregisters these,
@@ -2660,8 +2669,10 @@ impl VibecapApp {
                 self.current_tab = AppTab::Settings;
                 self.show_window(ctx);
             }
-            TrayAction::ApproveFirst => self.reply_first_pending("approve"),
-            TrayAction::DenyFirst => self.reply_first_pending("deny"),
+            // E180 — per-request quick reply: slot i answers the i-th
+            // pending question (first option = approve, last = deny).
+            TrayAction::ApproveIdx(i) => self.reply_pending_slot(i as usize, true),
+            TrayAction::DenyIdx(i) => self.reply_pending_slot(i as usize, false),
             TrayAction::OpenRecent(i) => {
                 // Tray recents mirror library order (newest first).
                 if let Some(item) = self.library_items.get(i as usize) {
@@ -3411,6 +3422,29 @@ impl VibecapApp {
                 .cmp(&rank(b.priority.as_str()))
                 .then_with(|| b.created_at.cmp(&a.created_at))
         });
+        // E180 — mirror the first-3 pending questions into tray quick slots.
+        // `tray_quick_ids` pins each slot to a request id so a rescan between
+        // label render and menu click can't retarget the answer.
+        let pairs: Vec<(String, String)> = self
+            .feedback_requests
+            .iter()
+            .filter(|r| r.status == "pending")
+            .take(3)
+            .map(|r| (r.id.clone(), r.question.clone()))
+            .collect();
+        let key = pairs
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>()
+            .join("\u{1}");
+        if key != self.tray_quick_key {
+            self.tray_quick_key = key;
+            self.tray_quick_ids = pairs.iter().map(|(id, _)| id.clone()).collect();
+            let questions: Vec<String> = pairs.into_iter().map(|(_, q)| q).collect();
+            if let Some(tray) = self.tray.as_mut() {
+                tray.set_quick_pending(&questions);
+            }
+        }
     }
 
     /// Detect newly pending agent questions and make them unmissable:
@@ -3534,22 +3568,62 @@ impl VibecapApp {
         }
     }
 
-    fn reply_first_pending(&mut self, choice: &str) {
+    /// E180 — answer the i-th pending question from the tray without
+    /// opening the window. Approve picks the first choice chip (or
+    /// "approved" for text-only); deny picks the last chip (or "denied").
+    /// Resolves by the request id pinned when the label was pushed, so a
+    /// rescan between render and click can't retarget the answer.
+    fn reply_pending_slot(&mut self, idx: usize, approve: bool) {
         self.scan_feedback_requests();
-        let id = self
-            .feedback_requests
-            .iter()
-            .find(|r| r.status == "pending")
-            .map(|r| r.id.clone());
-        let Some(id) = id else {
-            self.show_toast("No pending agent question");
+        let Some(id) = self.tray_quick_ids.get(idx).cloned() else {
+            self.show_toast("No pending question in that slot");
             return;
         };
-        self.feedback_choice = choice.to_string();
-        if self.feedback_draft.trim().is_empty() {
-            self.feedback_draft = choice.to_string();
+        let options = self
+            .feedback_requests
+            .iter()
+            .find(|r| r.id == id && r.status == "pending")
+            .map(|r| r.options.clone());
+        let Some(options) = options else {
+            self.show_toast("That question was already answered");
+            return;
+        };
+        let answer = if approve {
+            options
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "approved".into())
+        } else {
+            options.last().cloned().unwrap_or_else(|| "denied".into())
+        };
+        let response = FeedbackResponse {
+            id: id.clone(),
+            feedback_text: answer.clone(),
+            voice_note_path: String::new(),
+            annotated_media_path: String::new(),
+            answered_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            selected_option: answer.clone(),
+        };
+        let resp_path = feedback_responses_dir().join(format!("{id}.json"));
+        if serde_json::to_string_pretty(&response)
+            .ok()
+            .and_then(|s| write_json_atomic(&resp_path, &s).ok())
+            .is_some()
+        {
+            self.mark_feedback_status(&id, "answered");
+            self.scan_feedback_requests();
+            self.show_toast(format!(
+                "{} from tray — {}",
+                if approve {
+                    "✅ Approved"
+                } else {
+                    "✗ Denied"
+                },
+                answer
+            ));
+        } else {
+            self.show_toast("❌ Could not save feedback — check disk permissions.");
         }
-        self.submit_feedback_response(&id);
     }
 
     fn submit_feedback_response(&mut self, request_id: &str) {
@@ -5358,6 +5432,36 @@ impl VibecapApp {
         }
     }
 
+    /// E187 — deep links: `vibecap://feedback/<id>` selects that thread in
+    /// the Inbox; `vibecap://open` just summons the studio. Unknown routes
+    /// land a toast rather than failing silently.
+    fn poll_pending_deep(&mut self, ctx: &egui::Context) {
+        let Some(url) = app::take_pending_deep() else {
+            return;
+        };
+        let route = url.trim_start_matches("vibecap://").trim_matches('/');
+        if let Some(id) = route.strip_prefix("feedback/") {
+            self.scan_feedback_requests();
+            let id = id.to_string();
+            if self.feedback_requests.iter().any(|r| r.id == id) {
+                self.current_tab = AppTab::Feedback;
+                self.feedback_selected = Some(id.clone());
+                self.feedback_user_picked = true;
+                self.show_window(ctx);
+                self.show_toast(format!("Opened thread {id}"));
+            } else {
+                self.current_tab = AppTab::Feedback;
+                self.show_window(ctx);
+                self.show_toast(format!("Thread {id} not found — showing Inbox"));
+            }
+        } else if route == "open" || route.is_empty() {
+            self.show_window(ctx);
+        } else {
+            self.show_toast(format!("Unknown link: {url}"));
+            self.show_window(ctx);
+        }
+    }
+
     /// E211 — watch-folder intake: files that settle (mtime ≥2s ago) move
     /// into the media dir and land in Library.
     fn tick_watch_folder(&mut self) {
@@ -5860,6 +5964,8 @@ impl eframe::App for VibecapApp {
         self.poll_pending_still(ctx);
         // E210 — CLI pokes land as a marker file; dispatch each frame.
         self.poll_pending_cmd(ctx);
+        // E187 — vibecap:// deep links (same marker mechanism).
+        self.poll_pending_deep(ctx);
         // E222 — crash-recovery drains: orphan remux result + annotation
         // draft debounce.
         self.drain_recovery();

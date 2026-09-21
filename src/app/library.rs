@@ -641,8 +641,7 @@ mod tests {
     /// leaves non-media + fresh (in-flight) files alone.
     #[test]
     fn watch_sweep_moves_settled_media_only() {
-        let root =
-            std::env::temp_dir().join(format!("vibecap_watch_test_{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("vibecap_watch_test_{}", std::process::id()));
         let watch = root.join("watch");
         let media = root.join("media");
         let _ = std::fs::remove_dir_all(&root);

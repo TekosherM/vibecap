@@ -478,6 +478,31 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             Err(e) => app.show_toast(format!("Explorer verb failed: {e}")),
                         }
                     }
+                    if app.url_scheme_state.is_none() {
+                        app.url_scheme_state = Some(crate::platform::url_scheme_enabled());
+                    }
+                    let mut link = app.url_scheme_state.unwrap_or(false);
+                    if ui
+                        .checkbox(&mut link, "vibecap:// deep links")
+                        .on_hover_text(
+                            "Registers the vibecap:// URL scheme (HKCU, no admin) so \
+                             vibecap://feedback/<id> opens that thread — usable from \
+                             browsers, terminals, and agents",
+                        )
+                        .changed()
+                    {
+                        match crate::platform::set_url_scheme(link) {
+                            Ok(()) => {
+                                app.url_scheme_state = Some(link);
+                                app.show_toast(if link {
+                                    "vibecap:// links now open Vibecap"
+                                } else {
+                                    "URL scheme removed"
+                                });
+                            }
+                            Err(e) => app.show_toast(format!("URL scheme failed: {e}")),
+                        }
+                    }
                     setting_row(ui, "Tray double-click", |ui| {
                         let mut sel: &'static str = match app.tray_dblclick.as_str() {
                             "screenshot" => "screenshot",

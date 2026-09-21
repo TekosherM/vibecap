@@ -44,6 +44,9 @@ pub enum CliAction {
     /// E210 — `vibecap poke <show|hide|screenshot|record|stop>` — forwards a
     /// command to the running instance (or the next one to launch).
     Poke,
+    /// E187 — a bare `vibecap://…` argument (registered URL scheme launches
+    /// the exe with the URL as argv[1]). Written to the pending_deep marker.
+    DeepLink,
     Mcp,
     Gui {
         hidden: bool,
@@ -235,6 +238,9 @@ pub fn parse_args(args: &[String]) -> CliArgs {
         // E210 — before the bare-word `screenshot` check so
         // `poke screenshot` doesn't misfire into a headless capture.
         CliAction::Poke
+    } else if first.map(|f| f.starts_with("vibecap://")).unwrap_or(false) {
+        // E187 — URL-scheme launch: `vibecap vibecap://feedback/<id>`.
+        CliAction::DeepLink
     } else if has("--screenshot") || has("screenshot") {
         CliAction::Screenshot
     } else if has("--record-start") {
@@ -261,6 +267,7 @@ pub fn parse_args(args: &[String]) -> CliArgs {
     };
     let target = match action {
         CliAction::Open | CliAction::Annotate | CliAction::Poke => tokens.get(1).cloned(),
+        CliAction::DeepLink => tokens.first().cloned(),
         _ => None,
     };
 
@@ -925,6 +932,18 @@ pub fn run_headless(cli: &CliArgs) -> Option<i32> {
             // poll_pending_cmd on its first frames.
             None
         }
+        CliAction::DeepLink => {
+            // E187 — hand the URL to the running/next GUI via the marker.
+            let url = cli.target.clone().unwrap_or_default();
+            if !url.starts_with("vibecap://") {
+                return Some(usage_fail(cli, "usage: vibecap \"vibecap://<route>\""));
+            }
+            crate::app::io::write_pending_deep(&url);
+            if cli.json {
+                println!("{}", serde_json::json!({"ok": true, "deep_link": url}));
+            }
+            None
+        }
         CliAction::Mcp | CliAction::Gui { .. } => None,
     }
 }
@@ -967,6 +986,18 @@ mod tests {
         assert_eq!(parse_args(&argv("--paths")).action, CliAction::Paths);
         assert_eq!(parse_args(&argv("doctor")).action, CliAction::Doctor);
         assert_eq!(parse_args(&argv("--doctor")).action, CliAction::Doctor);
+    }
+
+    /// E187 — a bare vibecap:// arg routes to the deep-link handoff and
+    /// keeps the URL as the target.
+    #[test]
+    fn parse_deep_link() {
+        let c = parse_args(&argv("vibecap://feedback/req-123"));
+        assert_eq!(c.action, CliAction::DeepLink);
+        assert_eq!(c.target.as_deref(), Some("vibecap://feedback/req-123"));
+        // poke still wins over the loose arg match (ordering guard).
+        let c = parse_args(&argv("poke show"));
+        assert_eq!(c.action, CliAction::Poke);
     }
 
     #[test]

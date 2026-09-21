@@ -1119,6 +1119,33 @@ pub fn explorer_verb_enabled() -> bool {
     false
 }
 
+/// E187 — `vibecap://` deep-link scheme (HKCU URL-protocol registration,
+/// no elevation). `enable=false` removes the scheme key entirely.
+#[cfg(target_os = "windows")]
+pub fn set_url_scheme(enable: bool) -> Result<(), String> {
+    if enable {
+        let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+        super::win32::url_scheme_install(&exe)
+    } else {
+        super::win32::url_scheme_remove()
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn url_scheme_enabled() -> bool {
+    super::win32::url_scheme_installed()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_url_scheme(_enable: bool) -> Result<(), String> {
+    Err("URL scheme registration is Windows-only".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn url_scheme_enabled() -> bool {
+    false
+}
+
 /// E225 — Some(true) when the OS prefers dark app surfaces right now.
 /// None = unknown → the caller must not touch the theme.
 #[cfg(target_os = "windows")]

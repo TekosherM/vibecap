@@ -544,20 +544,20 @@ background chip (112), save-as-copy (116), Esc depth (125).
 177. **a = first chip** — one-key approve for choice requests. ✓
 178. **Esc returns to list** — consistent back-depth. ✓ (clears selection; auto-reselect suppressed)
 179. **Snooze + pin** — thread-level controls with restore. ✓ (pin existed; snooze now a 15m/1h/4h menu)
-180. **Tray quick-reply** — approve/deny from tray without showing window.
+180. **Tray quick-reply** — approve/deny from tray without showing window. ✓ (3 per-request ✓/✗ slot pairs under an "Agent replies" header, labels = question text; slots pinned to request ids so a rescan can't retarget a click; approve → first chip, deny → last chip)
 181. **Poll age readout** — "agent polled 12 s ago" per thread. ✓ (was already shipped — `feedback_last_poll_secs` header line)
 182. **Answered-history search** — find past Q&A + attached media. ✓ (closed threads match on answer text via lazy-cached response files; search also hits media_path)
 183. **Saved snippets** — reusable replies ("blur the token", "re-record 16:9"). ✓ (was already shipped — snippet chips above the composer, session-persisted)
 184. **Voice reply preview** — waveform + re-record before send.
 185. **Compose lock** — new arrivals never steal selection mid-compose. ✓ (was already shipped — `feedback_user_picked` + draft/choice guard)
 186. **Markdown-lite composer** — backticks, links render on the agent side. ✓ (was already shipped — composer hint + passthrough)
-187. **Deep links** — `vibecap://feedback/<id>` opens exact thread.
-188. **Request grouping** — threads collapse by agent/session.
+187. **Deep links** — `vibecap://feedback/<id>` opens exact thread. ✓ (HKCU `vibecap` URL-protocol registration via Settings toggle; CLI writes `pending_deep.txt` marker → pump wakes parked windows, `poll_pending_deep` routes to the thread; unknown id → Inbox + toast)
+188. **Request grouping** — threads collapse by agent/session. ✓ (waiting queue folds into collapsible per-agent headers when >1 agent is pending; single-agent stays flat; collapse set is runtime state)
 189. **Unread divider** — "new since you last looked" line. ✓ ("New since last visit" section; `inbox_seen_at` session watermark advances on tab-leave and quit)
 190. **Bulk approve** — approve all visible choice threads at once. ✓ ("Approve all n" button answers each with its first chip option; scoped to the search-filtered set; text-only threads skipped)
 191. **SLA colors** — threads age-tint (green→amber→red) as they wait. ✓ (timestamp goes amber >10m, red >30m; relative age shown)
 192. **Attachment preview** — media_path renders inline thumb in thread. ✓ (was already shipped — inline image preview + Open/Mark up actions)
-193. **Reply templates per request type** — screenshot-needed vs approval prompts get different quick replies.
+193. **Reply templates per request type** — screenshot-needed vs approval prompts get different quick replies. ✓ (kind-aware template chips in the composer — annotate/voice/choice/text sets; appends to the draft rather than overwriting)
 194. **Notification dedupe** — repeat polls for same request don't re-toast. ✓ (was already shipped — `feedback_notified_ids`; snoozed ids now drop out so expiry re-fires)
 195. **Quiet hours** — inbox toasts suppressed, badge still counts. ✓ (manual Quiet toggle in Inbox header + Settings, session-persisted; badge/tray still update)
 196. **Agent identity** — which harness/model filed the request, in the header. ✓ (was already shipped — `agent_label` in thread row + detail header)
