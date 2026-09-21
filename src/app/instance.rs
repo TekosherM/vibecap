@@ -24,15 +24,8 @@ fn pid_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        let out = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-            .output();
-        match out {
-            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .any(|l| l.contains(&format!("\"{pid}\""))),
-            _ => false,
-        }
+        // E238 — native OpenProcess probe, no tasklist spawn.
+        crate::platform::pid_alive(pid)
     }
     #[cfg(not(any(unix, windows)))]
     {

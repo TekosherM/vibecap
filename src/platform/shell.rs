@@ -829,51 +829,6 @@ pub fn window_rect_on_screen(name: &str) -> Option<(u64, i32, i32, i32, i32)> {
     super::win32::find_window_rect(name)
 }
 
-/// Parse the first `hwnd x y w h` line (legacy PowerShell output format).
-#[cfg(test)]
-pub fn parse_window_target_line(s: &str) -> Option<(u64, i32, i32, i32, i32)> {
-    for line in s.lines() {
-        let nums: Vec<i64> = line
-            .split_whitespace()
-            .filter_map(|p| p.parse().ok())
-            .collect();
-        if nums.len() >= 5
-            && nums[0] > 0
-            && nums[3] > 0
-            && nums[4] > 0
-            && u64::try_from(nums[0]).is_ok()
-        {
-            return Some((
-                nums[0] as u64,
-                nums[1] as i32,
-                nums[2] as i32,
-                nums[3] as i32,
-                nums[4] as i32,
-            ));
-        }
-    }
-    None
-}
-
-/// Escape a literal for a PowerShell single-quoted string.
-#[cfg(any(target_os = "windows", test))]
-pub fn ps_escape(s: &str) -> String {
-    s.replace('\'', "''")
-}
-
-/// Escape a literal for a PowerShell `-like '*…*'` pattern fragment.
-#[cfg(any(target_os = "windows", test))]
-pub fn ps_like_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if matches!(c, '*' | '?' | '[' | ']') {
-            out.push('`');
-        }
-        out.push(c);
-    }
-    out.replace('\'', "''")
-}
-
 #[cfg(target_os = "windows")]
 fn windows_enum_windows() -> Vec<WindowInfo> {
     super::win32::enum_windows()
@@ -891,38 +846,6 @@ fn windows_enum_windows() -> Vec<WindowInfo> {
         .collect()
 }
 
-#[cfg(test)]
-pub fn parse_window_info_lines(s: &str) -> Vec<WindowInfo> {
-    let mut out = Vec::new();
-    for line in s.lines() {
-        let p: Vec<&str> = line.split('\t').collect();
-        if p.len() < 9 {
-            continue;
-        }
-        let w: i32 = p[6].trim().parse().unwrap_or(0);
-        let h: i32 = p[7].trim().parse().unwrap_or(0);
-        if w < 8 || h < 8 {
-            continue;
-        }
-        let title = p[3].trim().to_string();
-        let process = p[2].trim().to_string();
-        if title.is_empty() && process.is_empty() {
-            continue;
-        }
-        out.push(WindowInfo {
-            id: p[0].trim().to_string(),
-            title,
-            process,
-            x: p[4].trim().parse().unwrap_or(0),
-            y: p[5].trim().parse().unwrap_or(0),
-            w,
-            h,
-            minimized: p[8].trim() == "1",
-        });
-    }
-    out
-}
-
 #[cfg(target_os = "windows")]
 fn windows_list_monitors() -> Vec<MonitorInfo> {
     super::win32::enum_monitors()
@@ -937,36 +860,6 @@ fn windows_list_monitors() -> Vec<MonitorInfo> {
             primary: m.primary,
         })
         .collect()
-}
-
-#[cfg(test)]
-pub fn parse_monitor_lines(s: &str) -> Vec<MonitorInfo> {
-    let mut out = Vec::new();
-    for line in s.lines() {
-        let n: Vec<i64> = line
-            .split_whitespace()
-            .filter_map(|p| p.parse().ok())
-            .collect();
-        if n.len() >= 6 {
-            out.push(MonitorInfo {
-                index: n[0] as u32,
-                x: n[1] as i32,
-                y: n[2] as i32,
-                w: n[3] as i32,
-                h: n[4] as i32,
-                primary: n[5] != 0,
-            });
-        }
-    }
-    out
-}
-
-#[cfg(target_os = "windows")]
-fn windows_powershell(script: &str) -> Command {
-    let mut cmd = Command::new("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
-    super::ffmpeg::silence_console(&mut cmd);
-    cmd
 }
 
 /// Foreground process name (e.g. `chrome`), else the window title.
@@ -987,68 +880,18 @@ fn windows_foreground_process_name() -> Option<String> {
 /// (the documented `SystemParametersInfo` mechanism, restored afterwards) so
 /// `SetForegroundWindow` succeeds from a console too.
 ///
-/// Native path first (no process spawn); the PowerShell script remains as a
-/// fallback — WScript.Shell.AppActivate can succeed where SetForegroundWindow
-/// is refused.
+/// E238 — pure native path: `focus_window` already clears the foreground
+/// lock, AttachThreadInput-glues to the foreground thread, restores a
+/// minimized window, and verifies `GetForegroundWindow` — strictly stronger
+/// than the old WScript.Shell.AppActivate fallback (which did none of the
+/// thread-input work). No process spawn anywhere on the focus path.
 #[cfg(target_os = "windows")]
 fn windows_focus_app(app_name: &str) -> Result<(), String> {
     let needle = app_name.trim();
     if needle.is_empty() {
         return Ok(());
     }
-    if super::win32::focus_window(needle).is_ok() {
-        return Ok(());
-    }
-    let esc = ps_like_escape(needle);
-    let lit = ps_escape(needle);
-    let script = format!(
-        r###"
-try {{
-  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class VbFocus {{ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n); [DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint a, uint b, ref uint c, uint d); [DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint a, uint b, System.UIntPtr c, uint d); }}' | Out-Null
-  # Let a background caller take the foreground (restored below).
-  $prevLock = [uint32]0
-  try {{ [void][VbFocus]::SystemParametersInfo(0x2000, 0, [ref]$prevLock, 0) }} catch {{}}
-  try {{ [void][VbFocus]::SystemParametersInfo(0x2001, 0, [System.UIntPtr]::Zero, 0) }} catch {{}}
-  $focused = $false
-  foreach ($pass in 1, 2) {{
-    foreach ($p in Get-Process -ErrorAction SilentlyContinue) {{
-      try {{
-        $t = $p.MainWindowTitle
-        $n = $p.ProcessName
-        $exact = ($n -eq '{lit}') -or ($t -eq '{lit}')
-        $fuzzy = (($t -like '*{esc}*') -or ($n -like '*{esc}*'))
-        if (($pass -eq 1 -and $exact) -or ($pass -eq 2 -and -not $exact -and $fuzzy)) {{
-          $h = $p.MainWindowHandle
-          if ($h -eq [IntPtr]::Zero) {{ continue }}
-          [void][VbFocus]::ShowWindow($h, 9)
-          [void][VbFocus]::SetForegroundWindow($h)
-          Start-Sleep -Milliseconds 200
-          if ([VbFocus]::GetForegroundWindow() -eq $h) {{ $focused = $true; break }}
-        }}
-      }} catch {{}}
-    }}
-    if ($focused) {{ break }}
-  }}
-  try {{ [void][VbFocus]::SystemParametersInfo(0x2001, 0, [System.UIntPtr]$prevLock, 0) }} catch {{}}
-  if (-not $focused) {{
-    $ws = New-Object -ComObject WScript.Shell
-    if ($ws.AppActivate('{lit}')) {{ Start-Sleep -Milliseconds 400; exit 0 }}
-    exit 1
-  }}
-  exit 0
-}} catch {{ exit 1 }}
-"###,
-    );
-    let status = windows_powershell(&script)
-        .status()
-        .map_err(|e| format!("focus helper failed to start: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "could not bring “{needle}” to the front (no visible window matched)"
-        ))
-    }
+    super::win32::focus_window(needle)
 }
 
 /// Open macOS System Settings → Privacy → Screen Recording (best-effort).
@@ -1259,38 +1102,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_window_target_reads_hwnd_xywh() {
-        assert_eq!(
-            parse_window_target_line("67920 60 60 2880 1484\r\n"),
-            Some((67920, 60, 60, 2880, 1484))
-        );
-        assert_eq!(parse_window_target_line("no numbers here"), None);
-        assert_eq!(parse_window_target_line("0 0 800 600"), None);
-        assert_eq!(parse_window_target_line("1 2 0 4"), None);
-        assert_eq!(parse_window_target_line(""), None);
-    }
-
-    #[test]
-    fn ps_escape_doubles_single_quotes() {
-        assert_eq!(ps_escape("it's"), "it''s");
-        assert_eq!(ps_escape("plain"), "plain");
-    }
-
-    #[test]
-    fn ps_like_escape_neutralizes_wildcards() {
-        assert_eq!(ps_like_escape("a*b?c[d]"), "a`*b`?c`[d`]");
-        assert_eq!(ps_like_escape("chrome"), "chrome");
-    }
-
-    #[test]
-    fn parse_window_info_tab_rows() {
-        let rows = parse_window_info_lines(
-            "1234\t99\tchrome\tX / Home\t10\t20\t800\t600\t0\n5\t1\texplorer\t\t0\t0\t4\t4\t0\n",
-        );
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].process, "chrome");
-        assert_eq!(rows[0].title, "X / Home");
-        assert!(!rows[0].is_self());
+    fn window_info_is_self_matches_process_name() {
+        assert!(!WindowInfo {
+            id: "1234".into(),
+            title: "X / Home".into(),
+            process: "chrome".into(),
+            x: 10,
+            y: 20,
+            w: 800,
+            h: 600,
+            minimized: false,
+        }
+        .is_self());
         assert!(WindowInfo {
             id: "1".into(),
             title: "Vibecap".into(),
@@ -1302,14 +1125,6 @@ mod tests {
             minimized: false,
         }
         .is_self());
-    }
-
-    #[test]
-    fn parse_monitor_lines_reads_primary() {
-        let m = parse_monitor_lines("0 0 0 1920 1080 1\n1 -1920 0 1920 1080 0\n");
-        assert_eq!(m.len(), 2);
-        assert!(m[0].primary);
-        assert_eq!(m[1].x, -1920);
     }
 
     #[test]

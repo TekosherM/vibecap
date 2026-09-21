@@ -539,6 +539,9 @@ extern "system" {
         size: *mut u32,
     ) -> i32;
     fn CloseHandle(handle: *mut c_void) -> i32;
+    fn GetExitCodeProcess(handle: *mut c_void, code: *mut u32) -> i32;
+    fn TerminateProcess(handle: *mut c_void, code: u32) -> i32;
+    fn GetLastError() -> u32;
     fn GetCurrentThreadId() -> u32;
     fn GetDiskFreeSpaceExW(
         dir: *const u16,
@@ -546,6 +549,51 @@ extern "system" {
         total: *mut u64,
         free_total: *mut u64,
     ) -> i32;
+}
+
+// ── Process probes: native OpenProcess — no tasklist/taskkill spawn ──────────
+// E238 — each `tasklist`/`taskkill` call cost a ~50–100 ms process spawn on
+// the record-status, GUI-lock and doctor paths.
+
+const PROCESS_TERMINATE: u32 = 0x0001;
+const STILL_ACTIVE: u32 = 259;
+const ERROR_ACCESS_DENIED: u32 = 5;
+
+/// True when `pid` names a live process. `OpenProcess` failure by
+/// ACCESS_DENIED means an elevated/protected process — it exists.
+pub fn pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return GetLastError() == ERROR_ACCESS_DENIED;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code);
+        CloseHandle(h);
+        ok != 0 && code == STILL_ACTIVE
+    }
+}
+
+/// `taskkill /F` equivalent. The agent recorder writes a fragmented MP4
+/// precisely so a hard stop leaves a readable file, and a detached ffmpeg
+/// has no console to take a graceful Ctrl+C anyway — TerminateProcess is
+/// the honest primitive here.
+pub fn terminate_process(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let ok = TerminateProcess(h, 1);
+        CloseHandle(h);
+        ok != 0
+    }
 }
 
 /// Free bytes available on the volume containing `dir` (None on failure).
@@ -1520,6 +1568,14 @@ pub fn start_file_drag(paths: &[std::path::PathBuf]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{pickable_at, top_window_at, EnumWindow};
+
+    #[test]
+    fn pid_alive_native_probe() {
+        // Self is alive; 0 and a pid space that's never valid are dead.
+        assert!(super::pid_alive(std::process::id()));
+        assert!(!super::pid_alive(0));
+        assert!(!super::pid_alive(u32::MAX - 1));
+    }
 
     #[test]
     fn studio_title_prefix_is_stable() {

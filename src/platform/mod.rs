@@ -51,9 +51,9 @@ pub use process::{cont_process, pause_supported, stop_process};
 #[cfg(windows)]
 pub(crate) use win32::{
     cursor_pos, disk_free_bytes, foreground_process_name, hide_studio_window, minimize_studio,
-    monitor_at_point, restore_studio_to_taskbar, run_at_login_enabled_native,
+    monitor_at_point, pid_alive, restore_studio_to_taskbar, run_at_login_enabled_native,
     set_run_at_login_native, set_studio_capture_excluded, set_title_capture_excluded,
-    studio_is_minimized, windows_at_point, ExcludeStatus,
+    studio_is_minimized, terminate_process, windows_at_point, ExcludeStatus,
 };
 
 /// Free bytes on the volume containing `dir` (Windows native; None elsewhere).

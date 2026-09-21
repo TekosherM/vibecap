@@ -200,3 +200,11 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - `vibecap annotate <file>` (#283): with no ops → pending-still → Studio annotate surface (GUI running or launched fresh). With `--arrow/--rect/--ellipse/--blur/--hl/--spotlight/--measure/--badge/--text` (normalized 0..1 coords, repeatable, `--color`/`--stroke`/`--out`) → headless bake via `bake_annotations` → `<stem>_annotated.png`.
 - `record_pid_alive` made pub for doctor's stale-state probe.
 - 82/82 tests; new coverage: parse for all new verbs/flags, error_code table, resolve_media_target, dry-run argv sanity, headless bake actually draws red pixels.
+
+### #238 — PowerShell/tasklist/taskkill removal from the capture path
+- `windows_focus_app` dropped its ~60-line PowerShell fallback (Get-Process scan + WScript.Shell.AppActivate). The native `win32::focus_window` is strictly stronger: AttachThreadInput to the foreground thread, foreground-lock clear/restore, SW_RESTORE, verified GetForegroundWindow.
+- `win32::pid_alive(pid)` — `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess == STILL_ACTIVE`; ACCESS_DENIED on open counts as alive (elevated/protected). Replaces `tasklist /FI` in agent_record + instance lock (~50–100 ms spawn per status/lock/doctor check).
+- `win32::terminate_process(pid)` — `OpenProcess(PROCESS_TERMINATE)` + `TerminateProcess`. Replaces `taskkill` (plain and /F). Correct because the recorder writes fragmented MP4 — kill-safe by design — and a detached ffmpeg has no console for graceful Ctrl+C anyway.
+- Deleted dead PS machinery: `windows_powershell`, `ps_escape`, `ps_like_escape`, and the test-only parsers for the old PS output formats (window target / window info / monitor lines).
+- Remaining PS spawns (deliberately kept, off the capture path): `notify.rs` toast balloons, `update.rs` network fallback after curl.
+- 79/79 tests (4 dead PS-format tests removed, `pid_alive_native_probe` added).

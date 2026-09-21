@@ -105,24 +105,17 @@ fn pid_alive(pid: u32) -> bool {
     }
 }
 
-/// Windows existence check via `tasklist` (`kill -0` does not exist there).
+/// E238 — native `OpenProcess` probe (`kill -0` does not exist on Windows;
+/// `tasklist` cost a ~50–100 ms spawn per status/lock/doctor check).
 #[cfg(target_os = "windows")]
 fn windows_pid_alive(pid: u32) -> bool {
-    let out = std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-        .output();
-    match out {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
-            .lines()
-            .any(|l| l.contains(&format!("\"{pid}\""))),
-        // If the probe itself fails, assume alive so stop still tries.
-        _ => true,
-    }
+    crate::platform::pid_alive(pid)
 }
 
 /// Cross-platform graceful terminate: SIGINT on unix (ffmpeg finalizes the
-/// MP4), plain `taskkill` on Windows (close request so ffmpeg can finalize),
-/// escalating to SIGTERM/SIGKILL or `taskkill /F`.
+/// MP4), escalating to SIGTERM/SIGKILL. On Windows a detached ffmpeg has no
+/// console for a graceful Ctrl+C and the MP4 is fragmented — kill-safe by
+/// design — so `TerminateProcess` (E238, no `taskkill` spawn) is correct.
 fn terminate_pid(pid: u32) {
     #[cfg(unix)]
     {
@@ -131,9 +124,7 @@ fn terminate_pid(pid: u32) {
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string()])
-            .output();
+        let _ = crate::platform::terminate_process(pid);
     }
 }
 
@@ -145,9 +136,7 @@ fn force_kill_pid(pid: u32) {
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/F", "/PID", &pid.to_string()])
-            .output();
+        let _ = crate::platform::terminate_process(pid);
     }
 }
 
@@ -158,9 +147,7 @@ fn kill_pid(pid: u32) {
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/F", "/PID", &pid.to_string()])
-            .output();
+        let _ = crate::platform::terminate_process(pid);
     }
 }
 

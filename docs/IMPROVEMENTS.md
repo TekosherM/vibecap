@@ -608,7 +608,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 235. **GIF encode queue** — background worker with progress, not a stop-blocking transcode.
 236. **Startup time budget** — cold launch → interactive <800 ms; measure and track.
 237. **Memory ceiling check** — long sessions with big thumbs shouldn't exceed ~300 MB.
-238. **PowerShell spawn removal** — replace `frontmost_app_name`/`window_rect_on_screen` shell-outs with `windows` crate calls (round-1 #28, still the biggest latency item).
+238. **PowerShell spawn removal** — replace `frontmost_app_name`/`window_rect_on_screen` shell-outs with `windows` crate calls (round-1 #28, still the biggest latency item). ✓ (raw FFI, no new crate: window/monitors/focus were already native; this tranche removed the last capture-path spawns — PS focus fallback (AppActivate is strictly weaker than AttachThreadInput+lock-clear+verify), `tasklist` pid probes → `OpenProcess`+`GetExitCodeProcess`, `taskkill` → `TerminateProcess` (frag-MP4 makes hard kill safe). PS remains only for toast notifications + update-check fallback — off the capture path)
 239. **Window-list cache** — 500 ms TTL on the pick-list enumeration.
 240. **ffmpeg path resolve once** — resolved at startup, not per-capture.
 241. **Starfield precomputation** — star positions hashed once, not per-frame.
