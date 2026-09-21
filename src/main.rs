@@ -597,6 +597,8 @@ pub(crate) struct VibecapApp {
     region_dim: u8,
     /// E154 — favorited library file names (session-backed).
     library_favorites: std::collections::HashSet<String>,
+    /// E83 — "needs attention" flags on library items (file names, persisted).
+    library_flagged: std::collections::HashSet<String>,
     /// E189 — Inbox "new since last visit" watermark (`%Y-%m-%d %H:%M:%S`,
     /// lexicographically comparable to `created_at`).
     inbox_seen_stamp: String,
@@ -1238,6 +1240,7 @@ impl VibecapApp {
         self.filmstrip_low_res = s.filmstrip_low_res;
         self.region_dim = s.region_dim.min(200);
         self.library_favorites = s.library_favorites.iter().cloned().collect();
+        self.library_flagged = s.library_flagged.iter().cloned().collect();
         self.inbox_seen_stamp = s.inbox_seen_at.clone();
         // Re-check with a cheap, prompt-free preflight on the next frame.
         // The modal is shown by `update` only when the preflight actually fails —
@@ -1300,6 +1303,7 @@ impl VibecapApp {
             filmstrip_low_res: self.filmstrip_low_res,
             region_dim: self.region_dim,
             library_favorites: self.library_favorites.iter().cloned().collect(),
+            library_flagged: self.library_flagged.iter().cloned().collect(),
             inbox_seen_at: self.inbox_seen_stamp.clone(),
         });
     }
@@ -2622,13 +2626,59 @@ impl VibecapApp {
         self.persist_session();
     }
 
+    /// E83 — toggle a library item's ⚑ review-queue flag (same persistence
+    /// keying as favorites — file name survives a moved media dir).
+    pub(crate) fn toggle_library_flag(&mut self, name: &str) {
+        if !self.library_flagged.remove(name) {
+            self.library_flagged.insert(name.to_string());
+        }
+        self.persist_session();
+    }
+
+    /// E77 — write the selected library items to a store-only ZIP.
+    pub(crate) fn export_selection_zip(&mut self) {
+        if self.library_selected.is_empty() {
+            self.show_toast("Nothing selected");
+            return;
+        }
+        let Some(dest) = rfd::FileDialog::new()
+            .set_file_name("vibecap_export.zip")
+            .add_filter("ZIP archive", &["zip"])
+            .save_file()
+        else {
+            return;
+        };
+        let dest = if dest.extension().is_some() {
+            dest
+        } else {
+            dest.with_extension("zip")
+        };
+        let paths: Vec<PathBuf> = self.library_selected.iter().cloned().collect();
+        match app::write_zip(&dest, &paths) {
+            Ok(names) => {
+                self.show_toast(format!(
+                    "📦 Exported {} file(s) → {}",
+                    names.len(),
+                    dest.display()
+                ));
+            }
+            Err(e) => self.show_toast(format!("❌ ZIP failed: {e}")),
+        }
+    }
+
     fn library_filtered(&self) -> Vec<&MediaItem> {
         let q = self.library_search.trim().to_ascii_lowercase();
         // E154 — the ★ chip is a pseudo-category over favorited file names.
+        // E83 — ⚑ Review is the same pattern over flagged names.
         let base: Vec<&MediaItem> = if self.library_filter == "★ Favorites" {
             self.library_items
                 .iter()
                 .filter(|i| self.library_favorites.contains(&i.name))
+                .collect()
+        } else if self.library_filter == "⚑ Review" {
+            self.library_items
+                .iter()
+                .filter(|i| self.library_flagged.contains(&i.name))
                 .collect()
         } else {
             filter_items(&self.library_items, &self.library_filter)

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crate::app::{
     category_bytes, date_group_label, default_live_dir, MediaCategory, MediaItem, LIBRARY_PAGE_SIZE,
 };
-use crate::platform::open_path;
+use crate::platform::{open_path, open_with};
 use crate::ui::icons::Icon;
 use crate::ui::theme;
 use crate::ui::{chip, empty_state};
@@ -200,6 +200,19 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             app.library_show_limit = LIBRARY_PAGE_SIZE;
             app.library_confirm_clear = false;
         }
+        // E83 — ⚑ review-queue pseudo-category (same persistence as ★).
+        let flag_n = app.library_flagged.len();
+        if flag_n > 0
+            && chip(
+                ui,
+                &format!("⚑  {flag_n}"),
+                app.library_filter == "⚑ Review",
+            )
+        {
+            app.library_filter = "⚑ Review".into();
+            app.library_show_limit = LIBRARY_PAGE_SIZE;
+            app.library_confirm_clear = false;
+        }
     });
     ui.add_space(6.0);
 
@@ -222,6 +235,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             if ui.button(format!("Reveal ({selected_count})")).clicked() {
                 let paths: Vec<_> = app.library_selected.iter().cloned().collect();
                 app.reveal_paths(&paths);
+            }
+            if ui.button("Export ZIP").clicked() {
+                app.export_selection_zip();
             }
             if ui
                 .button(
@@ -336,6 +352,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         let mut do_open: Option<PathBuf> = None;
         let mut do_toggle_sel: Option<PathBuf> = None;
         let mut do_fav: Option<String> = None;
+        let mut do_flag: Option<String> = None;
+        let mut do_open_with: Option<PathBuf> = None;
         let mut do_copy_path: Option<PathBuf> = None;
 
         // Row height is uniform across the grid — used for virtualization.
@@ -467,6 +485,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         // Hover quick-actions (E160): favorite / copy path /
                         // reveal — a ghost strip pinned to the thumb's top-right.
                         let is_fav = app.library_favorites.contains(&item.name);
+                        let is_flagged = app.library_flagged.contains(&item.name);
                         if hovered && !selected {
                             let strip_w = 3.0 * 22.0 + 8.0;
                             let strip = Rect::from_center_size(
@@ -531,6 +550,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 "★",
                                 egui::FontId::proportional(13.0),
                                 theme::WARN(),
+                            );
+                        }
+                        // E83 — ⚑ review flag pinned top-left (always shown so
+                        // the queue is scannable without hovering).
+                        if is_flagged {
+                            let frect = Rect::from_center_size(
+                                thumb_rect.left_top() + Vec2::new(13.0, 13.0),
+                                Vec2::new(20.0, 16.0),
+                            );
+                            paint.rect_filled(frect, 3.0, egui::Color32::from_black_alpha(160));
+                            paint.text(
+                                frect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "⚑",
+                                egui::FontId::proportional(11.0),
+                                theme::ACCENT(),
                             );
                         }
                         // E165 — duplicate badge: same size + same head/tail
@@ -658,6 +693,12 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 do_open = Some(item.path.clone());
                                 ui.close_menu();
                             }
+                            // E82 — OS "open with" chooser (OpenAs dialog on
+                            // Windows; Finder reveal on macOS).
+                            if ui.button("Open with…").clicked() {
+                                do_open_with = Some(item.path.clone());
+                                ui.close_menu();
+                            }
                             if ui.button("Reveal in Explorer").clicked() {
                                 do_reveal = Some(item.path.clone());
                                 ui.close_menu();
@@ -671,6 +712,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 .clicked()
                             {
                                 do_fav = Some(item.name.clone());
+                                ui.close_menu();
+                            }
+                            // E83 — flag/unflag for the review queue.
+                            if ui
+                                .button(if is_flagged {
+                                    "⚑ Remove review flag"
+                                } else {
+                                    "⚑ Flag for review"
+                                })
+                                .clicked()
+                            {
+                                do_flag = Some(item.name.clone());
                                 ui.close_menu();
                             }
                             ui.separator();
@@ -729,6 +782,15 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
         if let Some(name) = do_fav {
             app.toggle_library_favorite(&name);
+        }
+        if let Some(name) = do_flag {
+            app.toggle_library_flag(&name);
+        }
+        if let Some(p) = do_open_with {
+            match open_with(&p) {
+                Ok(()) => app.show_toast("Pick an app"),
+                Err(e) => app.show_toast(format!("Open-with failed: {e}")),
+            }
         }
         if let Some(p) = do_copy_path {
             if let Ok(mut board) = arboard::Clipboard::new() {

@@ -779,6 +779,28 @@ pub fn open_path(path: &Path) -> Result<(), String> {
     open::that(path).map_err(|e| format!("open failed: {}", e))
 }
 
+/// E82 — "Open with…" chooser. Windows shows the system OpenAs dialog;
+/// macOS has no shell equivalent so it reveals in Finder; Linux opens the
+/// default handler (no standard picker).
+pub fn open_with(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("rundll32.exe")
+            .args(["shell32.dll,OpenAs_RunDLL", &path.to_string_lossy()])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("open-with failed: {e}"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        reveal_in_file_manager(path)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        open_path(path)
+    }
+}
+
 /// Window target in physical desktop pixels `(hwnd, x, y, w, h)` for the first
 /// visible, non-minimized top-level window whose process name or title
 /// contains `name` (case-insensitive). `None` when no such window exists.

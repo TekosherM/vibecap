@@ -275,13 +275,13 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 74. **Filename search** (beyond date-group browsing). ✓
 75. **Favorites / pins** — float to top. ✓ (session `library_favorites`; ★ hover/context toggle, float-first within each group, "★" filter chip)
 76. **Tags** with filter chips.
-77. **Export selection as ZIP**.
+77. **Export selection as ZIP**. ✓ (store-only `app::zip` writer — CRC32, central dir, name dedupe; "Export ZIP" on the selection bar → save dialog)
 78. **Sort** — date/size/duration/name. ✓ (⇅ menu: Newest/Oldest/Largest/Smallest/Name/Type)
 79. **Retention rules** — keep N days or N files.
 80. **Duplicate detection** — content-hash same-shot warnings. ✓ (`mark_duplicates`: size-collision files get head+tail+len fingerprint; ≡ badge on dupes)
 81. **Thumbnail repair** — regenerate missing thumbs. ✓ (⋯ "Repair thumbnails" → drops zero-byte thumbs + regenerates, worker thread)
-82. **Open-with…** menu per item.
-83. **Review-queue flag** — "needs attention" marker.
+82. **Open-with…** menu per item. ✓ (`platform::open_with` — Windows `OpenAs_RunDLL` chooser; Finder reveal on macOS; default handler on Linux)
+83. **Review-queue flag** — "needs attention" marker. ✓ (session `library_flagged`; ⚑ badge on tiles, context toggle, "⚑ n" filter chip)
 84. **Recently-deleted view** — surface `undo_trash` as a shelf. ✓ (banner under the toolbar while the 12s undo window is live — Undo / Dismiss)
 
 ## F · Hotkeys, tray, system

@@ -21,6 +21,7 @@ pub mod retro;
 pub mod session;
 pub mod thumbs;
 pub mod update;
+pub mod zip;
 
 pub use annotation_baker::{
     bake_annotations, renumber_step_badges, snap_annotation_point, straighten_if_near_line,
@@ -49,3 +50,4 @@ pub use naming::{format_capture_stem, DEFAULT_PATTERN};
 pub use paths::{default_live_dir, default_media_dir, mcp_live_dir};
 pub use recording::{extract_filmstrip_rgba, finalize_recorder, kill_recorder};
 pub use retro::RetroController;
+pub use zip::write_zip;

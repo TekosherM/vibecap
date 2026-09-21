@@ -174,3 +174,9 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - Thumbnail repair (#170): ⋯ "Repair thumbnails" → worker drops zero-byte thumbs + regenerates missing.
 - Duplicate detection (#165): scan flags items sharing size + head/tail/len fingerprint (`mark_duplicates`, reads only size-colliding files); tiles show an amber ≡ badge.
 - Marked already-shipped: grid thumbs #42, date groups #44, filename+sidecar search #45/#74, shift-range select #46, drag-in import (part of #47/#164), sort menu #78, GIF routing #172.
+
+### Library tail — ZIP export, review flag, open-with
+- ZIP export (#77): `app::zip::write_zip` — self-contained store-only writer (CRC32, DOS timestamps, central directory, name dedupe). Selection bar "Export ZIP" → rfd save dialog; toasts the count or the error. 3 tests.
+- Review-queue flag (#83): session `library_flagged` (file names, like favorites); ⚑ badge painted top-left on flagged tiles, "⚑ Flag for review" context toggle, "⚑ n" pseudo-category chip (hidden when empty).
+- Open-with (#82): `platform::open_with` — Windows `rundll32 shell32.dll,OpenAs_RunDLL` system chooser; macOS reveals in Finder (no shell picker exists); Linux falls back to default handler.
+- Deferred: #76 tags (needs a real tag-editor UI surface), #79 retention (auto-delete wants a designed trash/retention policy first).
