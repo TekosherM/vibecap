@@ -74,7 +74,8 @@ pub fn disk_free_bytes_for(dir: &std::path::Path) -> Option<u64> {
 #[cfg(target_os = "windows")]
 pub use shell::window_rect_on_screen;
 pub use shell::{
-    activate_own_app, esc_pressed_edge, explorer_verb_enabled, focus_app, foreground_is_menu,
+    activate_own_app, clipboard_seq, esc_pressed_edge, explorer_verb_enabled, focus_app,
+    foreground_is_menu,
     frontmost_app_name, list_capture_windows, list_capture_windows_cached, list_monitors,
     list_running_apps, on_battery, open_path, open_screen_recording_settings, open_with,
     os_apps_dark, record_tone, request_screen_recording_access, reveal_in_file_manager,

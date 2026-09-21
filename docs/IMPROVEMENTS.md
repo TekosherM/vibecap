@@ -53,7 +53,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 21. **Window list = real windows, not process names.** `list_running_apps` / combo is titles+process; multiple Chrome windows collapse to one “chrome”. Need HWND/title rows. ✓ (list_capture_windows returns HWND/title/rect/minimized rows)
 22. **Live thumbnails in the window picker** (or at least the focused window’s title + bounds). Combo of strings is easy to pick wrong.
 23. **Refresh list automatically** when opening Window target (not only first scan + ↻). ✓ (2 s TTL re-scan when the Window target is selected)
-24. **Focus verify before shot.** `focus_app` can `AppActivate` the wrong substring (`code` vs `Code.exe`). Prefer exact process-name match, then title contains.
+24. **Focus verify before shot.** `focus_app` can `AppActivate` the wrong substring (`code` vs `Code.exe`). Prefer exact process-name match, then title contains. ✓ (was already shipped — `match_score` exact-first on title OR process, non-minimized preferred, then `focus_window` verifies `GetForegroundWindow()==hwnd`; no AppActivate anywhere)
 25. **Don’t steal focus for occluded HWND-capable GDI windows** when the user asked for Window and the window is visible in the list — but **do** focus GPU apps. Branch already exists; surface it in the UI (“will bring to front”). ✓ (branch exists + "GPU apps will be brought to the front" hint on the card)
 26. **Skip minimized windows** in the picker (already skipped in `window_rect_on_screen`); show them greyed with “restore to capture”. ✓ (skipped for rect lookup, listed greyed with ' (minimized)')
 27. **UWP / ApplicationFrameHost.** Many Store apps have empty `MainWindowTitle`. Enumerate via `EnumWindows` not `Get-Process`. ✓ (EnumWindows enumeration, not Get-Process titles)
@@ -67,7 +67,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 
 31. **Post-capture toast must not steal the still tab** if the user is mid-annotate. Today success always `open_still_from_path`. ✓ (was already shipped — `is_annotating` guard keeps the still you're editing; toast says 'finish this markup first')
 32. **Copy path / Copy image / Reveal / Annotate / Discard** on the toast (Discard = undo trash). Copy image exists on Still (⌘C); toast should offer it. ✓ (was already shipped — all five actions on the capture card)
-33. **Naming tokens** `{app}-{date}-{seq}` with a live preview in Settings. Default `screenshot_YYYY-MM-DD_HH-MM-SS.jpg` is unreadable in a folder of 200.
+33. **Naming tokens** `{app}-{date}-{seq}` with a live preview in Settings. Default `screenshot_YYYY-MM-DD_HH-MM-SS.jpg` is unreadable in a folder of 200. ✓ (was already shipped — `{app} {date} {time} {seq} {orig}` tokens + live Preview line in Settings)
 34. **Save-to last folder vs default media dir.** Agents pass `--output-dir`; GUI always uses `save_dir`. Add “set as agent default” so GUI and CLI agree (`VIBECAP_OUTPUT_DIR`). ✓ ('Use for CLI/agents' now persists VIBECAP_OUTPUT_DIR to HKCU\Environment via set_user_env, plus a 'Clear agent default' button)
 35. **GIF as a first-class shutter action** (still / record / GIF). Today GIF is an export from Clip or `--gif` on stop. ✓ (GIF button in the shutter strip next to Record)
 36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies. ◑ (the lie is fixed — Windows recordings now add a real dshow audio input and fail loudly when no device resolves; live level meter still open)
@@ -261,7 +261,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 
 ## D · Clipboard & destinations
 
-66. **Clipboard history** — last 10 captures in a tray submenu + palette. (tray "Recent captures" shipped — 5 slots; palette half still open)
+66. **Clipboard history** — last 10 captures in a tray submenu + palette. ✓ (tray Recent captures + palette "Captures" group: last 10 idle, fuzzy filename match when typing; Enter opens review + copies path)
 67. **Copy as Markdown image** — `![](path)` for docs. ✓
 68. **Copy file URI / data URI** for devs. ✓ (Still ⋯ menu — file:// + data: URI with in-house base64, 8 MB cap)
 69. **Copy + reveal combo** action on the toast card. ✓ (toast has Copy, Copy path, Reveal, Annotate, Discard)
@@ -381,8 +381,8 @@ Numbered 1–300 for this round. Sections sized 25 each.
 41. **Subtitle slot in header** — second line under title for context ("unsaved changes", "recording 00:12"). ✓ (subtitle shows annotation/cut counts when live, else the stage hint)
 42. **Command palette recent verbs** — MRU section above the flat list. ✓
 43. **Palette fuzzy match** — substring scoring; "gif" should rank "Export GIF" first. ✓ (subsequence scoring, word-start/consecutive bonuses)
-44. **Palette actions show shortcuts** — right-aligned kbd hint per row.
-45. **Palette media jump** — typing a filename jumps to its review.
+44. **Palette actions show shortcuts** — right-aligned kbd hint per row. ✓ (accent mono chip mirrors the real binding: S, R, Ctrl+C, Ctrl+1-3/5, Ctrl+I, ?)
+45. **Palette media jump** — typing a filename jumps to its review. ✓ (OpenMedia fuzzy-matches library names; opens Still/Clip and copies the path)
 46. **Tab-strip alternative** — optional top tabs instead of rail for users who want Snagit familiarity.
 47. **Drag window by any dead space** — today only header drags; padding zones should too. ✓ (main window uses native decorations — the OS titlebar drags everywhere; the custom REC bar already StartDrags on dead space)
 48. **Snap-layout friendly sizing** — default size lands cleanly in Windows 11 half-snap.
@@ -398,13 +398,13 @@ Numbered 1–300 for this round. Sections sized 25 each.
 55. **Recent tile quick-actions** — hover overlay: copy / annotate / delete on recents. ✓ (📋 copy path + 🗑 delete-to-undo-trash chips at the tile's top-right; pointer-in-rect containment so the overlay doesn't flicker when the pointer enters a chip)
 56. **Recents carousel** — horizontal scroll when >3 items instead of hiding them. ✓ (8 newest items, `ScrollArea::horizontal` wraps the tile row)
 57. **"Waiting for capture" state** — while armed+hidden, the studio (if shown) should say so. ✓ ("⏳ Waiting for capture — grab in progress…" line under the shutter while `screenshot_in_flight`/`still_busy`)
-58. **Options card quick toggles** — cursor/audio/display as icon toggles, not buried in disclosure.
+58. **Options card quick toggles** — cursor/audio/display as icon toggles, not buried in disclosure. ✓ (🖱/🎙/🖥N selectable chips on the always-visible options row; display chip cycles monitors)
 59. **Audio device picker** — dropdown of dshow devices when Include audio is on. ✓ (combo under the switch lists enumerated devices + Auto; pick persists via session `audio_device`; a vanished device falls back to Auto)
 60. **Estimated file size** — live "≈4 MB/min @ 30fps" under Record. ✓ (STORAGE group in Options, scaled by fps + monitor mpx)
 61. **Disk-space guard** — warn <500 MB free on the target dir before arming. ✓ (GetDiskFreeSpaceExW; warning under shutter + free-space line in STORAGE)
 62. **Battery-aware hint** — on battery, suggest 24 fps / shorter clips. ✓ (`GetSystemPowerStatus` ACLineStatus → "🔋 On battery — 24 fps or shorter clips" under the shutter when fps_target > 24; desktops/unknown → no hint)
 63. **Capture history sparkline** — tiny 7-day activity graph on the Capture card. ✓ (7-bar strip beside the RECENT label, bucketed from `library_items` mtimes, today bar in accent)
-64. **Quick-capture tray-free mode** — double-press hotkey within 500 ms = instant region with last settings.
+64. **Quick-capture tray-free mode** — double-press hotkey within 500 ms = instant region with last settings. ✓ (600 ms window: second tap mid-flight arms the picker to open on restore, between shots it opens the region pick directly)
 65. **Countdown cancel UX** — click anywhere or Esc during countdown aborts cleanly with toast. ✓ (Esc was already wired; now `pointer.any_pressed` inside the bubble cancels too — label reads "Esc or click to cancel")
 66. **Post-capture inline undo** — toast gets an Undo for 5 s on auto-save. ✓ (the capture toast's Discard routes to the 12 s undo-trash — "undo the save" and Z undoes the discard)
 67. **Auto-scroll to options** — when Record selected, scroll options card into view. ✓ (pressing Record opens the collapsed Options header that frame via `.open(Some(true))` — audio/display knobs visible before arming)
@@ -414,7 +414,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 71. **Multi-shot batch** — hold modifier + click regions repeatedly = rapid sequence of stills.
 72. **Time-lapse mode** — capture frame every N sec into a video (stills → mp4).
 73. **Scheduled capture** — "in 10 min, grab this window" for meetings.
-74. **Clipboard watcher mode** — studio stays parked; a shot auto-opens Still review.
+74. **Clipboard watcher mode** — studio stays parked; a shot auto-opens Still review. ✓ (opt-in Settings switch; 800 ms GetClipboardSequenceNumber poll → arboard get_image → saves PNG + opens Still; own captures excluded by refreshing seq after every set_image; Windows-only)
 75. **Capture sound per action** — distinct subtle tones for still/record-start/record-stop. ✓ (`record_tone(start)` — rising 620→980 Hz chirp on start, falling on stop, synthesized WAV like the shutter click; same opt-in switch)
 
 ## D · Region & window pick HUD (76–100)
@@ -532,7 +532,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 168. **Recently deleted** — undo_trash surfaced as a shelf with restore. ✓ (same as round-2 #84)
 169. **Open-with menu** — per item, system default vs pick app. ✓ (same as round-2 #82)
 170. **Thumbnail repair** — regenerate missing/failed thumbs in background. ✓ (same as round-2 #81)
-171. **Sidecar hygiene** — extend denylist; sweep stale `frames_temp`, `.clean.mp4`, `.ffmpeg.log`.
+171. **Sidecar hygiene** — extend denylist; sweep stale `frames_temp`, `.clean.mp4`, `.ffmpeg.log`. ✓ (`sweep_stale_sidecars` on a 10-min cadence; only entries idle >1 h removed so a live record's log is safe)
 172. **GIF↔clip routing** — GIFs offer both "trim as clip" and "still frame". ✓ ("Trim as clip" in the context menu; Open still routes GIFs to the Still editor)
 173. **Reveal-in-folder on tile** — hover icon opens Explorer with file selected. ✓ (↗ ghost button, thumb top-right)
 174. **Selection count bar** — floating action bar appears when ≥1 selected. ✓ (was already shipped)

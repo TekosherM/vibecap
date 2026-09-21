@@ -2,6 +2,8 @@
 
 use egui::{Key, RichText, ScrollArea, Sense, TextEdit, Vec2};
 
+use crate::app::library::{MediaCategory, MediaItem};
+
 use super::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,6 +26,9 @@ pub enum PaletteAction {
     BugReport,
     OpenPaletteHelp,
     QuitApp,
+    /// Jump to a media item's review stage — index into the `media` slice
+    /// passed to `show_palette`.
+    OpenMedia(usize),
 }
 
 impl PaletteAction {
@@ -93,6 +98,22 @@ impl PaletteAction {
             ),
         ]
     }
+
+    /// Right-aligned kbd hint shown on the row — mirrors the real binding.
+    pub fn shortcut(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Screenshot => "S",
+            Self::ToggleRecord => "R",
+            Self::CopyLastPath => "Ctrl+C",
+            Self::GoShutter => "Ctrl+1",
+            Self::GoMedia => "Ctrl+2",
+            Self::GoReview => "Ctrl+3",
+            Self::GoInbox => "Ctrl+I",
+            Self::GoSettings => "Ctrl+5",
+            Self::OpenPaletteHelp => "?",
+            _ => return None,
+        })
+    }
 }
 
 /// Subsequence fuzzy score — higher is better. Word-start and consecutive
@@ -121,50 +142,76 @@ fn fuzzy_score(q: &str, text: &str) -> Option<i32> {
 
 /// Modal command palette. Returns selected action when user confirms.
 /// `mru` lists recently-run actions — surfaced as a Recent group when the
-/// query is empty.
+/// query is empty. `media` is the library list — recent captures render as
+/// their own group when idle, and filenames fuzzy-match the query (#45/#66).
 pub fn show_palette(
     ctx: &egui::Context,
     query: &mut String,
     selected: &mut usize,
     open: &mut bool,
     mru: &[PaletteAction],
+    media: &[MediaItem],
 ) -> Option<PaletteAction> {
     if !*open {
         return None;
     }
 
+    // Row kind: 0 = action, 1 = MRU action, 2 = media item.
     let mut chosen = None;
     let q = query.trim().to_lowercase();
-    let filtered: Vec<_> = if q.is_empty() {
-        // MRU first (deduped, in recency order), then the rest.
-        let mut v: Vec<(PaletteAction, &'static str, &'static str, bool)> = Vec::new();
+    let media_hint = |m: &MediaItem| {
+        format!(
+            "{} — opens review · copies path",
+            match m.category {
+                MediaCategory::Video | MediaCategory::Gif => "clip",
+                MediaCategory::Audio => "audio",
+                _ => "still",
+            }
+        )
+    };
+    let filtered: Vec<(PaletteAction, String, String, u8)> = if q.is_empty() {
+        // MRU first (deduped, in recency order), then recent captures,
+        // then the rest of the verbs.
+        let mut v: Vec<(PaletteAction, String, String, u8)> = Vec::new();
         for &a in mru.iter().take(3) {
             if let Some(&(_, l, h)) = PaletteAction::all().iter().find(|(x, _, _)| *x == a) {
-                v.push((a, l, h, true));
+                v.push((a, l.to_string(), h.to_string(), 1));
             }
+        }
+        for (i, m) in media.iter().take(10).enumerate() {
+            v.push((
+                PaletteAction::OpenMedia(i),
+                m.name.clone(),
+                media_hint(m),
+                2,
+            ));
         }
         for &(a, l, h) in PaletteAction::all() {
             if !mru.iter().take(3).any(|m| *m == a) {
-                v.push((a, l, h, false));
+                v.push((a, l.to_string(), h.to_string(), 0));
             }
         }
         v
     } else {
         // Fuzzy: label match beats hint match; sort by score.
-        let mut scored: Vec<(i32, (PaletteAction, &'static str, &'static str, bool))> =
+        let mut scored: Vec<(i32, (PaletteAction, String, String, u8))> =
             PaletteAction::all()
                 .iter()
                 .filter_map(|&(a, l, h)| {
                     let s = fuzzy_score(&q, l)
                         .map(|s| s + 20)
                         .or_else(|| fuzzy_score(&q, h))?;
-                    Some((s, (a, l, h, false)))
+                    Some((s, (a, l.to_string(), h.to_string(), 0)))
                 })
                 .collect();
+        for (i, m) in media.iter().enumerate() {
+            if let Some(s) = fuzzy_score(&q, &m.name) {
+                scored.push((s + 5, (PaletteAction::OpenMedia(i), m.name.clone(), media_hint(m), 2)));
+            }
+        }
         scored.sort_by(|a, b| b.0.cmp(&a.0));
         scored.into_iter().map(|(_, x)| x).collect()
     };
-    let filtered: Vec<(PaletteAction, &'static str, &'static str, bool)> = filtered;
 
     if *selected >= filtered.len() && !filtered.is_empty() {
         *selected = 0;
@@ -221,10 +268,14 @@ pub fn show_palette(
                             );
                             return;
                         }
-                        for (i, (action, label, hint, is_mru)) in filtered.iter().enumerate() {
-                            // "Recent" divider above the first MRU row.
-                            if *is_mru && (i == 0 || !filtered[i - 1].3) {
-                                theme::caps_label(ui, "Recent");
+                        for (i, (action, label, hint, kind)) in filtered.iter().enumerate() {
+                            // Group dividers above the first row of each kind.
+                            let prev = i.checked_sub(1).map(|p| filtered[p].3);
+                            if *kind != 0 && prev != Some(*kind) {
+                                theme::caps_label(
+                                    ui,
+                                    if *kind == 1 { "Recent" } else { "Captures" },
+                                );
                             }
                             let sel = i == *selected;
                             let fill = if sel {
@@ -239,8 +290,15 @@ pub fn show_palette(
                                 .show(ui, |ui| {
                                     ui.set_min_width(400.0);
                                     ui.horizontal(|ui| {
+                                        if *kind == 2 {
+                                            ui.label(
+                                                RichText::new("🖼")
+                                                    .size(11.0)
+                                                    .color(theme::TEXT_DIM()),
+                                            );
+                                        }
                                         ui.label(
-                                            RichText::new(*label)
+                                            RichText::new(label.as_str())
                                                 .color(if sel {
                                                     theme::TEXT()
                                                 } else {
@@ -251,8 +309,16 @@ pub fn show_palette(
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
+                                                if let Some(kbd) = action.shortcut() {
+                                                    ui.label(
+                                                        RichText::new(kbd)
+                                                            .size(10.0)
+                                                            .color(theme::ACCENT())
+                                                            .monospace(),
+                                                    );
+                                                }
                                                 ui.label(
-                                                    RichText::new(*hint)
+                                                    RichText::new(hint.as_str())
                                                         .size(11.0)
                                                         .color(theme::TEXT_DIM()),
                                                 );

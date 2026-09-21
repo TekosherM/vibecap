@@ -184,6 +184,17 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                #[cfg(target_os = "windows")]
+                if switch(ui, "Clipboard watcher", &mut app.clipboard_watcher) {
+                    app.clipboard_seq_seen = crate::platform::clipboard_seq();
+                    app.persist_session();
+                }
+                #[cfg(target_os = "windows")]
+                ui.label(
+                    RichText::new("A fresh image copied anywhere opens in Still — even while parked.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
                 if switch(ui, "Inbox quiet mode", &mut app.inbox_quiet) {
                     app.persist_session();
                 }
@@ -291,6 +302,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.auto_dead_air = false;
                     app.filmstrip_low_res = false;
                     app.inbox_quiet = false;
+                    app.clipboard_watcher = false;
                     app.record_countdown_secs = 0;
                     app.region_dim = 110;
                     app.persist_session();

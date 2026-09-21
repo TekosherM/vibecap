@@ -430,6 +430,41 @@ pub fn clean_reclaimable(save_dir: &Path) -> u64 {
     freed
 }
 
+/// E171 — sweep orphaned sidecars from the media root: `*.ffmpeg.log` and
+/// `*.clean.mp4` left by a crashed record, plus `frames_temp*` dirs. Only
+/// entries idle for >1 h are touched, so an in-flight record's live log is
+/// never removed. Returns files+dirs removed.
+pub fn sweep_stale_sidecars(save_dir: &Path) -> usize {
+    let stale = std::time::Duration::from_secs(3600);
+    let now = std::time::SystemTime::now();
+    let idle = |p: &Path| {
+        std::fs::metadata(p)
+            .and_then(|m| m.modified())
+            .map(|t| now.duration_since(t).unwrap_or_default() > stale)
+            .unwrap_or(false)
+    };
+    let mut removed = 0usize;
+    if let Ok(rd) = std::fs::read_dir(save_dir) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_file()
+                && (name.ends_with(".ffmpeg.log") || name.ends_with(".clean.mp4"))
+                && idle(&path)
+            {
+                if std::fs::remove_file(&path).is_ok() {
+                    removed += 1;
+                }
+            } else if path.is_dir() && name.contains("frames_temp") && idle(&path) {
+                if std::fs::remove_dir_all(&path).is_ok() {
+                    removed += 1;
+                }
+            }
+        }
+    }
+    removed
+}
+
 /// E250 — one watch-folder sweep: move settled media files (mtime ≥2 s so
 /// in-flight copies aren't grabbed mid-write) into `media`, `_N`-suffixed
 /// on collision. Pure filesystem — safe from the pump thread while parked.

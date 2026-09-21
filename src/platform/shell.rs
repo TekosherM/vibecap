@@ -865,6 +865,19 @@ pub fn foreground_is_menu() -> bool {
     }
 }
 
+/// E74 — clipboard change counter (0 on platforms without one — the
+/// watcher compares successive values, so a constant 0 disables it).
+pub fn clipboard_seq() -> u32 {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::clipboard_seq()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        0
+    }
+}
+
 /// E62 — battery state: `Some(true)` on battery, `Some(false)` on AC,
 /// `None` when the OS can't say (desktops without a battery report AC).
 pub fn on_battery() -> Option<bool> {

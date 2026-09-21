@@ -378,3 +378,20 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #49: "Reopen where I left off" switch gates session tab restore.
 - Verified shipped: #34 (min_inner_size 760x560), #47 (native titlebar + REC-bar StartDrag).
 - 102/102 tests.
+
+### Palette media + double-press region + clipboard watcher + sidecar sweep
+- #44: palette rows show the real binding as an accent kbd chip (shortcut()).
+- #45/#66: OpenMedia rows — last 10 captures as a Captures group when idle,
+  fuzzy filename match when typing; Enter opens Still/Clip + copies the path.
+  Media rows never join the MRU (index is positional).
+- #64: double-press the screenshot hotkey within 600 ms -> region pick with
+  last settings; mid-flight presses arm region_after_still (consumed in
+  finish_screenshot after the studio restores).
+- #74: opt-in Clipboard watcher (Windows) - 800 ms GetClipboardSequenceNumber
+  poll, arboard get_image on change, saves PNG + opens Still; our own
+  set_image calls refresh clipboard_seq_seen so captures don't echo.
+- #171: sweep_stale_sidecars on a 10-min cadence - root *.ffmpeg.log,
+  *.clean.mp4, frames_temp* dirs idle >1h (live record writes stay safe).
+- #58: cursor/mic/display icon quick-toggles on the always-visible options row.
+- Verified shipped: #24 (match_score exact-first + GetForegroundWindow verify),
+  #33 (naming tokens + live preview).

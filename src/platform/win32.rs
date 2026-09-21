@@ -291,6 +291,13 @@ extern "system" {
         flags: u32,
     ) -> i32;
     fn SetProcessDPIAware() -> i32;
+    fn GetClipboardSequenceNumber() -> u32;
+}
+
+/// Clipboard change counter — bumps on any clipboard write, so a watcher can
+/// detect a fresh image without touching OLE every poll.
+pub fn clipboard_seq() -> u32 {
+    unsafe { GetClipboardSequenceNumber() }
 }
 
 #[link(name = "gdi32")]

@@ -908,6 +908,21 @@ pub(crate) struct VibecapApp {
     hotkey_prtscn_prev: bool,
     /// E202 — subtle click when a still lands; session-backed, off default.
     shutter_sound: bool,
+    /// E64 — last screenshot-hotkey press; a second tap inside 600 ms opens
+    /// the region picker instead of a second fullscreen shot.
+    last_shot_hk_at: Option<Instant>,
+    /// E64 — second tap landed while a still was in flight: open the picker
+    /// as soon as `finish_screenshot` restores the studio.
+    region_after_still: bool,
+    /// E74 — clipboard watcher (session-backed, off default): a fresh image
+    /// on the system clipboard opens Still review.
+    clipboard_watcher: bool,
+    /// Last observed clipboard sequence; we refresh it after our own writes
+    /// so a capture we copied doesn't bounce back through the watcher.
+    clipboard_seq_seen: u32,
+    clipboard_poll_at: Option<Instant>,
+    /// E171 — throttle for the stale-sidecar sweep (10 min cadence).
+    last_sidecar_sweep: Option<Instant>,
     region_snap_path: Option<PathBuf>,
     region_snap_rx: Option<Receiver<Result<(PathBuf, u32, u32, Vec<u8>), String>>>,
     brand_logo: Option<egui::TextureHandle>,
@@ -1154,6 +1169,12 @@ impl VibecapApp {
             hotkey_prtscn: false,
             hotkey_prtscn_prev: false,
             shutter_sound: false,
+            last_shot_hk_at: None,
+            region_after_still: false,
+            clipboard_watcher: false,
+            clipboard_seq_seen: crate::platform::clipboard_seq(),
+            clipboard_poll_at: None,
+            last_sidecar_sweep: None,
             region_history: Vec::new(),
             region_pick_count: 0,
             hud_toolbar_bottom: false,
@@ -1545,6 +1566,10 @@ impl VibecapApp {
         self.hotkey_pause_digit = s.hotkey_pause_digit.filter(|d| *d <= 9);
         self.hotkey_prtscn = s.hotkey_prtscn;
         self.shutter_sound = s.shutter_sound;
+        self.clipboard_watcher = s.clipboard_watcher;
+        if self.clipboard_watcher {
+            self.clipboard_seq_seen = crate::platform::clipboard_seq();
+        }
         self.screen_permission_prompted = s.screen_permission_prompted;
         self.screen_permission_ok = s.screen_permission_ok;
         self.rail_open = s.rail_open;
@@ -1641,6 +1666,7 @@ impl VibecapApp {
             hotkey_pause_digit: self.hotkey_pause_digit,
             hotkey_prtscn: self.hotkey_prtscn,
             shutter_sound: self.shutter_sound,
+            clipboard_watcher: self.clipboard_watcher,
             screen_permission_prompted: self.screen_permission_prompted,
             screen_permission_ok: self.screen_permission_ok,
             rail_open: self.rail_open,
@@ -2046,6 +2072,7 @@ impl VibecapApp {
                 bytes: std::borrow::Cow::Borrowed(rgba.as_raw()),
             };
             if board.set_image(img_data).is_ok() {
+                self.clipboard_seq_seen = crate::platform::clipboard_seq();
                 self.show_toast("📋 Image copied to system clipboard!");
             } else {
                 self.show_toast("❌ Clipboard copy failed");
@@ -2443,9 +2470,13 @@ impl VibecapApp {
     }
 
     fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
-        self.palette_mru.retain(|a| *a != action);
-        self.palette_mru.insert(0, action);
-        self.palette_mru.truncate(3);
+        // Media rows are positional — the index is only meaningful for the
+        // list that rendered them, so they never join the MRU.
+        if !matches!(action, PaletteAction::OpenMedia(_)) {
+            self.palette_mru.retain(|a| *a != action);
+            self.palette_mru.insert(0, action);
+            self.palette_mru.truncate(3);
+        }
         match action {
             PaletteAction::GoShutter => self.current_tab = AppTab::Capture,
             PaletteAction::GoMedia => self.current_tab = AppTab::Library,
@@ -2532,6 +2563,29 @@ impl VibecapApp {
             }
             PaletteAction::QuitApp => {
                 self.quit_app();
+            }
+            PaletteAction::OpenMedia(i) => {
+                if let Some(item) = self.library_items.get(i) {
+                    let p = item.path.clone();
+                    let is_video = matches!(
+                        item.category,
+                        MediaCategory::Video | MediaCategory::Gif
+                    );
+                    let copied = arboard::Clipboard::new()
+                        .and_then(|mut b| b.set_text(p.display().to_string()))
+                        .is_ok();
+                    if is_video {
+                        self.edit_file = Some(p);
+                        self.current_tab = AppTab::Clip;
+                    } else {
+                        self.open_still_from_path(p);
+                    }
+                    self.show_toast(if copied {
+                        "Opened · path copied"
+                    } else {
+                        "Opened"
+                    });
+                }
             }
         }
         self.persist_session();
@@ -2725,6 +2779,7 @@ impl VibecapApp {
                         })
                         .is_ok()
                     {
+                        self.clipboard_seq_seen = crate::platform::clipboard_seq();
                         self.show_toast("📋 Original copied (no markup)");
                     } else {
                         self.show_toast("❌ Could not copy the image");
@@ -4334,6 +4389,7 @@ impl VibecapApp {
                     bytes: std::borrow::Cow::Borrowed(rgba.as_raw()),
                 };
                 if board.set_image(img_data).is_ok() {
+                    self.clipboard_seq_seen = crate::platform::clipboard_seq();
                     self.show_toast("📋 Image copied to system clipboard!");
                     return true;
                 }
@@ -5803,6 +5859,13 @@ impl VibecapApp {
                 }
             }
         }
+        // E64 — a hotkey double-tap during this shot asked for the picker.
+        if self.region_after_still {
+            self.region_after_still = false;
+            if !self.is_annotating && !self.is_selecting_region {
+                self.start_region_pick(ctx, RegionPickKind::Screenshot);
+            }
+        }
     }
 
     /// Disk marker wins over a missed channel — call early every frame.
@@ -5898,6 +5961,78 @@ impl VibecapApp {
             self.show_toast(format!(
                 "⚠ Watch folder: {failed} file(s) could not be moved"
             ));
+        }
+    }
+
+    /// E74 — clipboard watcher: while enabled, a *new* image on the system
+    /// clipboard is saved to media and opened in Still. The sequence counter
+    /// keeps each poll to one user32 read; `clipboard_seq_seen` is refreshed
+    /// after our own `set_image` calls so captures don't echo back in.
+    fn tick_clipboard_watcher(&mut self, ctx: &egui::Context) {
+        if !self.clipboard_watcher
+            || self.is_annotating
+            || self.is_selecting_region
+            || self.screenshot_in_flight
+            || self.region_snap_rx.is_some()
+            || self.is_recording
+            || self.recording_arming
+        {
+            return;
+        }
+        let now = Instant::now();
+        if self
+            .clipboard_poll_at
+            .map(|t| now.duration_since(t) < Duration::from_millis(800))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.clipboard_poll_at = Some(now);
+        let seq = crate::platform::clipboard_seq();
+        if seq == 0 || seq == self.clipboard_seq_seen {
+            return;
+        }
+        self.clipboard_seq_seen = seq;
+        let Ok(mut board) = arboard::Clipboard::new() else {
+            return;
+        };
+        let Ok(img) = board.get_image() else {
+            return;
+        };
+        let Some(rgba) =
+            image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.to_vec())
+        else {
+            return;
+        };
+        let seq_n = app::naming::next_seq(&self.save_dir, "");
+        let stem = app::format_capture_stem(&self.name_pattern, Some("clipboard"), seq_n);
+        let path = self.save_dir.join(format!("{stem}.png"));
+        if image::DynamicImage::ImageRgba8(rgba).save(&path).is_err() {
+            self.show_toast("❌ Clipboard image could not be saved");
+            return;
+        }
+        self.refresh_library();
+        self.last_capture = Some(LastCapture::Still(path.clone()));
+        self.show_window(ctx);
+        self.open_still_from_path(path);
+        self.show_toast("📋 Clipboard image opened in Still");
+    }
+
+    /// E171 — stale `.ffmpeg.log` / `.clean.mp4` / `frames_temp*` orphans,
+    /// swept on a 10-minute cadence (idle >1 h inside, live writes safe).
+    fn tick_sidecar_sweep(&mut self) {
+        let now = Instant::now();
+        if self
+            .last_sidecar_sweep
+            .map(|t| now.duration_since(t) < Duration::from_secs(600))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.last_sidecar_sweep = Some(now);
+        let removed = crate::app::library::sweep_stale_sidecars(&self.save_dir);
+        if removed > 0 {
+            self.refresh_library();
         }
     }
 
@@ -6467,6 +6602,11 @@ impl eframe::App for VibecapApp {
         }
         // E225 — OS dark-mode follow (3 s registry poll inside).
         self.tick_os_theme(ctx);
+        // E74 — clipboard watcher (800 ms seq poll inside; the copy cost is
+        // one user32 read until a change actually lands).
+        self.tick_clipboard_watcher(ctx);
+        // E171 — stale sidecar sweep (10 min cadence inside).
+        self.tick_sidecar_sweep();
         // E159 — hover-scrub strip results land as textures.
         self.drain_scrub(ctx);
 
@@ -7122,7 +7262,21 @@ impl eframe::App for VibecapApp {
             }
         }
         for _ in 0..hotkey_shots {
-            self.trigger_capture(ctx, true);
+            // E64 — second tap inside 600 ms means "I wanted a region":
+            // mid-flight it arms the picker to open on restore; between
+            // shots it jumps straight into the pick with last settings.
+            let recent = self
+                .last_shot_hk_at
+                .map(|t| t.elapsed() < Duration::from_millis(600))
+                .unwrap_or(false);
+            self.last_shot_hk_at = Some(Instant::now());
+            if !recent {
+                self.trigger_capture(ctx, true);
+            } else if self.screenshot_in_flight || self.region_snap_rx.is_some() {
+                self.region_after_still = true;
+            } else if !self.is_selecting_region {
+                self.start_region_pick(ctx, RegionPickKind::Screenshot);
+            }
         }
         for _ in 0..hotkey_recs {
             if self.is_recording {
@@ -7286,6 +7440,7 @@ impl eframe::App for VibecapApp {
             &mut self.palette_selected,
             &mut self.palette_open,
             &self.palette_mru,
+            &self.library_items,
         ) {
             self.run_palette_action(ctx, action);
         }

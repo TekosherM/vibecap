@@ -70,6 +70,9 @@ pub struct SessionState {
     /// E202 — subtle click when a still lands; off by default.
     #[serde(default)]
     pub shutter_sound: bool,
+    /// E74 — watch the system clipboard; a fresh image opens Still review.
+    #[serde(default)]
+    pub clipboard_watcher: bool,
     /// E95 — lifetime completed region picks; first-run HUD hints hide at 3.
     #[serde(default)]
     pub region_pick_count: u32,
@@ -247,6 +250,7 @@ impl Default for SessionState {
             hotkey_pause_digit: None,
             hotkey_prtscn: false,
             shutter_sound: false,
+            clipboard_watcher: false,
             region_pick_count: 0,
             hud_toolbar_bottom: false,
             screen_permission_prompted: false,

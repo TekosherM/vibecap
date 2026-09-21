@@ -404,6 +404,38 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             if switch(ui, "Silent — no toasts/flash", &mut silent) {
                                 app.silent_mode = silent;
                             }
+                            // E58 — icon quick-toggles so cursor/mic/display
+                            // don't hide inside the collapsed Options card.
+                            ui.add_space(theme::SP_3);
+                            if ui
+                                .selectable_label(app.draw_mouse, "🖱")
+                                .on_hover_text("Draw cursor on stills")
+                                .clicked()
+                            {
+                                app.draw_mouse = !app.draw_mouse;
+                                app.persist_session();
+                            }
+                            if ui
+                                .selectable_label(app.capture_audio, "🎙")
+                                .on_hover_text("Include audio in recordings")
+                                .clicked()
+                            {
+                                app.capture_audio = !app.capture_audio;
+                                app.persist_session();
+                            }
+                            let monitors = crate::platform::list_monitors();
+                            if monitors.len() > 1 {
+                                let cur = app.capture_monitor.unwrap_or(0);
+                                if ui
+                                    .selectable_label(false, format!("🖥{}", cur + 1))
+                                    .on_hover_text("Capture display — click to cycle")
+                                    .clicked()
+                                {
+                                    app.capture_monitor =
+                                        Some((cur + 1) % monitors.len() as u32);
+                                    app.persist_session();
+                                }
+                            }
                         });
 
                         ui.add_space(theme::SP_4);
