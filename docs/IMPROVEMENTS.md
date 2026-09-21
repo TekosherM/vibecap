@@ -603,7 +603,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old. ✓ (backdrop+snap now survive overlay exit; `region_backdrop_at` <2 s + file exists → instant reopen, no grab)
 231. **DPI-aware texture cache** — don't re-rasterize icons on scale change storms.
 232. **Font load once** — semibold/bold loads measured; cache family lookups.
-233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change.
+233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change. ✓ (the repaint gate was keyed on `tray.is_some()` → 10 fps forever once the tray existed; now the 100 ms cadence only runs for real in-flight work, retro buffer ticks at 500 ms, live toasts get a 1 s expiry tick, and the pump's slow lane schedules frames for poke markers / watch-folder / OS-theme polls)
 234. **Recording finalize off-thread** — shipped for stop; extend to remux/GIF queue.
 235. **GIF encode queue** — background worker with progress, not a stop-blocking transcode.
 236. **Startup time budget** — cold launch → interactive <800 ms; measure and track.
@@ -620,7 +620,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 247. **Binary size audit** — strip symbols, LTO release; target <15 MB installed. ✓ (release profile: `lto = "thin"` + `strip = true`; CGU=1 left off for iteration speed)
 248. **Cold-start no-network** — update check must never block first paint.
 249. **Large-file still guard** — >25 MP stills decode at half-res for canvas, full-res on export.
-250. **Idle CPU zero** — hidden/tray app should sit at 0 % CPU, verified in CI.
+250. **Idle CPU zero** — hidden/tray app should sit at 0 % CPU, verified in CI. ✓ mechanics (parked-side work moved to the pump thread: `watch_sweep` extracted to a pure fs fn the pump calls directly when `parked` — files import silently, `watch_moved` count is consumed on next wake → refresh + toast; `pending_cmd_waiting` stat each 250 ms slice wakes the studio for CLI pokes even while parked — previously dead until a repaint; `follow_os`/`watch_dir` mirrored into `WakeShared`; tick_watch_folder skips while parked so the two sweepers can't race). CI verification still open — needs an idle-CPU probe harness.
 
 ## K · Reliability, diagnostics & telemetry (251–275)
 

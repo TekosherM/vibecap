@@ -430,6 +430,95 @@ pub fn clean_reclaimable(save_dir: &Path) -> u64 {
     freed
 }
 
+/// E250 — one watch-folder sweep: move settled media files (mtime ≥2 s so
+/// in-flight copies aren't grabbed mid-write) into `media`, `_N`-suffixed
+/// on collision. Pure filesystem — safe from the pump thread while parked.
+/// Returns `(moved, failed)`.
+pub fn watch_sweep(watch: &Path, media: &Path) -> (usize, usize) {
+    let mut moved = 0usize;
+    let mut failed = 0usize;
+    let Ok(rd) = std::fs::read_dir(watch) else {
+        return (0, 0);
+    };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_media = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| {
+                matches!(
+                    e.to_ascii_lowercase().as_str(),
+                    "jpg"
+                        | "jpeg"
+                        | "png"
+                        | "gif"
+                        | "webp"
+                        | "mp4"
+                        | "mov"
+                        | "webm"
+                        | "mkv"
+                        | "m4a"
+                        | "wav"
+                        | "mp3"
+                )
+            })
+            .unwrap_or(false);
+        if !is_media {
+            continue;
+        }
+        let settled = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|t| {
+                std::time::SystemTime::now()
+                    .duration_since(t)
+                    .map(|d| d.as_secs() >= 2)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(true);
+        if !settled {
+            continue;
+        }
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        let mut dest = media.join(&name);
+        if dest.exists() {
+            let stem = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "import".into());
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let mut n = 2u32;
+            loop {
+                dest = media.join(format!("{stem}_{n}.{ext}"));
+                if !dest.exists() {
+                    break;
+                }
+                n += 1;
+                if n > 999 {
+                    break;
+                }
+            }
+        }
+        let ok = std::fs::rename(&path, &dest)
+            .or_else(|_| std::fs::copy(&path, &dest).and_then(|_| std::fs::remove_file(&path)))
+            .is_ok();
+        if ok {
+            moved += 1;
+        } else {
+            failed += 1;
+        }
+    }
+    (moved, failed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,5 +635,41 @@ mod tests {
         assert_eq!(reclaimable_bytes(&dir), 0);
         assert!(dir.join("shot.png").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// E211/E250 — the sweep moves settled media, suffixes collisions, and
+    /// leaves non-media + fresh (in-flight) files alone.
+    #[test]
+    fn watch_sweep_moves_settled_media_only() {
+        let root =
+            std::env::temp_dir().join(format!("vibecap_watch_test_{}", std::process::id()));
+        let watch = root.join("watch");
+        let media = root.join("media");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&watch).unwrap();
+        std::fs::create_dir_all(&media).unwrap();
+
+        // Settled media file + a name-collision in media.
+        let settled = watch.join("old.png");
+        std::fs::write(&settled, b"img").unwrap();
+        // Backdate mtime so it counts as settled (File::set_modified, 1.75+).
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+        std::fs::File::options()
+            .write(true)
+            .open(&settled)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        std::fs::write(media.join("old.png"), b"existing").unwrap();
+
+        std::fs::write(watch.join("notes.exe"), b"no").unwrap(); // non-media
+        std::fs::write(watch.join("fresh.png"), b"new").unwrap(); // too fresh
+
+        let (moved, failed) = watch_sweep(&watch, &media);
+        assert_eq!((moved, failed), (1, 0));
+        assert!(media.join("old_2.png").exists()); // collision → _2 suffix
+        assert!(watch.join("notes.exe").exists()); // non-media stays
+        assert!(watch.join("fresh.png").exists()); // unsettled stays
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -60,6 +60,12 @@ fn pending_cmd_path() -> PathBuf {
     vibecap_config_dir().join("pending_cmd.txt")
 }
 
+/// E250 — marker-existence probe for the pump thread (it cannot call
+/// `take_pending_cmd` — that would consume the payload).
+pub fn pending_cmd_waiting() -> bool {
+    pending_cmd_path().exists()
+}
+
 /// `vibecap poke <cmd>` writes one word: show|hide|screenshot|record|stop.
 pub fn write_pending_cmd(cmd: &str) {
     let _ = std::fs::create_dir_all(vibecap_config_dir());

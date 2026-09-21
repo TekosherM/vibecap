@@ -216,6 +216,13 @@ struct WakeShared {
     /// (snap may proceed), 2 = give up waiting — snap anyway (overlay is
     /// closing or never appeared).
     region_overlay_state: AtomicU8,
+    /// E250 — watch-folder mirror so the pump can import while parked.
+    watch_dir: Mutex<Option<PathBuf>>,
+    /// E250 — follow-OS mirror: pump repaints on the 3 s theme-poll cadence.
+    follow_os: AtomicBool,
+    /// E250 — files the pump's parked-side watch sweep moved; update()
+    /// consumes the count → library refresh + toast.
+    watch_moved: std::sync::atomic::AtomicUsize,
 }
 
 impl WakeShared {
@@ -298,24 +305,80 @@ fn spawn_wake_pump(
     shared: Arc<WakeShared>,
     ctx: egui::Context,
 ) {
-    std::thread::spawn(move || loop {
-        match rx.recv_timeout(Duration::from_millis(250)) {
-            Ok(event) => {
-                if event.state != global_hotkey::HotKeyState::Pressed {
-                    // release events: ignore, but still drain tray below
-                } else if event.id == id_shot {
-                    pump_still_event(&shared, &ctx);
-                } else if event.id == id_rec {
-                    pump_event(&shared, &ctx, WakeEvent::RecordToggle);
-                } else if event.id == id_summon {
-                    pump_summon(&shared, &ctx);
+    std::thread::spawn(move || {
+        let mut last_slow = Instant::now() - Duration::from_secs(4);
+        loop {
+            match rx.recv_timeout(Duration::from_millis(250)) {
+                Ok(event) => {
+                    if event.state != global_hotkey::HotKeyState::Pressed {
+                        // release events: ignore, but still drain tray below
+                    } else if event.id == id_shot {
+                        pump_still_event(&shared, &ctx);
+                    } else if event.id == id_rec {
+                        pump_event(&shared, &ctx, WakeEvent::RecordToggle);
+                    } else if event.id == id_summon {
+                        pump_summon(&shared, &ctx);
+                    }
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+            }
+            drain_tray_channels(&shared, &ctx);
+            pump_housekeeping(&shared, &ctx, &mut last_slow);
+        }
+    });
+}
+
+/// E250 — slow-lane housekeeping for an event-driven idle app. `update()`
+/// only ticks when a repaint is requested now, so the pump's 250 ms slice
+/// watches the poke marker and, every 3 s, nudges the frame loop for the
+/// OS-theme follow + watch-folder poll. While parked the sweep runs here
+/// instead (a hidden window can't be trusted to tick) — imports land
+/// silently and the toast waits for the next wake.
+fn pump_housekeeping(shared: &Arc<WakeShared>, ctx: &egui::Context, last_slow: &mut Instant) {
+    let parked = shared.parked.load(Ordering::SeqCst);
+    // CLI poke marker: cheap stat each slice; a parked window must be
+    // restored for update() to consume it.
+    if app::pending_cmd_waiting() {
+        if parked {
+            pump_event(shared, ctx, WakeEvent::Show);
+        } else {
+            ctx.request_repaint();
+        }
+    }
+    if last_slow.elapsed() < Duration::from_secs(3) {
+        return;
+    }
+    *last_slow = Instant::now();
+    // OS-theme follow + watch-folder ticks only need a frame.
+    if shared.follow_os.load(Ordering::SeqCst) && !parked {
+        ctx.request_repaint();
+    }
+    let watch = shared
+        .watch_dir
+        .lock()
+        .ok()
+        .and_then(|w| w.as_ref().cloned());
+    if let Some(dir) = watch {
+        if parked {
+            // Hidden windows may not tick — sweep on this thread; the GUI
+            // picks up `watch_moved` + refreshes on its next frame.
+            let media = shared
+                .cfg
+                .lock()
+                .ok()
+                .and_then(|c| c.as_ref().map(|c| c.save_dir.clone()));
+            if let Some(media) = media {
+                let (moved, _) = crate::app::library::watch_sweep(&dir, &media);
+                if moved > 0 {
+                    shared.watch_moved.fetch_add(moved, Ordering::SeqCst);
+                    ctx.request_repaint();
                 }
             }
-            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+        } else {
+            ctx.request_repaint();
         }
-        drain_tray_channels(&shared, &ctx);
-    });
+    }
 }
 
 /// Should a queued event un-hide the HWND so `update()` can consume it?
@@ -5299,7 +5362,9 @@ impl VibecapApp {
     /// into the media dir and land in Library.
     fn tick_watch_folder(&mut self) {
         let dir = self.watch_folder.trim().to_string();
-        if dir.is_empty() {
+        // E250 — while parked the pump's slow lane owns the sweep; a tick
+        // here would race its renames and report false failures.
+        if dir.is_empty() || self.wake_shared.parked.load(Ordering::SeqCst) {
             return;
         }
         let now = std::time::Instant::now();
@@ -5311,94 +5376,8 @@ impl VibecapApp {
             return;
         }
         self.watch_last_scan = Some(now);
-        let dir = PathBuf::from(dir);
         let media = self.save_dir.clone();
-        let mut moved = 0usize;
-        let mut failed = 0usize;
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for entry in rd.flatten() {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-                let is_media = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| {
-                        matches!(
-                            e.to_ascii_lowercase().as_str(),
-                            "jpg"
-                                | "jpeg"
-                                | "png"
-                                | "gif"
-                                | "webp"
-                                | "mp4"
-                                | "mov"
-                                | "webm"
-                                | "mkv"
-                                | "m4a"
-                                | "wav"
-                                | "mp3"
-                        )
-                    })
-                    .unwrap_or(false);
-                if !is_media {
-                    continue;
-                }
-                // Skip files still being written (copied/dropped <2s ago).
-                let settled = entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .map(|t| {
-                        std::time::SystemTime::now()
-                            .duration_since(t)
-                            .map(|d| d.as_secs() >= 2)
-                            .unwrap_or(false)
-                    })
-                    .unwrap_or(true);
-                if !settled {
-                    continue;
-                }
-                let name = match path.file_name() {
-                    Some(n) => n.to_string_lossy().to_string(),
-                    None => continue,
-                };
-                // Unique destination: append _2, _3, … on collision.
-                let mut dest = media.join(&name);
-                if dest.exists() {
-                    let stem = path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "import".into());
-                    let ext = path
-                        .extension()
-                        .map(|e| e.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    let mut n = 2u32;
-                    loop {
-                        dest = media.join(format!("{stem}_{n}.{ext}"));
-                        if !dest.exists() {
-                            break;
-                        }
-                        n += 1;
-                        if n > 999 {
-                            break;
-                        }
-                    }
-                }
-                // Move = rename within a volume; copy+delete across volumes.
-                let ok = std::fs::rename(&path, &dest)
-                    .or_else(|_| {
-                        std::fs::copy(&path, &dest).and_then(|_| std::fs::remove_file(&path))
-                    })
-                    .is_ok();
-                if ok {
-                    moved += 1;
-                } else {
-                    failed += 1;
-                }
-            }
-        }
+        let (moved, failed) = crate::app::library::watch_sweep(&PathBuf::from(dir), &media);
         if moved > 0 {
             self.refresh_library();
             self.show_toast(format!(
@@ -5835,6 +5814,14 @@ impl eframe::App for VibecapApp {
                 delay_secs: self.capture_delay_secs,
             });
         }
+        // E250 — mirror the periodic-work flags the pump's slow lane needs.
+        if let Ok(mut w) = self.wake_shared.watch_dir.lock() {
+            let d = self.watch_folder.trim();
+            *w = (!d.is_empty()).then(|| PathBuf::from(d));
+        }
+        self.wake_shared
+            .follow_os
+            .store(self.theme_follow_os, Ordering::SeqCst);
         // Remember which Review editor was last used (rail Review returns here).
         if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
             self.last_review_tab = Some(self.current_tab);
@@ -5881,6 +5868,15 @@ impl eframe::App for VibecapApp {
         tray_ui::set_dblclick_is_open(self.tray_dblclick == "open");
         // E211 — watch-folder intake poll (3 s cadence inside).
         self.tick_watch_folder();
+        // E250 — files imported by the pump while the studio was parked.
+        let parked_moved = self.wake_shared.watch_moved.swap(0, Ordering::SeqCst);
+        if parked_moved > 0 {
+            self.refresh_library();
+            self.show_toast(format!(
+                "Watch folder imported {parked_moved} file{}",
+                if parked_moved == 1 { "" } else { "s" }
+            ));
+        }
         // E225 — OS dark-mode follow (3 s registry poll inside).
         self.tick_os_theme(ctx);
         // E159 — hover-scrub strip results land as textures.
@@ -6080,9 +6076,11 @@ impl eframe::App for VibecapApp {
         }
 
         self.sync_tray_recording_progress();
-        // Keep pumping while tray is up, capture is in flight, agents wait, etc.
-        if self.tray.is_some()
-            || self.is_recording
+        // E233/E250 — repaint on demand: the loop only needs a fast cadence
+        // while real work is in flight. The tray no longer forces a 10 fps
+        // tick — its channels are pumped on the wake thread, and the pump's
+        // slow lane nudges us for poke markers / watch-folder / OS theme.
+        if self.is_recording
             || self.recording_arming
             || self.recording_finalizing
             || self.record_finalize_rx.is_some()
@@ -6099,6 +6097,10 @@ impl eframe::App for VibecapApp {
             ctx.request_repaint_after(Duration::from_millis(100));
         } else if self.retro.config().enabled {
             ctx.request_repaint_after(Duration::from_millis(500));
+        } else if self.toast_message.is_some() || self.capture_toast.is_some() {
+            // A toast/capture card expires on a timer — one slow tick retires
+            // it; nothing else in the idle path needs a cadence.
+            ctx.request_repaint_after(Duration::from_secs(1));
         }
 
         #[cfg(debug_assertions)]
