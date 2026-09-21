@@ -158,10 +158,20 @@ pub struct SessionState {
     pub whats_new_tag: String,
     #[serde(default)]
     pub whats_new_notes: String,
+    /// E49 — restore the last stage on launch; off = always open Capture.
+    #[serde(default = "default_true")]
+    pub restore_tab: bool,
+    /// E33 — remembered window size per stage (tab key → [w, h]).
+    #[serde(default)]
+    pub window_sizes: std::collections::HashMap<String, [f32; 2]>,
 }
 
 fn default_theme_dark() -> String {
     "dark".into()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_name_pattern() -> String {
@@ -264,6 +274,8 @@ impl Default for SessionState {
             theme_dark_pick: default_theme_dark(),
             whats_new_tag: String::new(),
             whats_new_notes: String::new(),
+            restore_tab: true,
+            window_sizes: std::collections::HashMap::new(),
         }
     }
 }

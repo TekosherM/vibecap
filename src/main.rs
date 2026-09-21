@@ -87,6 +87,18 @@ impl AppTab {
         }
     }
 
+    /// Session/palette key for the stage — stable across renames.
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::Capture => "capture",
+            Self::Library => "library",
+            Self::Clip => "clip",
+            Self::Still => "still",
+            Self::Feedback => "feedback",
+            Self::Settings => "settings",
+        }
+    }
+
     pub(crate) fn title(self) -> &'static str {
         match self {
             Self::Capture => "Capture",
@@ -923,6 +935,10 @@ pub(crate) struct VibecapApp {
     /// E292 — tag/notes of the just-applied update; cleared when dismissed.
     whats_new_tag: String,
     whats_new_notes: String,
+    /// E49 — off = always open on Capture; on = resume the last stage.
+    restore_tab: bool,
+    /// E33 — remembered window size per stage.
+    window_sizes: std::collections::HashMap<String, [f32; 2]>,
     /// Recently-run palette actions (most recent first, max 3).
     palette_mru: Vec<PaletteAction>,
     density: Density,
@@ -1222,6 +1238,8 @@ impl VibecapApp {
             settings_filter: String::new(),
             whats_new_tag: String::new(),
             whats_new_notes: String::new(),
+            restore_tab: true,
+            window_sizes: std::collections::HashMap::new(),
             density: Density::Comfortable,
             undo_trash: None,
             capture_toast: None,
@@ -1438,14 +1456,21 @@ impl VibecapApp {
         } else if !s.library_filter.is_empty() {
             self.library_filter = "All".into();
         }
-        self.current_tab = match s.tab.as_str() {
-            "library" | "media" => AppTab::Library,
-            "edit" | "studio" | "clip" => AppTab::Clip,
-            "still" | "image" | "review" => AppTab::Still,
-            "feedback" | "inbox" => AppTab::Feedback,
-            "settings" => AppTab::Settings,
-            _ => AppTab::Capture,
+        // E49 — "always Capture" ignores the saved stage.
+        self.restore_tab = s.restore_tab;
+        self.current_tab = if s.restore_tab {
+            match s.tab.as_str() {
+                "library" | "media" => AppTab::Library,
+                "edit" | "studio" | "clip" => AppTab::Clip,
+                "still" | "image" | "review" => AppTab::Still,
+                "feedback" | "inbox" => AppTab::Feedback,
+                "settings" => AppTab::Settings,
+                _ => AppTab::Capture,
+            }
+        } else {
+            AppTab::Capture
         };
+        self.window_sizes = s.window_sizes;
         if let Some(p) = s.edit_file {
             let path = PathBuf::from(p);
             if path.exists() {
@@ -1643,6 +1668,8 @@ impl VibecapApp {
             theme_dark_pick: self.theme_dark_pick.clone(),
             whats_new_tag: self.whats_new_tag.clone(),
             whats_new_notes: self.whats_new_notes.clone(),
+            restore_tab: self.restore_tab,
+            window_sizes: self.window_sizes.clone(),
         }
     }
 
@@ -6378,6 +6405,27 @@ impl eframe::App for VibecapApp {
                 self.tab_back.remove(0);
             }
             self.tab_fwd.clear();
+            // E33 — window-size memory per stage: stash the size we had on
+            // the stage we're leaving, restore the remembered one (if any)
+            // for the stage we're entering. Ignore park/restore leftovers.
+            if self.pre_capture_outer.is_none()
+                && self.window_size.x >= 640.0
+                && self.window_size.y >= 400.0
+            {
+                self.window_sizes.insert(
+                    self.prev_tab.key().to_string(),
+                    [self.window_size.x, self.window_size.y],
+                );
+                if let Some(&[w, h]) = self.window_sizes.get(self.current_tab.key()) {
+                    if (w - self.window_size.x).abs() > 20.0
+                        || (h - self.window_size.y).abs() > 20.0
+                    {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(
+                            w, h,
+                        )));
+                    }
+                }
+            }
             self.prev_tab = self.current_tab;
         }
         // Track window size for session restore (skip park / tiny restore leftovers).
@@ -7291,7 +7339,16 @@ impl eframe::App for VibecapApp {
                         if theme::is_celestial() {
                             theme::paint_celestial_sky(ui.painter(), ui.clip_rect());
                         }
-                        status_strip(ui, &snap, self.current_tab != AppTab::Capture);
+                        // E37 — strip segments are jump links.
+                        match status_strip(ui, &snap, self.current_tab != AppTab::Capture) {
+                            Some(ui::StatusJump::Library) => self.current_tab = AppTab::Library,
+                            Some(ui::StatusJump::Settings) => self.current_tab = AppTab::Settings,
+                            Some(ui::StatusJump::Inbox) => {
+                                self.current_tab = AppTab::Feedback;
+                                self.scan_feedback_requests();
+                            }
+                            None => {}
+                        }
                     });
             }
         }
@@ -7338,12 +7395,45 @@ impl eframe::App for VibecapApp {
                         theme::PRIMARY_INK(),
                     );
                     ui.vertical(|ui| {
+                        // E40 — the title names the thing you're working on,
+                        // not just the stage.
+                        let file_name = |p: &PathBuf| {
+                            p.file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default()
+                        };
+                        let title: String = match self.current_tab {
+                            AppTab::Clip => self
+                                .edit_file
+                                .as_ref()
+                                .map(file_name)
+                                .filter(|n| !n.is_empty())
+                                .unwrap_or_else(|| self.current_tab.title().into()),
+                            AppTab::Still => self
+                                .img_edit_file
+                                .as_ref()
+                                .or(self.edit_file.as_ref())
+                                .map(file_name)
+                                .filter(|n| !n.is_empty())
+                                .unwrap_or_else(|| self.current_tab.title().into()),
+                            _ => self.current_tab.title().into(),
+                        };
                         ui.label(
-                            RichText::new(self.current_tab.title())
+                            RichText::new(title)
                                 .font(egui::FontId::new(22.0, theme::font_semibold()))
                                 .color(theme::TEXT()),
                         );
-                        let sub = self.current_tab.subtitle();
+                        // E41 — subtitle carries live context (unsaved marks,
+                        // counts) before the static stage hint.
+                        let sub: String = match self.current_tab {
+                            AppTab::Still if !self.annotation_actions.is_empty() => {
+                                format!("{} annotations on canvas", self.annotation_actions.len())
+                            }
+                            AppTab::Clip if !self.filmstrip_cut.is_empty() => {
+                                format!("{} frames marked to cut", self.filmstrip_cut.len())
+                            }
+                            _ => self.current_tab.subtitle().into(),
+                        };
                         if !sub.is_empty() {
                             ui.label(RichText::new(sub).size(11.0).color(theme::TEXT_DIM()));
                         }

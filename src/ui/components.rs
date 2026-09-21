@@ -378,12 +378,30 @@ pub fn loop_rail(
                 resp
             };
 
+            // E28 — group dividers label the rail's two zones.
+            let divider = |ui: &mut Ui, label: &str| {
+                ui.add_space(theme::SP_1);
+                ui.label(
+                    RichText::new(label)
+                        .size(8.0)
+                        .color(theme::TEXT_DIM())
+                        .strong(),
+                );
+                ui.add_space(2.0);
+            };
             // Funnel: Capture → Review ↓, then the archive legs, Settings pinned
             // to the bottom like a normal app.
             for (i, stage) in LoopStage::all().iter().enumerate() {
                 let stage = *stage;
                 if matches!(stage, LoopStage::Settings) {
                     continue;
+                }
+                if i == 0 {
+                    divider(ui, "CAPTURE");
+                } else if matches!(stage, LoopStage::Media) {
+                    divider(ui, "KEEP");
+                } else if matches!(stage, LoopStage::Inbox) {
+                    divider(ui, "AGENT");
                 }
                 if stage_button(ui, stage).clicked() {
                     picked = Some(stage);
@@ -397,6 +415,7 @@ pub fn loop_rail(
 
             ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
                 ui.add_space(theme::SP_3);
+                divider(ui, "APP");
                 if stage_button(ui, LoopStage::Settings).clicked() {
                     picked = Some(LoopStage::Settings);
                 }
@@ -421,10 +440,21 @@ pub struct StatusSnapshot {
     pub rec_label: String,
 }
 
+/// Where a status-strip segment wants to take you (E37).
+#[derive(Clone, Copy, PartialEq)]
+pub enum StatusJump {
+    Library,
+    Settings,
+    Inbox,
+}
+
 /// Bottom status strip (mock language: storage · tier · ffmpeg · inbox).
 /// `details = false` on the Shutter stage — the funnel home stays clean;
-/// storage/budget trivia lives on the workspace stages.
-pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
+/// storage/budget trivia lives on the workspace stages. E37 — each segment
+/// is a jump: storage → Library, tier → Settings, inbox count → Inbox,
+/// ffmpeg-missing → Settings.
+pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) -> Option<StatusJump> {
+    let mut jump = None;
     Frame::none()
         .fill(theme::SURFACE_GLASS_DIM())
         .stroke(Stroke::new(1.0_f32, theme::BORDER()))
@@ -432,17 +462,31 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 if details {
-                    ui.label(
-                        RichText::new(&snap.storage_label)
-                            .size(11.0)
-                            .color(theme::TEXT_MUTED()),
-                    );
+                    if ui
+                        .selectable_label(
+                            false,
+                            RichText::new(&snap.storage_label)
+                                .size(11.0)
+                                .color(theme::TEXT_MUTED()),
+                        )
+                        .on_hover_text("Open Library")
+                        .clicked()
+                    {
+                        jump = Some(StatusJump::Library);
+                    }
                     ui.separator();
-                    ui.label(
-                        RichText::new(format!("{} · {}", snap.budget_tier, snap.budget_usage))
-                            .size(11.0)
-                            .color(theme::TEXT_MUTED()),
-                    );
+                    if ui
+                        .selectable_label(
+                            false,
+                            RichText::new(format!("{} · {}", snap.budget_tier, snap.budget_usage))
+                                .size(11.0)
+                                .color(theme::TEXT_MUTED()),
+                        )
+                        .on_hover_text("Open Settings › Agent budget")
+                        .clicked()
+                    {
+                        jump = Some(StatusJump::Settings);
+                    }
                     ui.separator();
                 }
                 if snap.ffmpeg_ok {
@@ -456,11 +500,18 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
                     }
                 } else {
                     // Missing ffmpeg is a functional warning — always show it.
-                    ui.label(
-                        RichText::new("ffmpeg missing")
-                            .size(11.0)
-                            .color(theme::DANGER()),
-                    );
+                    if ui
+                        .selectable_label(
+                            false,
+                            RichText::new("ffmpeg missing")
+                                .size(11.0)
+                                .color(theme::DANGER()),
+                        )
+                        .on_hover_text("Open Settings › Recording — install ffmpeg")
+                        .clicked()
+                    {
+                        jump = Some(StatusJump::Settings);
+                    }
                     ui.separator();
                 }
                 let inbox_c = if snap.pending_inbox > 0 {
@@ -468,11 +519,18 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
                 } else {
                     theme::TEXT_DIM()
                 };
-                ui.label(
-                    RichText::new(format!("inbox {}", snap.pending_inbox))
-                        .size(11.0)
-                        .color(inbox_c),
-                );
+                if ui
+                    .selectable_label(
+                        false,
+                        RichText::new(format!("inbox {}", snap.pending_inbox))
+                            .size(11.0)
+                            .color(inbox_c),
+                    )
+                    .on_hover_text("Open Inbox")
+                    .clicked()
+                {
+                    jump = Some(StatusJump::Inbox);
+                }
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if snap.rec_live {
@@ -488,6 +546,7 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) {
                 });
             });
         });
+    jump
 }
 
 // ── Modern controls (rail-matching language) ────────────────────────

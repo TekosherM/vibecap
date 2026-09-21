@@ -368,3 +368,13 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #293: ABOUT & HELP links docs/AGENTS, MCP, IMPROVEMENTS, releases.
 - #291 verified shipped (Replay first-run wizard); #286 marked - every switch row already carries an explainer line or hover.
 - 102/102 tests.
+
+### Chrome/layout - rail labels, status jumps, dynamic header, per-stage size
+- #28: caps dividers (CAPTURE/KEEP/AGENT/APP) segment the rail.
+- #33: session window_sizes map - leaving a stage stashes its size, entering restores it when it differs >20px (park leftovers guarded).
+- #35: capture column widens 720->900 on >1100px windows.
+- #37: status_strip returns StatusJump - storage->Library, tier->Settings, inbox->Inbox, ffmpeg-missing->Settings.
+- #40/#41: Clip/Still header shows the file name; subtitle carries annotation/cut counts before the stage hint.
+- #49: "Reopen where I left off" switch gates session tab restore.
+- Verified shipped: #34 (min_inner_size 760x560), #47 (native titlebar + REC-bar StartDrag).
+- 102/102 tests.

@@ -837,6 +837,15 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.persist_session();
                     }
                 });
+                // E49 — resume-last-stage vs always-open-on-Capture.
+                if switch(ui, "Reopen where I left off", &mut app.restore_tab) {
+                    app.persist_session();
+                }
+                ui.label(
+                    RichText::new("Off = every launch starts on Capture.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
                 setting_row(ui, "Theme", |ui| {
                     ui.horizontal(|ui| {
                         for mode in theme::THEME_ORDER {

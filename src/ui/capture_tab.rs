@@ -12,7 +12,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     // Centered content column — the column centers, rows inside
     // it left-align (Chromie popup column). vertical_centered
     // centered every row independently, orphaning short labels.
-    let col_w = ui.available_width().min(720.0);
+    // E35 — the column widens on big windows instead of capping at 720.
+    let avail = ui.available_width();
+    let col_w = avail.min(if avail > 1100.0 { 900.0 } else { 720.0 });
     ui.horizontal(|ui| {
                         ui.add_space(((ui.available_width() - col_w) / 2.0).max(0.0));
                         ui.allocate_ui_with_layout(

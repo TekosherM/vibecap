@@ -365,28 +365,28 @@ Numbered 1–300 for this round. Sections sized 25 each.
 
 26. **Collapsible rail** — icon-only 48 px mode; labels on hover tooltip.
 27. **Rail badges** — numeric badge on Inbox (pending count), dot on Library (new items since open). ✓ (Inbox count shipped; Library new-dot open)
-28. **Rail section labels** — CAPTURE / REVIEW / SYSTEM group dividers in expanded mode.
+28. **Rail section labels** — CAPTURE / REVIEW / SYSTEM group dividers in expanded mode. ✓ (caps dividers CAPTURE/KEEP/AGENT/APP segment the rail stages)
 29. **Rail drag-reorder** — let users pin favorite stages to top.
 30. **Keyboard rail nav** — Ctrl+1..5 jump to stages; shown in `?` sheet. ✓ (was already shipped)
 31. **Breadcrumb in Review** — `Library › clip_name` so Esc-depth is visible.
 32. **Back button** — in-header ‹ Back for Review/Clip/Still; Alt+← binding. ✓ (Alt+←/→ shipped; header button open)
-33. **Window-size memory per stage** — Library wants wide; Capture wants narrow.
-34. **Min window size enforcement** — below 720 px the rail overlaps content; clamp or collapse.
-35. **Adaptive column width** — the 720 px content column should widen on >1100 px windows.
+33. **Window-size memory per stage** — Library wants wide; Capture wants narrow. ✓ (session `window_sizes` map: leaving a stage stashes its size, entering restores it via InnerSize when it differs >20px)
+34. **Min window size enforcement** — below 720 px the rail overlaps content; clamp or collapse. ✓ (`with_min_inner_size([760, 560])` shipped earlier)
+35. **Adaptive column width** — the 720 px content column should widen on >1100 px windows. ✓ (col_w widens to 900 on >1100 px)
 36. **Status strip resize drag** — give the bottom bar a 2 px taller hit target.
-37. **Status strip segments clickable** — click "2 recordings" → jump to Library filtered.
+37. **Status strip segments clickable** — click "2 recordings" → jump to Library filtered. ✓ (storage→Library, tier→Settings, inbox n→Inbox, ffmpeg-missing→Settings)
 38. **Right-side inspector mode** — optional docked metadata panel in Review screens.
 39. **Zen mode** — hide rail + status strip; palette + hotkeys only.
-40. **Header title dynamic** — show contextual title (recording name in Clip, file name in Still) instead of always stage name.
-41. **Subtitle slot in header** — second line under title for context ("unsaved changes", "recording 00:12").
+40. **Header title dynamic** — show contextual title (recording name in Clip, file name in Still) instead of always stage name. ✓ (Clip/Still headers show the loaded file name)
+41. **Subtitle slot in header** — second line under title for context ("unsaved changes", "recording 00:12"). ✓ (subtitle shows annotation/cut counts when live, else the stage hint)
 42. **Command palette recent verbs** — MRU section above the flat list. ✓
 43. **Palette fuzzy match** — substring scoring; "gif" should rank "Export GIF" first. ✓ (subsequence scoring, word-start/consecutive bonuses)
 44. **Palette actions show shortcuts** — right-aligned kbd hint per row.
 45. **Palette media jump** — typing a filename jumps to its review.
 46. **Tab-strip alternative** — optional top tabs instead of rail for users who want Snagit familiarity.
-47. **Drag window by any dead space** — today only header drags; padding zones should too.
+47. **Drag window by any dead space** — today only header drags; padding zones should too. ✓ (main window uses native decorations — the OS titlebar drags everywhere; the custom REC bar already StartDrags on dead space)
 48. **Snap-layout friendly sizing** — default size lands cleanly in Windows 11 half-snap.
-49. **Restore-last-stage on launch** — setting: always Capture vs resume where you left.
+49. **Restore-last-stage on launch** — setting: always Capture vs resume where you left. ✓ ("Reopen where I left off" switch; off = always Capture; session `restore_tab`)
 50. **Stage transition direction** — slide left/right matching rail order, not a single wipe.
 
 ## C · Capture tab & flow (51–75)
