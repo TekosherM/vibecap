@@ -26,8 +26,8 @@ pub mod update;
 pub mod zip;
 
 pub use annotation_baker::{
-    bake_annotations, renumber_step_badges, snap_annotation_point, straighten_if_near_line,
-    AnnotationAction, AnnotationTool,
+    apply_edge_fx, bake_annotations, renumber_step_badges, snap_annotation_point,
+    straighten_if_near_line, AnnotationAction, AnnotationTool,
 };
 
 pub use budget::{

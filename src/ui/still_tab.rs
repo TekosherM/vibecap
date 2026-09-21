@@ -525,14 +525,42 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         );
                     }
                     AnnotationTool::StepBadge => {
+                        // E30 — preview mirrors the baker's style presets.
                         let pos = action.points[0];
-                        painter.circle_filled(pos, 14.0, action.color);
+                        let edge = Stroke::new(2.0_f32, action.color);
+                        match action.badge_style {
+                            1 => {
+                                painter.circle_stroke(pos, 14.0, edge);
+                            }
+                            2 => {
+                                painter.rect_filled(
+                                    Rect::from_center_size(pos, Vec2::splat(24.0)),
+                                    2.0,
+                                    action.color,
+                                );
+                            }
+                            3 => {
+                                painter.rect_stroke(
+                                    Rect::from_center_size(pos, Vec2::splat(24.0)),
+                                    2.0,
+                                    edge,
+                                );
+                            }
+                            _ => {
+                                painter.circle_filled(pos, 14.0, action.color);
+                            }
+                        }
+                        let ink = if matches!(action.badge_style, 1 | 3) {
+                            action.color
+                        } else {
+                            theme::ACCENT_INK()
+                        };
                         painter.text(
                             pos,
                             Align2::CENTER_CENTER,
                             action.badge_number.to_string(),
                             FontId::proportional(14.0),
-                            theme::ACCENT_INK(),
+                            ink,
                         );
                     }
                     AnnotationTool::Sticker => {} // drawn below via texture cache
@@ -646,6 +674,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         points: vec![pos],
                         text_content: app.pending_text.clone(),
                         badge_number: app.step_counter,
+                        badge_style: app.badge_style,
                         sticker: None,
                     };
                     if app.current_tool == AnnotationTool::StepBadge {
@@ -699,6 +728,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 points: vec![pos],
                                 text_content: app.pending_text.clone(),
                                 badge_number: app.step_counter,
+                                badge_style: app.badge_style,
                                 sticker: None,
                             });
                             app.text_edit_at = None;
@@ -812,6 +842,30 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             egui::TextEdit::singleline(&mut app.pending_text)
                                 .hint_text("Text to place…"),
                         );
+                        ui.add_space(theme::SP_2);
+                    }
+                    // E30 — badge look presets: style the next badge and
+                    // restyle the selected one.
+                    if app.current_tool == AnnotationTool::StepBadge {
+                        ui.horizontal_wrapped(|ui| {
+                            for (v, glyph) in [(0u8, "●"), (1, "○"), (2, "■"), (3, "□")] {
+                                if crate::ui::components::chip(ui, glyph, app.badge_style == v)
+                                {
+                                    app.badge_style = v;
+                                    if let Some(i) = app.annotation_selected {
+                                        if matches!(
+                                            app.annotation_actions.get(i).map(|a| a.tool),
+                                            Some(AnnotationTool::StepBadge)
+                                        ) {
+                                            app.annotation_push_undo();
+                                            if let Some(a) = app.annotation_actions.get_mut(i) {
+                                                a.badge_style = v;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
                         ui.add_space(theme::SP_2);
                     }
                     ui.horizontal(|ui| {
@@ -984,6 +1038,37 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             );
                             ui.color_edit_button_srgba(&mut app.export_pad_color);
                         });
+                        // E35 — border frame / drop shadow applied post-bake.
+                        segmented(
+                            ui,
+                            &mut app.edge_fx,
+                            &[
+                                (0u8, "Edge: none"),
+                                (1, "Border"),
+                                (2, "Shadow"),
+                                (3, "Torn"),
+                            ],
+                        );
+                        if app.edge_fx > 0 {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(match app.edge_fx {
+                                        1 => "Border px",
+                                        2 => "Shadow px",
+                                        _ => "Tear px",
+                                    })
+                                    .size(11.0)
+                                    .color(theme::TEXT_DIM()),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut app.edge_fx_px, 1..=32)
+                                        .show_value(false),
+                                );
+                                if app.edge_fx == 1 {
+                                    ui.color_edit_button_srgba(&mut app.edge_color);
+                                }
+                            });
+                        }
                         if let Some((w, h)) = app.export_output_dims() {
                             ui.label(
                                 RichText::new(format!("Exports at {}×{} px", w, h))

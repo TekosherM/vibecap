@@ -38,6 +38,9 @@ pub struct AnnotationAction {
     pub points: Vec<Pos2>,
     pub text_content: String,
     pub badge_number: usize,
+    /// E30 — badge look: 0 filled circle, 1 outline circle, 2 filled square,
+    /// 3 outline square.
+    pub badge_style: u8,
     pub sticker: Option<Sticker>,
 }
 
@@ -50,6 +53,7 @@ impl std::fmt::Debug for AnnotationAction {
             .field("points", &self.points)
             .field("text_content", &self.text_content)
             .field("badge_number", &self.badge_number)
+            .field("badge_style", &self.badge_style)
             .field(
                 "sticker",
                 &self
@@ -166,8 +170,35 @@ pub fn bake_annotations(
                 let (cx, cy) = map_pos(action.points[0]);
                 let badge_r = (16.0 * (iw / cw)).max(14.0) as i32;
                 let bg_color = image::Rgba([color.r(), color.g(), color.b(), 255]);
-                fill_circle(&mut rgba, cx, cy, badge_r, bg_color);
-                draw_badge_number(&mut rgba, cx, cy, action.badge_number, badge_r);
+                let edge = stroke_px.max(3.0);
+                // E30 — style presets; outline styles draw the number in the
+                // badge color, filled styles keep black on the fill.
+                let num_color = match action.badge_style {
+                    1 | 3 => bg_color,
+                    _ => image::Rgba([0, 0, 0, 255]),
+                };
+                match action.badge_style {
+                    1 => stroke_circle(&mut rgba, cx, cy, badge_r, edge, bg_color),
+                    2 => fill_rect(
+                        &mut rgba,
+                        cx - badge_r,
+                        cy - badge_r,
+                        cx + badge_r,
+                        cy + badge_r,
+                        bg_color,
+                    ),
+                    3 => stroke_rect(
+                        &mut rgba,
+                        cx - badge_r,
+                        cy - badge_r,
+                        cx + badge_r,
+                        cy + badge_r,
+                        edge,
+                        bg_color,
+                    ),
+                    _ => fill_circle(&mut rgba, cx, cy, badge_r, bg_color),
+                }
+                draw_badge_number(&mut rgba, cx, cy, action.badge_number, badge_r, num_color);
             }
             AnnotationTool::Spotlight => {
                 if action.points.len() >= 2 {
@@ -207,6 +238,83 @@ pub fn bake_annotations(
     }
 
     *img = image::DynamicImage::ImageRgba8(rgba);
+}
+
+/// E35 — export-time edge treatment applied post-bake: `fx` 0 = none,
+/// 1 = solid border frame, 2 = soft drop shadow, 3 = torn edge. `px` is
+/// border width, shadow blur radius, or tear depth.
+pub fn apply_edge_fx(
+    img: image::DynamicImage,
+    fx: u8,
+    px: u32,
+    color: Color32,
+) -> image::DynamicImage {
+    let px = px.max(1);
+    let (w, h) = (img.width(), img.height());
+    match fx {
+        1 => {
+            let mut canvas = image::RgbaImage::from_pixel(
+                w + px * 2,
+                h + px * 2,
+                image::Rgba([color.r(), color.g(), color.b(), 255]),
+            );
+            image::imageops::overlay(&mut canvas, &img.to_rgba8(), px.into(), px.into());
+            image::DynamicImage::ImageRgba8(canvas)
+        }
+        2 => {
+            let blur = px as f32;
+            let off = (px / 2).max(2);
+            let m = px * 2; // blur margin around all edges
+            let mut layer = image::RgbaImage::from_pixel(
+                w + m * 2 + off,
+                h + m * 2 + off,
+                image::Rgba([0, 0, 0, 0]),
+            );
+            for py in (m + off)..(m + off + h) {
+                for px_i in (m + off)..(m + off + w) {
+                    layer.put_pixel(px_i, py, image::Rgba([0, 0, 0, 150]));
+                }
+            }
+            let shadow = image::imageops::blur(&layer, blur);
+            let mut out = shadow;
+            image::imageops::overlay(&mut out, &img.to_rgba8(), m.into(), m.into());
+            image::DynamicImage::ImageRgba8(out)
+        }
+        3 => {
+            // Torn edge: image sits on a transparent mat; each edge raggedly
+            // recedes by a deterministic noise depth into the image.
+            let depth = (px / 2).max(3).min(24);
+            let mut rgba = img.to_rgba8();
+            // Hash-based noise: smooth-ish jag per column/row, deterministic
+            // so preview and export agree.
+            let jag = |i: u32| -> u32 {
+                let x = i.wrapping_mul(2654435761).rotate_left(13);
+                (x >> 16) % (depth * 2).max(1)
+            };
+            for x in 0..w {
+                let top = jag(x).min(depth);
+                let bot = jag(x.wrapping_add(0x9E3779B9)).min(depth);
+                for y in 0..top.min(h) {
+                    rgba.get_pixel_mut(x, y).0[3] = 0;
+                }
+                for y in (h.saturating_sub(bot))..h {
+                    rgba.get_pixel_mut(x, y).0[3] = 0;
+                }
+            }
+            for y in 0..h {
+                let left = jag(y.wrapping_add(0x85EBCA6B)).min(depth);
+                let right = jag(y.wrapping_add(0xC2B2AE35)).min(depth);
+                for x in 0..left.min(w) {
+                    rgba.get_pixel_mut(x, y).0[3] = 0;
+                }
+                for x in (w.saturating_sub(right))..w {
+                    rgba.get_pixel_mut(x, y).0[3] = 0;
+                }
+            }
+            image::DynamicImage::ImageRgba8(rgba)
+        }
+        _ => img,
+    }
 }
 
 /// Shift-drag snap: arrows lock to 15° angles, rectangles/blur become squares.
@@ -440,7 +548,14 @@ fn pixelate_rect(
     }
 }
 
-fn draw_badge_number(rgba: &mut image::RgbaImage, cx: i32, cy: i32, num: usize, badge_r: i32) {
+fn draw_badge_number(
+    rgba: &mut image::RgbaImage,
+    cx: i32,
+    cy: i32,
+    num: usize,
+    badge_r: i32,
+    num_color: image::Rgba<u8>,
+) {
     let text = num.to_string();
     let font_scale = (badge_r as f32 / 12.0).max(1.0);
     draw_simple_text(
@@ -448,9 +563,68 @@ fn draw_badge_number(rgba: &mut image::RgbaImage, cx: i32, cy: i32, num: usize, 
         cx - (text.len() as i32 * 4 * font_scale as i32),
         cy - (4.0 * font_scale) as i32,
         &text,
-        image::Rgba([0, 0, 0, 255]),
+        num_color,
         font_scale,
     );
+}
+
+/// E30 — filled axis-aligned rect.
+fn fill_rect(
+    rgba: &mut image::RgbaImage,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    color: image::Rgba<u8>,
+) {
+    let (w, h) = (rgba.width() as i32, rgba.height() as i32);
+    for py in y0.clamp(0, h)..y1.clamp(0, h) {
+        for px in x0.clamp(0, w)..x1.clamp(0, w) {
+            blend_pixel(rgba, px as u32, py as u32, color);
+        }
+    }
+}
+
+/// E30 — rect outline via four thick edges.
+fn stroke_rect(
+    rgba: &mut image::RgbaImage,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    thickness: f32,
+    color: image::Rgba<u8>,
+) {
+    draw_line_thick(rgba, x0, y0, x1, y0, thickness, color);
+    draw_line_thick(rgba, x1, y0, x1, y1, thickness, color);
+    draw_line_thick(rgba, x1, y1, x0, y1, thickness, color);
+    draw_line_thick(rgba, x0, y1, x0, y0, thickness, color);
+}
+
+/// E30 — circle outline as a thick 64-segment polyline.
+fn stroke_circle(
+    rgba: &mut image::RgbaImage,
+    cx: i32,
+    cy: i32,
+    radius: i32,
+    thickness: f32,
+    color: image::Rgba<u8>,
+) {
+    const SEGMENTS: usize = 64;
+    let r = radius as f32;
+    for i in 0..SEGMENTS {
+        let t0 = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        let t1 = (i + 1) as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        draw_line_thick(
+            rgba,
+            (cx as f32 + r * t0.cos()) as i32,
+            (cy as f32 + r * t0.sin()) as i32,
+            (cx as f32 + r * t1.cos()) as i32,
+            (cy as f32 + r * t1.sin()) as i32,
+            thickness,
+            color,
+        );
+    }
 }
 
 fn draw_text_box(
@@ -579,8 +753,35 @@ mod tests {
             points: vec![Pos2::new(1.0, 1.0)],
             text_content: String::new(),
             badge_number: n,
+            badge_style: 0,
             sticker: None,
         }
+    }
+
+    #[test]
+    fn edge_fx_border_and_shadow_expand_canvas() {
+        let img = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            40,
+            20,
+            image::Rgba([200, 0, 0, 255]),
+        ));
+        let bordered = apply_edge_fx(img.clone(), 1, 4, Color32::BLACK);
+        assert_eq!((bordered.width(), bordered.height()), (48, 28));
+        // Corner pixel is the border color.
+        assert_eq!(bordered.to_rgba8().get_pixel(0, 0).0, [0, 0, 0, 255]);
+        let shadowed = apply_edge_fx(img.clone(), 2, 8, Color32::BLACK);
+        assert!(shadowed.width() > 40 && shadowed.height() > 20);
+        // Shadow pixels exist past the image's right edge: with m=16, off=4
+        // the image spans x<56 and the shadow rect reaches x<60 — (58, 30)
+        // is outside the image but inside the blurred shadow band.
+        let s = shadowed.to_rgba8();
+        let px = s.get_pixel(58, 30);
+        assert!(px[3] > 0);
+        // Torn edge keeps the canvas size but clears ragged edge pixels.
+        let torn = apply_edge_fx(img, 3, 8, Color32::BLACK);
+        assert_eq!((torn.width(), torn.height()), (40, 20));
+        let t = torn.to_rgba8();
+        assert!(t.rows().flatten().any(|p| p.0[3] == 0));
     }
 
     #[test]

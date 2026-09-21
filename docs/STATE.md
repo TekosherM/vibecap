@@ -346,3 +346,9 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #17: window-pick card reads "title · process · Display N".
 - #94: toolbar dock chip (top/bottom) persisted via session hud_toolbar_bottom.
 - 101/101 tests.
+
+### Still editor finish - badge styles, edge effects, roadmap sweep
+- #30: AnnotationAction::badge_style (0-3) drives filled/outline circle/square in the baker; both previews (annotate modal + Still tab) mirror it; chips restyle the selected badge undoably; DraftAction roundtrips it (serde default for old drafts).
+- #35: apply_edge_fx post-bake - Border frame / Shadow (blur+offset) / Torn (deterministic noise jag clears edge alpha); EXPORT segmented + px slider; export_output_dims mirrors the canvas growth.
+- #33 verified: draw_text_box already paints the dark label pill; marked alongside Arrow/Rect/Ellipse/Blur/Highlight/Pad/Watermark/Undo/Resize/Format/Sticker/B-peek which all shipped earlier.
+- 102/102 tests (edge_fx test covers all three variants incl. canvas growth).

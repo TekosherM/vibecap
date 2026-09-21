@@ -586,6 +586,7 @@ fn headless_annotate(src: &Path, cli: &CliArgs) -> Result<PathBuf, String> {
             points,
             text_content: text,
             badge_number: badge_n,
+            badge_style: 0,
             sticker: None,
         });
     }

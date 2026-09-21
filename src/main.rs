@@ -962,6 +962,13 @@ pub(crate) struct VibecapApp {
     export_quality: u8,
     export_pad_px: u32,
     export_pad_color: egui::Color32,
+    /// E30 — style for the next step badge (0 filled circle, 1 outline
+    /// circle, 2 filled square, 3 outline square).
+    badge_style: u8,
+    /// E35 — export edge treatment: 0 none, 1 border, 2 drop shadow.
+    edge_fx: u8,
+    edge_fx_px: u32,
+    edge_color: egui::Color32,
     /// Strokes panel selection (E123) — index into `annotation_actions`.
     annotation_selected: Option<usize>,
     /// Corner-watermark text field (E121).
@@ -1166,6 +1173,10 @@ impl VibecapApp {
             export_quality: 90,
             export_pad_px: 0,
             export_pad_color: egui::Color32::WHITE,
+            badge_style: 0,
+            edge_fx: 0,
+            edge_fx_px: 4,
+            edge_color: egui::Color32::from_gray(32),
             annotation_selected: None,
             watermark_text: String::new(),
             filmstrip_cut: std::collections::HashSet::new(),
@@ -1707,7 +1718,14 @@ impl VibecapApp {
             &self.annotation_actions,
             self.annotation_canvas_rect,
         );
-        Ok(dyn_img)
+        // E35 — edge treatment sits inside the export pad: pad = outer
+        // margin, border/shadow hugs the image edge.
+        Ok(app::apply_edge_fx(
+            dyn_img,
+            self.edge_fx,
+            self.edge_fx_px,
+            self.edge_color,
+        ))
     }
 
     /// Final pixel dims after crop/rotate/resize/pad — the EXPORT readout (F118).
@@ -1741,6 +1759,17 @@ impl VibecapApp {
     /// post-bake so annotation mapping stays aligned.
     pub(crate) fn export_output_dims(&self) -> Option<(u32, u32)> {
         self.edited_output_dims().map(|(w, h)| {
+            // E35 — border/shadow grows the canvas before the pad margin.
+            let px = self.edge_fx_px.max(1);
+            let (w, h) = match self.edge_fx {
+                1 => (w + px * 2, h + px * 2),
+                2 => {
+                    let m = px * 2;
+                    let off = (px / 2).max(2);
+                    (w + m * 2 + off, h + m * 2 + off)
+                }
+                _ => (w, h),
+            };
             let pad = self.export_pad_px.saturating_mul(2);
             (w.saturating_add(pad), h.saturating_add(pad))
         })
@@ -2577,6 +2606,7 @@ impl VibecapApp {
         self.annotation_push_undo();
         self.annotation_actions.push(AnnotationAction {
             tool: AnnotationTool::Sticker,
+            badge_style: 0,
             color: self.current_color,
             stroke_width: 1.0,
             points: vec![anchor],
@@ -2627,6 +2657,7 @@ impl VibecapApp {
             points: vec![pos],
             text_content: text,
             badge_number: 0,
+            badge_style: 0,
             sticker: None,
         });
         self.annotation_selected = Some(self.annotation_actions.len() - 1);
@@ -5883,6 +5914,27 @@ impl VibecapApp {
                 ui.label("Text:");
                 ui.text_edit_singleline(&mut self.pending_text);
             }
+            // E30 — badge look presets apply to the next badge and restyle
+            // the selected one.
+            if self.current_tool == AnnotationTool::StepBadge {
+                ui.separator();
+                for (v, glyph) in [(0u8, "●"), (1, "○"), (2, "■"), (3, "□")] {
+                    if ui.selectable_label(self.badge_style == v, glyph).clicked() {
+                        self.badge_style = v;
+                        if let Some(i) = self.annotation_selected {
+                            if matches!(
+                                self.annotation_actions.get(i).map(|a| a.tool),
+                                Some(AnnotationTool::StepBadge)
+                            ) {
+                                self.annotation_push_undo();
+                                if let Some(a) = self.annotation_actions.get_mut(i) {
+                                    a.badge_style = v;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             ui.separator();
             if ui.button("↩ Undo").on_hover_text("Ctrl+Z").clicked() {
@@ -6140,14 +6192,42 @@ impl VibecapApp {
                         );
                     }
                     AnnotationTool::StepBadge => {
+                        // E30 — preview mirrors the baker's style presets.
                         let pos = action.points[0];
-                        painter.circle_filled(pos, 14.0, action.color);
+                        let edge = Stroke::new(2.0_f32, action.color);
+                        match action.badge_style {
+                            1 => {
+                                painter.circle_stroke(pos, 14.0, edge);
+                            }
+                            2 => {
+                                painter.rect_filled(
+                                    Rect::from_center_size(pos, Vec2::splat(24.0)),
+                                    2.0,
+                                    action.color,
+                                );
+                            }
+                            3 => {
+                                painter.rect_stroke(
+                                    Rect::from_center_size(pos, Vec2::splat(24.0)),
+                                    2.0,
+                                    edge,
+                                );
+                            }
+                            _ => {
+                                painter.circle_filled(pos, 14.0, action.color);
+                            }
+                        }
+                        let ink = if matches!(action.badge_style, 1 | 3) {
+                            action.color
+                        } else {
+                            theme::ACCENT_INK()
+                        };
                         painter.text(
                             pos,
                             Align2::CENTER_CENTER,
                             action.badge_number.to_string(),
                             FontId::proportional(14.0),
-                            theme::ACCENT_INK(),
+                            ink,
                         );
                     }
                     AnnotationTool::Sticker => {} // modal: paste lives in Still tab
@@ -6172,6 +6252,7 @@ impl VibecapApp {
                         points: vec![pos],
                         text_content: self.pending_text.clone(),
                         badge_number: self.step_counter,
+                        badge_style: self.badge_style,
                         sticker: None,
                     };
 

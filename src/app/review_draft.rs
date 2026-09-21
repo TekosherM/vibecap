@@ -41,6 +41,9 @@ pub struct DraftAction {
     pub text: String,
     #[serde(default)]
     pub badge: usize,
+    /// E30 — badge look; old drafts default to the filled circle.
+    #[serde(default)]
+    pub badge_style: u8,
     #[serde(default)]
     pub sticker_png: Option<String>,
 }
@@ -125,6 +128,7 @@ fn action_to_draft(a: &AnnotationAction) -> DraftAction {
         points: a.points.iter().map(|p| [p.x, p.y]).collect(),
         text: a.text_content.clone(),
         badge: a.badge_number,
+        badge_style: a.badge_style,
         sticker_png: a.sticker.as_ref().and_then(sticker_png),
     }
 }
@@ -149,6 +153,7 @@ fn action_from_draft(ctx: &egui::Context, d: &DraftAction) -> Option<AnnotationA
         points: d.points.iter().map(|[x, y]| Pos2::new(*x, *y)).collect(),
         text_content: d.text.clone(),
         badge_number: d.badge,
+        badge_style: d.badge_style,
         sticker,
     })
 }
@@ -165,6 +170,7 @@ pub fn actions_fingerprint(actions: &[AnnotationAction]) -> u64 {
         a.color.to_array().hash(&mut h);
         a.stroke_width.to_bits().hash(&mut h);
         a.badge_number.hash(&mut h);
+        a.badge_style.hash(&mut h);
         a.text_content.hash(&mut h);
         for p in &a.points {
             p.x.to_bits().hash(&mut h);
@@ -242,6 +248,7 @@ mod tests {
             points: pts.iter().map(|&(x, y)| Pos2::new(x, y)).collect(),
             text_content: String::new(),
             badge_number: 0,
+            badge_style: 0,
             sticker: None,
         };
         let a = vec![mk(&[(0.0, 0.0), (10.0, 10.0)])];

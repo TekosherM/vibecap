@@ -215,23 +215,23 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 
 ## B · Still editor (Snagit-editor territory)
 
-26. **Arrow tool** — line with head, stroke/color-aware.
-27. **Rectangle / ellipse outline** tools.
-28. **Blur / pixelate region** — the Inbox "Blur the token" snippet wants this to exist.
+26. **Arrow tool** — line with head, stroke/color-aware. ✓ (`AnnotationTool::Arrow` — preview + bake draw head wings at ~30°)
+27. **Rectangle / ellipse outline** tools. ✓ (`AnnotationTool::Rectangle`/`Ellipse` — stroke-width + color aware)
+28. **Blur / pixelate region** — the Inbox "Blur the token" snippet wants this to exist. ✓ (`AnnotationTool::Blur` pixelates the drag rect)
 29. **Spotlight** — dim everything outside a rect. ✓ (`AnnotationTool::Spotlight`; bake darkens outside at 0.45×, preview shows dim bands + hole)
-30. **Badge style presets** — Snagit step-tool look variants (circle/square, filled/outline).
-31. **Highlighter pen** — ~50 % alpha stroke mode.
+30. **Badge style presets** — Snagit step-tool look variants (circle/square, filled/outline). ✓ (`AnnotationAction::badge_style` 0-3: ● ○ ■ □ chips beside the tool; restyles the selected badge undoably; baker + both previews share the mapping; draft-roundtrips)
+31. **Highlighter pen** — ~50 % alpha stroke mode. ✓ (`AnnotationTool::Highlight` — alpha-blended stroke)
 32. **Stroke straighten** — near-straight freehand becomes a line. ✓ (`straighten_if_near_line` on pen release: <6% chord deviation collapses to endpoints)
-33. **Text background box** — label look with fill + padding.
-34. **Canvas padding + fill color** on crop.
-35. **Edge effects** — border, torn edge, drop shadow presets.
-36. **Watermark preset** — text or logo at corner with opacity.
-37. **Annotation undo/redo** — Ctrl+Z / Ctrl+Y stack (per-stroke).
-38. **Resize-for-export** — % or max-width field in the Still inspector (img_resize_pct exists).
-39. **Export format per save** — PNG/JPEG/WebP choice.
+33. **Text background box** — label look with fill + padding. ✓ (`draw_text_box` paints a dark pill behind the glyphs; preview mirrors it)
+34. **Canvas padding + fill color** on crop. ✓ (EXPORT group "Pad px" + color swatch; post-bake, dims shown in readout)
+35. **Edge effects** — border, torn edge, drop shadow presets. ✓ (`apply_edge_fx` post-bake: Border frame / Shadow blur+offset / Torn ragged alpha edge — deterministic noise jag; EXPORT segmented + px slider; output dims reflect growth)
+36. **Watermark preset** — text or logo at corner with opacity. ✓ (same as #121 — WATERMARK group drops a corner Text stroke)
+37. **Annotation undo/redo** — Ctrl+Z / Ctrl+Y stack (per-stroke). ✓ (snapshot stack + buttons in both annotate surfaces)
+38. **Resize-for-export** — % or max-width field in the Still inspector (img_resize_pct exists). ✓ (EXPORT % slider)
+39. **Export format per save** — PNG/JPEG/WebP choice. ✓ (EXPORT format segmented + quality slider)
 40. **Copy original vs annotated** choice (today annotated wins). ✓ (⋯ "Copy original (no markup)" alongside annotated Ctrl+C)
-41. **Paste image onto canvas** — combine shots, Snagit-style.
-42. **Hold-Space before/after** preview of annotations.
+41. **Paste image onto canvas** — combine shots, Snagit-style. ✓ (`AnnotationTool::Sticker` — Ctrl+V pastes clipboard image at native px, draggable)
+42. **Hold-Space before/after** preview of annotations. ✓ (hold B hides all annotations until release)
 43. **Measure tool** — px distance readout between two clicks. ✓ (`AnnotationTool::Measure` — drag line, "N px · θ°" label in image px, bakes into export)
 44. **Ruler / grid overlay** toggle in Still canvas. ✓ ("▦" toolbar toggle — quarters grid over the image, preview-only)
 45. **Zoom-to-fit / 100 % quick keys** (Ctrl+0 / Ctrl+1). ✓ (`0` fit, `1` true-100% undoing fit scale)
