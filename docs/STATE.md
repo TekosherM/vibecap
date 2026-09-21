@@ -320,3 +320,22 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #294: Library stats line — week count, bytes, consecutive-day streak.
 - bind_extra_hotkeys/unbind_extra_hotkeys centralize the extras for bind+rebind; hotkey ids flow to the pump.
 - 99/99 tests.
+
+### Region/HUD tranche - snapping, guides, keyboard, wheel, dark chrome
+- #78: snap_with_guides snaps the dragged corner to screen + visible-window edges within 8 px (list_capture_windows_cached, self/minimized filtered).
+- #79: matched snap edges paint HUD_GUIDE alignment lines spanning the window edge.
+- #76: W×H plate picks the first of four anchor corners that fits on screen and is not under the cursor.
+- #77: loupe is Ctrl-gated (was always-on).
+- #82: arrow key with no box grows a centered 200x150 box; existing nudge/Enter commits it.
+- #97: scroll resizes the box (width; Shift = height), clamped to screen.
+- #84: only the monitor under the cursor dims; others stay lit.
+- #83: locked-aspect selections tint the surround ACCENT.
+- #88: window-pick hover-lock pulses a 300 ms decaying stroke (ctx temp data).
+- #92: Ctrl+click in loupe copies the sampled pixel as #RRGGBB + copied tag.
+- #87: toolbar chip cycles thirds, quarters, off.
+- #81: selections under 260x140 get a compact toolbar.
+- #95: session region_pick_count hides first-run hints after 3 picks.
+- #96: region_history (32-deep) + Ctrl+Z restores previous rects.
+- #80/#100: HUD chrome is a fixed near-black pill with light ink; hints on dark pills - contrast independent of app theme/backdrop.
+- #85 covered by shutter_click on capture land; #89 by pickable_at self/shell exclusion; #99 by the dedicated overlay viewport.
+- 101/101 tests.

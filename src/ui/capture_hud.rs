@@ -88,6 +88,8 @@ pub fn pixels_to_overlay_rect(
 /// `backdrop_stale` — the shown backdrop is last pick's snap; stamps
 /// "refreshing…" until the fresh one lands (caller blocks confirms).
 /// `window_pick_cycle` — scroll-wheel index into overlapping windows.
+/// `picks_done` — lifetime completed picks; first-run hints hide after 3 (E95).
+/// `region_history` — confirmed rects this session; Ctrl+Z pops (E96).
 #[allow(clippy::too_many_arguments)]
 pub fn show_region_selector(
     ctx: &egui::Context,
@@ -103,6 +105,8 @@ pub fn show_region_selector(
     aspect_lock: &mut Option<f32>,
     window_pick_cycle: &mut usize,
     dim_alpha: u8,
+    picks_done: u32,
+    region_history: &mut Vec<Rect>,
 ) -> RegionHudResult {
     let mut result = RegionHudResult::Continue;
     let opaque = backdrop.is_some() || cfg!(target_os = "windows");
@@ -137,16 +141,18 @@ pub fn show_region_selector(
                 return;
             }
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            // Dim is painted per-monitor below (E84), so the panel itself
+            // stays transparent — or black under the frozen backdrop.
             let panel_frame = Frame::none().fill(if backdrop.is_some() {
                 Color32::BLACK
             } else {
-                // E24 — dim intensity is a session setting.
-                Color32::from_black_alpha(dim_alpha)
+                Color32::TRANSPARENT
             });
             egui::CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
                 let (response, painter) =
                     ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
                 let screen = response.rect;
+                let ctrl_held = ctx.input(|i| i.modifiers.ctrl);
                 if let Some(tex) = backdrop {
                     painter.image(
                         tex.id(),
@@ -154,9 +160,35 @@ pub fn show_region_selector(
                         Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                         Color32::WHITE,
                     );
-                    // E24 — dim the frozen desktop; the selection punches
-                    // back through at full brightness below.
-                    painter.rect_filled(screen, 0.0, Color32::from_black_alpha(dim_alpha));
+                }
+                // E24 dim + E84: with several monitors only the one under the
+                // cursor dims; others stay lit so adjacent displays read
+                // untouched. No pointer yet → dim everything.
+                let vppp = ctx.pixels_per_point().max(1.0);
+                let pointer =
+                    response.hover_pos().or_else(|| response.interact_pointer_pos());
+                let dim_rects: Vec<Rect> = if mons.len() > 1 {
+                    let all: Vec<Rect> = mons
+                        .iter()
+                        .map(|m| {
+                            Rect::from_min_size(
+                                Pos2::new(
+                                    (m.x - origin.0) as f32 / vppp,
+                                    (m.y - origin.1) as f32 / vppp,
+                                ),
+                                Vec2::new(m.w as f32 / vppp, m.h as f32 / vppp),
+                            )
+                        })
+                        .collect();
+                    match pointer.and_then(|p| all.iter().find(|r| r.contains(p))) {
+                        Some(r) => vec![*r],
+                        None => all,
+                    }
+                } else {
+                    vec![screen]
+                };
+                for r in &dim_rects {
+                    painter.rect_filled(*r, 0.0, Color32::from_black_alpha(dim_alpha));
                 }
                 // Pre-warm stamp: the shown backdrop is the previous pick's
                 // snap — the fresh one is in flight behind it.
@@ -169,6 +201,30 @@ pub fn show_region_selector(
                         theme::TEXT_MUTED(),
                     );
                 }
+
+                // E78/E79 — snap targets: other visible windows' edges. The
+                // cache read is non-blocking; a cold cache just means no
+                // window snapping this frame (screen edges still snap).
+                let pick_mode_early = window_pick.is_some();
+                let snap_rects: Vec<Rect> = if pick_mode_early {
+                    Vec::new()
+                } else {
+                    let vppp = ctx.pixels_per_point().max(1.0);
+                    crate::platform::list_capture_windows_cached()
+                        .into_iter()
+                        .filter(|w| !w.minimized && !w.is_self())
+                        .map(|w| {
+                            Rect::from_min_size(
+                                Pos2::new(
+                                    (w.x - origin.0) as f32 / vppp,
+                                    (w.y - origin.1) as f32 / vppp,
+                                ),
+                                Vec2::new(w.w as f32 / vppp, w.h as f32 / vppp),
+                            )
+                        })
+                        .collect()
+                };
+                let mut snap_guides: Vec<(Pos2, Pos2)> = Vec::new();
 
                 // Window-pick mode: the hover rect arrives in OS pixels — map it
                 // into overlay points. Click confirms that rect; drag is off.
@@ -192,17 +248,51 @@ pub fn show_region_selector(
                     } else if scroll > 1.0 {
                         *window_pick_cycle = window_pick_cycle.saturating_sub(1);
                     }
-                    painter.text(
-                        Pos2::new(screen.center().x, screen.min.y + 48.0),
-                        Align2::CENTER_CENTER,
-                        "Click a window to capture · scroll cycles overlaps · dead space = monitor · Esc cancel",
-                        FontId::proportional(18.0),
-                        theme::TEXT(),
-                    );
+                    // E95 — first-run hints hide once picking is learned.
+                    if picks_done < 3 {
+                        paint_hint_pill(
+                            &painter,
+                            Pos2::new(screen.center().x, screen.min.y + 48.0),
+                            "Click a window to capture · scroll cycles overlaps · dead space = monitor · Esc cancel",
+                            18.0,
+                        );
+                    }
                     if let (Some(rect), Some((title, _, _, ww, wh))) = (pick_rect, window_pick)
                     {
                         painter.rect_filled(rect, 0.0, theme::ACCENT().gamma_multiply(0.15));
                         painter.rect_stroke(rect, 0.0, Stroke::new(2.5_f32, theme::ACCENT()));
+                        // E88 — confidence flash: one decaying pulse when the
+                        // hovered window changes.
+                        let key = (
+                            rect.min.x as i32,
+                            rect.min.y as i32,
+                            rect.width() as i32,
+                            rect.height() as i32,
+                        );
+                        let flash_id = egui::Id::new("pick_flash");
+                        let now = ctx.input(|i| i.time);
+                        let prev: Option<((i32, i32, i32, i32), f64)> =
+                            ctx.data_mut(|d| d.get_temp(flash_id));
+                        let t0 = match prev {
+                            Some((k, t)) if k == key => t,
+                            _ => {
+                                ctx.data_mut(|d| d.insert_temp(flash_id, (key, now)));
+                                now
+                            }
+                        };
+                        let age = (now - t0) as f32;
+                        if age < 0.3 {
+                            let k = 1.0 - age / 0.3;
+                            painter.rect_stroke(
+                                rect.expand(3.0 + 9.0 * (1.0 - k)),
+                                0.0,
+                                Stroke::new(
+                                    1.5_f32 + 2.0 * k,
+                                    theme::ACCENT().gamma_multiply(0.15 + 0.75 * k),
+                                ),
+                            );
+                            ctx.request_repaint();
+                        }
                         let label = format!("{title}  {ww}×{wh}");
                         let label_pos = rect.left_top() + Vec2::new(6.0, -28.0);
                         let galley = painter.layout_no_wrap(
@@ -219,7 +309,8 @@ pub fn show_region_selector(
                         painter.rect_filled(plate, 4.0, theme::ACCENT());
                         painter.galley(plate.min + pad, galley, theme::ON_SOLID());
                     }
-                    if response.clicked() {
+                    // Ctrl+click samples a hex color instead of picking (E92).
+                    if response.clicked() && !ctrl_held {
                         if let Some(rect) = pick_rect {
                             result =
                                 RegionHudResult::Confirmed { selected: rect, overlay: screen };
@@ -260,13 +351,14 @@ pub fn show_region_selector(
                             theme::TEXT_MUTED(),
                         );
                     }
-                    painter.text(
-                        Pos2::new(screen.center().x, screen.min.y + 48.0),
-                        Align2::CENTER_CENTER,
-                        "Drag to select · release captures · Esc / right-click cancel",
-                        FontId::proportional(18.0),
-                        theme::TEXT(),
-                    );
+                    if picks_done < 3 {
+                        paint_hint_pill(
+                            &painter,
+                            Pos2::new(screen.center().x, screen.min.y + 48.0),
+                            "Drag to select · wheel resizes · arrows nudge · Esc / right-click cancel",
+                            18.0,
+                        );
+                    }
                 }
                 // Repeat-last gestures: `R` or a double-click inside the ghost
                 // confirms it without re-dragging.
@@ -302,7 +394,41 @@ pub fn show_region_selector(
                         );
                         painter.image(tex.id(), rect, uv, Color32::WHITE);
                     }
-                    let plate = paint_selection_hud(&painter, rect, ctx.pixels_per_point());
+                    // E83 — a locked aspect tints the surround accent so the
+                    // mode is legible at a glance.
+                    if aspect_lock.is_some() {
+                        let tint = theme::ACCENT().gamma_multiply(0.10);
+                        for r in [
+                            Rect::from_min_max(screen.min, Pos2::new(screen.max.x, rect.min.y)),
+                            Rect::from_min_max(
+                                Pos2::new(screen.min.x, rect.max.y),
+                                screen.max,
+                            ),
+                            Rect::from_min_max(
+                                Pos2::new(screen.min.x, rect.min.y),
+                                Pos2::new(rect.min.x, rect.max.y),
+                            ),
+                            Rect::from_min_max(
+                                Pos2::new(rect.max.x, rect.min.y),
+                                Pos2::new(screen.max.x, rect.max.y),
+                            ),
+                        ] {
+                            painter.rect_filled(r, 0.0, tint);
+                        }
+                    }
+                    let cursor =
+                        response.hover_pos().or_else(|| response.interact_pointer_pos());
+                    let grid: u8 = ctx
+                        .data_mut(|d| d.get_temp(egui::Id::new("region_grid_mode")))
+                        .unwrap_or(0);
+                    let plate = paint_selection_hud(
+                        &painter,
+                        rect,
+                        ctx.pixels_per_point(),
+                        screen,
+                        cursor,
+                        grid,
+                    );
                     // E91 — click the W×H plate to copy `x,y,w,h` (pixels).
                     let pr = ui.interact(
                         plate,
@@ -329,13 +455,91 @@ pub fn show_region_selector(
                     pr.on_hover_text("Click to copy x,y,w,h");
                 }
 
-                // Cursor loupe (samples backdrop pixels when frozen)
-                if let Some(pos) = response.hover_pos().or_else(|| response.interact_pointer_pos())
-                {
-                    let sample = backdrop_rgba.and_then(|(w, h, px)| {
-                        sample_backdrop_pixel(px, *w, *h, screen, pos)
+                // Cursor loupe — hold Ctrl to magnify (E77); samples the
+                // frozen backdrop pixels when present.
+                if ctrl_held {
+                    if let Some(pos) =
+                        response.hover_pos().or_else(|| response.interact_pointer_pos())
+                    {
+                        let sample = backdrop_rgba.and_then(|(w, h, px)| {
+                            sample_backdrop_pixel(px, *w, *h, screen, pos)
+                        });
+                        paint_cursor_loupe(&painter, pos, screen, sample);
+                        // E92 — Ctrl+click copies the sampled hex color.
+                        if response.clicked() {
+                            if let Some(c) = sample {
+                                let hex =
+                                    format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+                                ctx.copy_text(hex.clone());
+                                ctx.data_mut(|d| {
+                                    d.insert_temp(
+                                        egui::Id::new("hex_copied"),
+                                        (hex, ctx.input(|i| i.time)),
+                                    )
+                                });
+                            }
+                        }
+                        if let Some((hex, t0)) = ctx.data_mut(|d| {
+                            d.get_temp::<(String, f64)>(egui::Id::new("hex_copied"))
+                        }) {
+                            if ctx.input(|i| i.time) - t0 < 0.9 {
+                                paint_hint_pill(
+                                    &painter,
+                                    pos + Vec2::new(0.0, -34.0),
+                                    &format!("{hex} copied"),
+                                    12.0,
+                                );
+                                ctx.request_repaint();
+                            }
+                        }
+                    }
+                }
+
+                // E82 — keyboard-only: with no box, an arrow key grows one
+                // from the center; the nudge/Enter path below takes over.
+                if !pick_mode && region_start.is_none() {
+                    let grew = ctx.input(|i| {
+                        i.key_pressed(egui::Key::ArrowLeft)
+                            || i.key_pressed(egui::Key::ArrowRight)
+                            || i.key_pressed(egui::Key::ArrowUp)
+                            || i.key_pressed(egui::Key::ArrowDown)
                     });
-                    paint_cursor_loupe(&painter, pos, screen, sample);
+                    if grew {
+                        let c = screen.center();
+                        *region_start = Some(c - Vec2::new(100.0, 75.0));
+                        *region_end = Some(c + Vec2::new(100.0, 75.0));
+                        ctx.request_repaint();
+                    }
+                }
+                // E97 — wheel resizes the box: plain scroll adjusts width,
+                // Shift+scroll adjusts height.
+                if !pick_mode && !response.dragged() {
+                    let dy = ctx.input(|i| i.raw_scroll_delta.y);
+                    if dy.abs() > 0.5 {
+                        if let (Some(_start), Some(end)) = (*region_start, *region_end) {
+                            let delta = if dy > 0.0 { 8.0 } else { -8.0 };
+                            let shift = ctx.input(|i| i.modifiers.shift);
+                            let e = if shift {
+                                Pos2::new(end.x, (end.y + delta).clamp(screen.min.y, screen.max.y))
+                            } else {
+                                Pos2::new((end.x + delta).clamp(screen.min.x, screen.max.x), end.y)
+                            };
+                            *region_end = Some(e);
+                            ctx.request_repaint();
+                        }
+                    }
+                }
+
+                // E96 — Ctrl+Z steps back through confirmed rects this
+                // session (history pushed by the caller on each confirm).
+                if !pick_mode
+                    && ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Z))
+                {
+                    if let Some(r) = region_history.pop() {
+                        *region_start = Some(r.min);
+                        *region_end = Some(r.max);
+                        ctx.request_repaint();
+                    }
                 }
 
                 // Arrow-key nudge of the active selection
@@ -384,13 +588,19 @@ pub fn show_region_selector(
                     if response.drag_started() {
                     *was_dragging = true;
                     if let Some(pos) = response.interact_pointer_pos() {
-                        *region_start = Some(pos);
-                        *region_end = Some(pos);
+                        let (p, _) = snap_with_guides(pos, screen, &snap_rects);
+                        *region_start = Some(p);
+                        *region_end = Some(p);
                     }
                 }
                 if response.dragged() {
                     if let Some(pos) = response.interact_pointer_pos() {
-                        *region_end = Some(pos);
+                        // E78/E79 — snap the dragged corner to screen and
+                        // window edges within 8 px; matched edges paint as
+                        // alignment guides.
+                        let (p, g) = snap_with_guides(pos, screen, &snap_rects);
+                        *region_end = Some(p);
+                        snap_guides = g;
                     }
                     if let (Some(start), Some(end)) = (*region_start, *region_end) {
                         let mut rect = Rect::from_two_pos(start, end);
@@ -446,6 +656,13 @@ pub fn show_region_selector(
                     }
                 }
                 }
+                // E79 — alignment guides for edges this frame snapped to.
+                for (a, b) in &snap_guides {
+                    painter.line_segment(
+                        [*a, *b],
+                        Stroke::new(1.0_f32, theme::HUD_GUIDE()),
+                    );
+                }
                 if response.secondary_clicked() {
                     result = RegionHudResult::Cancelled;
                 }
@@ -454,22 +671,35 @@ pub fn show_region_selector(
                     result = RegionHudResult::Cancelled;
                 }
 
+                // E81 — a tiny selection gets a compact toolbar.
+                let compact = matches!((*region_start, *region_end), (Some(s), Some(e)) if {
+                    let r = Rect::from_two_pos(s, e);
+                    r.width() < 260.0 || r.height() < 140.0
+                });
                 egui::Area::new(egui::Id::new("region_actions"))
                     .order(egui::Order::Foreground)
                     .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 12.0))
                     .show(ctx, |ui| {
+                        // E100 — the HUD chrome stays neutral dark regardless
+                        // of the app theme so it reads over any backdrop.
                         Frame::none()
-                            .fill(theme::SURFACE())
+                            .fill(Color32::from_black_alpha(230))
                             .rounding(theme::rounding_md())
-                            .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                            .inner_margin(egui::Margin::symmetric(
+                                if compact { 8.0 } else { 12.0 },
+                                if compact { 4.0 } else { 8.0 },
+                            ))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
-                                    ui.label(
-                                        RichText::new(if pick_mode { "Window" } else { "Region" })
-                                            .size(13.0)
-                                            .strong()
-                                            .color(theme::TEXT()),
-                                    );
+                                    let ink = Color32::from_gray(235);
+                                    if !compact {
+                                        ui.label(
+                                            RichText::new(if pick_mode { "Window" } else { "Region" })
+                                                .size(13.0)
+                                                .strong()
+                                                .color(ink),
+                                        );
+                                    }
                                     if !pick_mode {
                                         for (label, ratio) in [
                                             ("Free", None),
@@ -480,12 +710,28 @@ pub fn show_region_selector(
                                             if ui
                                                 .selectable_label(
                                                     *aspect_lock == ratio,
-                                                    RichText::new(label).size(11.0),
+                                                    RichText::new(label).size(11.0).color(ink),
                                                 )
                                                 .clicked()
                                             {
                                                 *aspect_lock = ratio;
                                             }
+                                        }
+                                        // E87 — grid overlay cycles thirds →
+                                        // quarters → off.
+                                        let grid_id = egui::Id::new("region_grid_mode");
+                                        let grid: u8 = ctx
+                                            .data_mut(|d| d.get_temp(grid_id))
+                                            .unwrap_or(0);
+                                        let glabel = ["▦", "▩", "▢"][grid.min(2) as usize];
+                                        if ui
+                                            .button(RichText::new(glabel).size(12.0).color(ink))
+                                            .on_hover_text("Grid: thirds → quarters → off")
+                                            .clicked()
+                                        {
+                                            ctx.data_mut(|d| {
+                                                d.insert_temp(grid_id, (grid + 1) % 3)
+                                            });
                                         }
                                         // E21 — centered-box presets in *pixels*
                                         // for README/demo captures.
@@ -537,6 +783,55 @@ pub fn show_region_selector(
     result
 }
 
+/// Nearest edge (coord, span_lo, span_hi) within `tol` of `v`, if any.
+fn nearest_edge(v: f32, edges: &[(f32, f32, f32)], tol: f32) -> Option<(f32, f32, f32)> {
+    edges
+        .iter()
+        .copied()
+        .filter(|(c, _, _)| (v - c).abs() <= tol)
+        .min_by(|a, b| {
+            (v - a.0)
+                .abs()
+                .partial_cmp(&(v - b.0).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+}
+
+/// Snap `p` to the nearest screen or window edge within 8 px (E78) and
+/// return guide segments for the matched edges (E79).
+fn snap_with_guides(p: Pos2, screen: Rect, win_rects: &[Rect]) -> (Pos2, Vec<(Pos2, Pos2)>) {
+    const TOL: f32 = 8.0;
+    // (coord, span_lo, span_hi): x-edges carry their y-extent and vice versa.
+    let mut xs: Vec<(f32, f32, f32)> = vec![
+        (screen.min.x, screen.min.y, screen.max.y),
+        (screen.max.x, screen.min.y, screen.max.y),
+    ];
+    let mut ys: Vec<(f32, f32, f32)> = vec![
+        (screen.min.y, screen.min.x, screen.max.x),
+        (screen.max.y, screen.min.x, screen.max.x),
+    ];
+    for r in win_rects {
+        if r.width() < 4.0 || r.height() < 4.0 {
+            continue;
+        }
+        xs.push((r.min.x, r.min.y, r.max.y));
+        xs.push((r.max.x, r.min.y, r.max.y));
+        ys.push((r.min.y, r.min.x, r.max.x));
+        ys.push((r.max.y, r.min.x, r.max.x));
+    }
+    let mut out = p;
+    let mut guides = Vec::new();
+    if let Some((c, lo, hi)) = nearest_edge(p.x, &xs, TOL) {
+        out.x = c;
+        guides.push((Pos2::new(c, lo), Pos2::new(c, hi)));
+    }
+    if let Some((c, lo, hi)) = nearest_edge(p.y, &ys, TOL) {
+        out.y = c;
+        guides.push((Pos2::new(lo, c), Pos2::new(hi, c)));
+    }
+    (out, guides)
+}
+
 /// Aspect-lock clamp: keep the drag's width, pin height to `width / ratio`.
 /// Anchored at `rect.min` like the Shift/Alt modifier clamps.
 fn aspect_clamped(rect: Rect, ratio: f32) -> Rect {
@@ -544,17 +839,38 @@ fn aspect_clamped(rect: Rect, ratio: f32) -> Rect {
     Rect::from_min_size(rect.min, Vec2::new(w, w / ratio.max(f32::EPSILON)))
 }
 
+/// Hint text on a translucent dark pill — legible over any backdrop
+/// brightness (E80) regardless of app theme (E100).
+fn paint_hint_pill(painter: &egui::Painter, center: Pos2, text: &str, size: f32) {
+    let ink = Color32::from_gray(235);
+    let galley = painter.layout_no_wrap(text.to_string(), FontId::proportional(size), ink);
+    let pad = Vec2::new(10.0, 5.0);
+    let plate = Rect::from_center_size(center, galley.size() + pad * 2.0);
+    painter.rect_filled(plate, plate.height() / 2.0, Color32::from_black_alpha(170));
+    painter.galley(plate.min + pad, galley, ink);
+}
+
 /// Returns the W×H plate rect so the caller can attach click-to-copy (E91).
-fn paint_selection_hud(painter: &egui::Painter, rect: Rect, ppp: f32) -> Rect {
+/// `cursor` lets the plate hop to a corner that isn't under the pointer (E76).
+/// `grid`: 0 = thirds, 1 = quarters, 2 = off (E87).
+fn paint_selection_hud(
+    painter: &egui::Painter,
+    rect: Rect,
+    ppp: f32,
+    screen: Rect,
+    cursor: Option<Pos2>,
+    grid: u8,
+) -> Rect {
     painter.rect_filled(rect, 0.0, Color32::TRANSPARENT);
     painter.rect_stroke(rect, 0.0, Stroke::new(2.0_f32, theme::ACCENT()));
 
-    // Rule of thirds
+    // Composition grid — thirds or quarters, toggled by the ▦ chip (E87).
     let third_stroke = Stroke::new(1.0_f32, theme::HUD_GUIDE());
     let w = rect.width();
     let h = rect.height();
-    if w > 24.0 && h > 24.0 {
-        for i in 1..3 {
+    let cells = if grid == 1 { 4 } else { 3 };
+    if grid < 2 && w > 24.0 && h > 24.0 {
+        for i in 1..cells {
             let x = rect.min.x + w * (i as f32) / 3.0;
             painter.line_segment(
                 [Pos2::new(x, rect.min.y), Pos2::new(x, rect.max.y)],
@@ -604,15 +920,43 @@ fn paint_selection_hud(painter: &egui::Painter, rect: Rect, ppp: f32) -> Rect {
     } else {
         format!("{}×{}", rect.width() as i32, rect.height() as i32)
     };
-    let label_pos = rect.left_top() + Vec2::new(6.0, -26.0);
     let galley = painter.layout_no_wrap(wh, FontId::proportional(13.0), theme::ON_SOLID());
     let pad = Vec2::new(8.0, 4.0);
-    let plate = Rect::from_min_size(label_pos, galley.size() + pad * 2.0);
-    let plate = if plate.min.y < 4.0 {
-        plate.translate(Vec2::new(0.0, rect.height() + 30.0))
-    } else {
-        plate
-    };
+    let size = galley.size() + pad * 2.0;
+    // E76 — plate follows the selection but never sits under the cursor:
+    // above-left, then below-left, then inside top-right, then inside
+    // bottom-right; first fit on screen + off-cursor wins.
+    let candidates = [
+        Rect::from_min_size(rect.left_top() + Vec2::new(6.0, -size.y - 4.0), size),
+        Rect::from_min_size(rect.left_bottom() + Vec2::new(6.0, 4.0), size),
+        Rect::from_min_size(rect.right_top() + Vec2::new(-size.x - 6.0, 4.0), size),
+        Rect::from_min_size(
+            rect.right_bottom() + Vec2::new(-size.x - 6.0, -size.y - 4.0),
+            size,
+        ),
+    ];
+    let plate = candidates
+        .iter()
+        .copied()
+        .find(|p| {
+            screen.contains(p.min)
+                && screen.contains(p.max)
+                && cursor.map(|c| !p.expand(4.0).contains(c)).unwrap_or(true)
+        })
+        .unwrap_or_else(|| {
+            // Tiny selection / no fit — inside top-left, clamped on screen.
+            let p = Pos2::new(
+                (rect.min.x + 4.0).clamp(
+                    screen.min.x + 4.0,
+                    (screen.max.x - size.x - 4.0).max(screen.min.x + 4.0),
+                ),
+                (rect.min.y + 4.0).clamp(
+                    screen.min.y + 4.0,
+                    (screen.max.y - size.y - 4.0).max(screen.min.y + 4.0),
+                ),
+            );
+            Rect::from_min_size(p, size)
+        });
     painter.rect_filled(plate, 4.0, theme::ACCENT());
     painter.galley(plate.min + pad, galley, theme::ON_SOLID());
     plate
@@ -858,5 +1202,34 @@ mod tests {
         assert!((square.height() - 160.0).abs() < 0.01);
         let safe = aspect_clamped(drag, 0.0);
         assert!(safe.height().is_finite());
+    }
+
+    #[test]
+    fn snap_prefers_nearest_window_edge_over_screen() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1920.0, 1080.0));
+        let win = Rect::from_min_size(Pos2::new(300.0, 200.0), Vec2::new(800.0, 600.0));
+        // 5 px inside the window's right edge (1100) — snaps to it, not the
+        // screen edge 820 px away.
+        let (p, guides) = snap_with_guides(Pos2::new(1095.0, 500.0), screen, &[win]);
+        assert_eq!(p.x, 1100.0);
+        assert_eq!(p.y, 500.0);
+        assert_eq!(guides.len(), 1);
+        // The guide traces the snapped vertical edge.
+        assert_eq!(guides[0].0, Pos2::new(1100.0, 200.0));
+        assert_eq!(guides[0].1, Pos2::new(1100.0, 800.0));
+        // Beyond the 8 px tolerance — no snap, no guide.
+        let (p2, g2) = snap_with_guides(Pos2::new(1090.0, 500.0), screen, &[win]);
+        assert_eq!(p2.x, 1090.0);
+        assert!(g2.is_empty());
+    }
+
+    #[test]
+    fn snap_hits_screen_and_window_on_both_axes() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1920.0, 1080.0));
+        let win = Rect::from_min_size(Pos2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        // x near screen edge, y near window top — both snap.
+        let (p, guides) = snap_with_guides(Pos2::new(1916.0, 104.0), screen, &[win]);
+        assert_eq!(p, Pos2::new(1920.0, 100.0));
+        assert_eq!(guides.len(), 2);
     }
 }

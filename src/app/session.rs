@@ -70,6 +70,9 @@ pub struct SessionState {
     /// E202 — subtle click when a still lands; off by default.
     #[serde(default)]
     pub shutter_sound: bool,
+    /// E95 — lifetime completed region picks; first-run HUD hints hide at 3.
+    #[serde(default)]
+    pub region_pick_count: u32,
     /// True after we have triggered the macOS Screen Recording permission probe once.
     #[serde(default)]
     pub screen_permission_prompted: bool,
@@ -225,6 +228,7 @@ impl Default for SessionState {
             hotkey_pause_digit: None,
             hotkey_prtscn: false,
             shutter_sound: false,
+            region_pick_count: 0,
             screen_permission_prompted: false,
             screen_permission_ok: false,
             rail_open: false,

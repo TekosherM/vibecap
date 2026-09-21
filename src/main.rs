@@ -807,6 +807,10 @@ pub(crate) struct VibecapApp {
     /// Aspect-ratio lock for the region drag (None = free). Persisted across
     /// picks so the HUD chip stays where the user left it.
     region_aspect_lock: Option<f32>,
+    /// E96 — confirmed region rects this session; Ctrl+Z in the HUD pops one.
+    region_history: Vec<Rect>,
+    /// E95 — lifetime completed picks (session); HUD hints hide after 3.
+    region_pick_count: u32,
     /// Seconds to wait after the hide before grabbing (menu/tooltip shots,
     /// Snipping-Tool parity). Applies to non-interactive stills only.
     capture_delay_secs: u64,
@@ -1107,6 +1111,8 @@ impl VibecapApp {
             hotkey_prtscn: false,
             hotkey_prtscn_prev: false,
             shutter_sound: false,
+            region_history: Vec::new(),
+            region_pick_count: 0,
             save_dir: default_dir,
             wake_shared: Arc::new(WakeShared::default()),
             arm_cancel: Arc::new(AtomicBool::new(false)),
@@ -1495,6 +1501,7 @@ impl VibecapApp {
         });
         self.filmstrip_low_res = s.filmstrip_low_res;
         self.region_dim = s.region_dim.min(200);
+        self.region_pick_count = s.region_pick_count;
         self.library_favorites = s.library_favorites.iter().cloned().collect();
         self.library_flagged = s.library_flagged.iter().cloned().collect();
         self.library_tags = s.library_tags.clone();
@@ -1581,6 +1588,7 @@ impl VibecapApp {
             rec_bar_pos: self.rec_bar_pos.map(|(x, y)| [x, y]),
             filmstrip_low_res: self.filmstrip_low_res,
             region_dim: self.region_dim,
+            region_pick_count: self.region_pick_count,
             library_favorites: self.library_favorites.iter().cloned().collect(),
             library_flagged: self.library_flagged.iter().cloned().collect(),
             inbox_seen_at: self.inbox_seen_stamp.clone(),
@@ -5535,6 +5543,13 @@ impl VibecapApp {
         self.selected_region = Some(selected);
         self.last_region = Some(selected);
         self.selected_screen_rect = Some(crop);
+        // E96 — Ctrl+Z in the HUD steps back through these.
+        self.region_history.push(selected);
+        if self.region_history.len() > 32 {
+            self.region_history.remove(0);
+        }
+        // E95 — first-run HUD hints hide after 3 completed picks.
+        self.region_pick_count = self.region_pick_count.saturating_add(1);
         self.persist_session();
 
         let kind = self.pending_region_kind.take();
@@ -6552,6 +6567,8 @@ impl eframe::App for VibecapApp {
                 &mut self.region_aspect_lock,
                 &mut self.window_pick_cycle,
                 self.region_dim,
+                self.region_pick_count,
+                &mut self.region_history,
             ) {
                 RegionHudResult::Continue => {}
                 RegionHudResult::Confirmed { selected, overlay } => {

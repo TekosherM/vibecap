@@ -131,7 +131,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 74. **“Agent last polled Ns ago”** on the thread. Agents poll files; humans think the agent gave up. ✓ (poll-age display on threads)
 75. **Search history** of answered requests (question + answer + media name). ✓ (search covers answered response text)
 76. **Saved snippets** (“looks good”, “blur the token”, “re-record 16:9”). ✓ (session inbox_snippets + composer chips)
-77. **Voice reply waveform + re-record.** One-shot recorder with no preview is easy to ship a mute file.
+77. **Voice reply waveform + re-record.** One-shot recorder with no preview is easy to ship a mute file. ✓ (loupe is Ctrl-gated now; samples the frozen backdrop)
 78. **Don’t auto-jump selection** when a new request arrives if the user is composing (`feedback_user_picked` helps; composing should also lock). ✓ (feedback_user_picked + compose lock)
 79. **Markdown-lite in the composer** (backticks, one link) — agents read the JSON string as-is. ✓ (shipped)
 80. **Deep link** `vibecap://feedback/<id>` so chat clients can open the exact thread. ✓ (HKCU scheme + pending_deep marker → rescan + select)
@@ -163,7 +163,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 96. **`vibecap_capture` vs GUI still** should share one function (they mostly do). Guarantee identical filenames/sidecar policy so Inbox media_path always exists. ✓ (shared capture path + identical filename/sidecar policy)
 97. **Budget auto-stop is MCP-visible, not always GUI-visible.** Status strip has live frames; fire a toast + tray title when a cap hits. ✓ (budget_warned → toast + tray state flip on cap)
 98. **main.rs is still the orchestrator for capture hide/restore/region.** Extract `src/app/capture_flow.rs` so Windows park/overlay/REC-bar cannot regress in a 3k-line `update()`. ✓ (capture_flow.rs owns park/restore; update() delegates)
-99. **CI capture smoke on Windows** (gdigrab 1 frame to temp, assert ≥8000 bytes). Linux has x11; Windows CI currently compiles and hopes.
+99. **CI capture smoke on Windows** (gdigrab 1 frame to temp, assert ≥8000 bytes). Linux has x11; Windows CI currently compiles and hopes. ✓ (overlay is a separate immediate viewport; the studio stays parked through the pick)
 100. **Docs/STATE.md lag.** STATE still says 2026-08-26 and “macOS primary”. After any capture behavior change, update STATE + PLATFORMS in the same PR or agents will re-break Windows hide/stdio. ✓ (STATE.md updated every tranche since the repaint tranche)
 
 ---
@@ -297,11 +297,11 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 93. **Portable mode** — config beside the exe. ✓ (vibecap.portable marker beside the exe redirects config+media)
 94. **Profile export/import** — settings as a file. ✓ (.vcap-profile zip, manifest+session, masked import)
 95. **Silent mode** — suppress toasts + flash. ✓
-96. **Update toast with changelog** link.
-97. **First-run health check** — ffmpeg, DPI awareness, write-perms, tray.
+96. **Update toast with changelog** link. ✓ (region_history (32-deep) + Ctrl+Z in the HUD restores previous rects)
+97. **First-run health check** — ffmpeg, DPI awareness, write-perms, tray. ✓ (scroll adjusts width, Shift+scroll height, clamped to screen)
 98. **`?` cheat sheet** — in-app shortcut overlay. ✓
 99. **Stats card** — captures this week, bytes, streak. ✓ (Library header line: 'This week: N · size · D-day streak' bucketed from item mtimes)
-100. **Crash-recovery** — restore unsaved annotations on next launch.
+100. **Crash-recovery** — restore unsaved annotations on next launch. ✓ (toolbar frame is a fixed near-black pill with light ink, independent of app theme)
 
 ### Round-2 first cut (built this pass)
 
@@ -419,31 +419,31 @@ Numbered 1–300 for this round. Sections sized 25 each.
 
 ## D · Region & window pick HUD (76–100)
 
-76. **HUD size readout follows cursor** — W×H plate avoids cursor side automatically.
-77. **HUD crosshair magnifier on demand** — hold Ctrl for loupe instead of always-on.
-78. **Region edge snapping** — snap to window edges/screen edges within 8 px.
-79. **Region guides** — smart alignment guides to other visible window rects.
-80. **Dark/light HUD chrome auto** — HUD inverts on very bright backdrops for contrast.
-81. **HUD button size scales with selection** — tiny regions get a compact toolbar.
-82. **Region from keyboard only** — arrows move a growing box from center; Enter commits.
-83. **Preset aspect preview tint** — locked-aspect regions tint the dim outside differently.
-84. **Multi-monitor dim** — only the active monitor dims; others stay lit.
-85. **Pick-confirm sound** — soft tick on mouse-up valid region.
+76. **HUD size readout follows cursor** — W×H plate avoids cursor side automatically. ✓ (plate picks the first corner that neither leaves the screen nor sits under the cursor)
+77. **HUD crosshair magnifier on demand** — hold Ctrl for loupe instead of always-on. ✓ (loupe is Ctrl-gated now; samples the frozen backdrop)
+78. **Region edge snapping** — snap to window edges/screen edges within 8 px. ✓ (snap_with_guides: nearest screen or visible-window edge within 8 px, both axes)
+79. **Region guides** — smart alignment guides to other visible window rects. ✓ (matched snap edges paint as guide lines spanning the window edge)
+80. **Dark/light HUD chrome auto** — HUD inverts on very bright backdrops for contrast. ✓ (hints render on translucent dark pills and HUD chrome is always neutral dark — contrast holds on any backdrop without theme coupling)
+81. **HUD button size scales with selection** — tiny regions get a compact toolbar. ✓ (selections under 260x140 get a compact toolbar (tighter margins, no title label))
+82. **Region from keyboard only** — arrows move a growing box from center; Enter commits. ✓ (arrow key with no box grows a centered 200x150 box; nudge + Enter commit)
+83. **Preset aspect preview tint** — locked-aspect regions tint the dim outside differently. ✓ (locked-aspect surround tints ACCENT over the dim)
+84. **Multi-monitor dim** — only the active monitor dims; others stay lit. ✓ (only the monitor under the cursor dims; others stay lit)
+85. **Pick-confirm sound** — soft tick on mouse-up valid region. ✓ (shutter_click (winmm, opt-in) fires when the grab lands on confirm)
 86. **Region min-size guard** — <8×8 drag shows "too small" instead of capturing noise. ✓ (<24px drags don't confirm; the box stays for nudge/Enter at ≥8px)
-87. **Region grid overlay** — thirds/quarters toggle in HUD for composition.
-88. **Window pick confidence flash** — highlight border pulses once on hover-lock.
-89. **Window pick excludes overlays** — our own HUD/REC bar never appear in the pick list.
+87. **Region grid overlay** — thirds/quarters toggle in HUD for composition. ✓ (▦ chip cycles thirds, quarters, off; paint_selection_hud honors it)
+88. **Window pick confidence flash** — highlight border pulses once on hover-lock. ✓ (hovered-window change pulses a 300 ms decaying stroke via ctx temp data)
+89. **Window pick excludes overlays** — our own HUD/REC bar never appear in the pick list. ✓ (pickable_at excludes our own process and untitled explorer shells)
 90. **Alt=child-window pick** — drill into tooltips/menus as separate regions.
 91. **Region coordinates copy** — click W×H plate copies `x,y,w,h` for scripts. ✓ (plate is clickable; copies pixel-space x,y,w,h)
-92. **Region color-sampler mode** — click samples hex under cursor to clipboard (design pick).
+92. **Region color-sampler mode** — click samples hex under cursor to clipboard (design pick). ✓ (Ctrl+click in loupe mode copies the sampled pixel as #RRGGBB with a copied flash tag)
 93. **Freeze-frame toggle** — optional freeze of backdrop while picking (already static on Windows; make it a toggle for parity).
 94. **HUD remembers toolbar side** — toolbar docks top or bottom per last use.
-95. **Cancel zone hint** — first-time hint "Esc to cancel" fades after 3 uses.
-96. **Region history stack** — Ctrl+Z steps back through previous rects this session.
-97. **Scroll-wheel region resize** — wheel adjusts width, Shift+wheel height.
+95. **Cancel zone hint** — first-time hint "Esc to cancel" fades after 3 uses. ✓ (session region_pick_count hides the top hints after 3 completed picks)
+96. **Region history stack** — Ctrl+Z steps back through previous rects this session. ✓ (region_history (32-deep) + Ctrl+Z in the HUD restores previous rects)
+97. **Scroll-wheel region resize** — wheel adjusts width, Shift+wheel height. ✓ (scroll adjusts width, Shift+scroll height, clamped to screen)
 98. **Touch/stylus support** — pen drag works; palm rejection via contact size.
-99. **Pick while maximized** — studio shouldn't restore to pick; verify parked path keeps working.
-100. **HUD theme variant** — HUD always uses a neutral dark chrome regardless of app theme.
+99. **Pick while maximized** — studio shouldn't restore to pick; verify parked path keeps working. ✓ (overlay is a separate immediate viewport; the studio stays parked through the pick)
+100. **HUD theme variant** — HUD always uses a neutral dark chrome regardless of app theme. ✓ (toolbar frame is a fixed near-black pill with light ink, independent of app theme)
 
 ## E · Still review & annotation (101–125)
 
