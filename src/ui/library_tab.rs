@@ -469,7 +469,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     crate::app::library::format_size(week_bytes),
                     streak
                 ))
-                .small()
+                .font(theme::mono_font(10.5))
                 .color(theme::TEXT_DIM()),
             );
         }

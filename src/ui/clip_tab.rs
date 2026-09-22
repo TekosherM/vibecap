@@ -73,7 +73,7 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
                 chip.center(),
                 egui::Align2::CENTER_CENTER,
                 label,
-                egui::FontId::proportional(11.0),
+                theme::mono_font(11.0),
                 theme::ON_SOLID(),
             );
         }
@@ -267,7 +267,7 @@ fn player(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context, duration
         ui.add_space(theme::SP_2);
         ui.label(
             RichText::new(format_timecode(app.player_pos))
-                .size(11.0)
+                .font(theme::mono_font(11.0))
                 .color(theme::TEXT()),
         );
         ui.add(
@@ -505,13 +505,15 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
         ui.add(
             egui::TextEdit::singleline(&mut app.trim_start)
                 .desired_width(72.0)
-                .hint_text("00:00:00"),
+                .hint_text("00:00:00")
+                .font(theme::mono_font(12.0)),
         );
         ui.label(RichText::new("End").size(12.0).color(theme::TEXT_MUTED()));
         ui.add(
             egui::TextEdit::singleline(&mut app.trim_end)
                 .desired_width(72.0)
-                .hint_text("00:00:10"),
+                .hint_text("00:00:10")
+                .font(theme::mono_font(12.0)),
         );
     });
     group(ui, "SPEED", |ui| {
@@ -544,7 +546,7 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
             * 18.0) as u64;
         ui.label(
             RichText::new(format!("~{} KB", est.max(20)))
-                .small()
+                .font(theme::mono_font(10.5))
                 .color(theme::TEXT_DIM()),
         );
     });

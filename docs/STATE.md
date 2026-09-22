@@ -566,3 +566,12 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   Runs through `spawn_work_job` (multi-step worker sharing ffmpeg_tx).
   No overrides -> the existing single-pass filter path stays.
 - Tests: 114 green.
+
+### Numeric font sweep — roadmap fully closed
+- E15 closed: mono face extended to the last proportional-numeric
+  surfaces — clip player timecode, trim TextEdit fields, marker chips,
+  GIF ~KB estimate, inbox per-request cost chips, library "This week"
+  stats. Every numeric surface the item names is mono (tnum isn't
+  reachable through egui 0.28; mono was the item's accepted fallback).
+- Roadmap status: all four rounds shipped; zero open items remain.
+- Tests: 114 green.

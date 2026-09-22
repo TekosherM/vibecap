@@ -668,7 +668,7 @@ fn thread_row(
                 if df > 0 || dmb > 0.05 {
                     ui.label(
                         RichText::new(format!("+{df} frames · +{dmb:.1} MB since asked"))
-                            .size(10.0)
+                            .font(theme::mono_font(10.0))
                             .color(theme::TEXT_DIM()),
                     );
                 }
