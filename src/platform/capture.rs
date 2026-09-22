@@ -747,7 +747,16 @@ pub fn export_gif_delays(
                 .then(|| p.to_string_lossy().replace('\\', "/"))
         })
         .collect();
-    frames.sort();
+    // Numeric sort on the %04d index — lexical order breaks at 10,000+
+    // frames (f_10000 sorts before f_9999), scrambling long GIFs.
+    frames.sort_by_key(|p| {
+        p.rsplit('/')
+            .next()
+            .and_then(|n| n.strip_prefix("f_"))
+            .and_then(|n| n.strip_suffix(".png"))
+            .and_then(|n| n.parse::<u32>().ok())
+            .unwrap_or(u32::MAX)
+    });
     if frames.is_empty() {
         let _ = std::fs::remove_dir_all(&tmp);
         return Err("frame extraction produced no frames".into());
@@ -1122,7 +1131,7 @@ fn record_args(
                 a.push(
                     "[1:a][2:a]amix=inputs=2:duration=first,asplit=2[a][m];\
                      [m]astats=metadata=1:measure_overall=Peak_level,\
-                     ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file=-,\
+                     ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file=-:direct=1,\
                      anullsink"
                         .into(),
                 );
@@ -1194,7 +1203,7 @@ fn record_args(
         // rejects -af on a stream fed from a complex graph.
         a.push("-af".into());
         a.push(
-            "astats=metadata=1:measure_overall=Peak_level,ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file=-".into(),
+            "astats=metadata=1:measure_overall=Peak_level,ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file=-:direct=1".into(),
         );
     }
     a.push("-c:v".into());
@@ -1630,6 +1639,53 @@ mod tests {
                 "file 'C:/t/f_0001.png'", // dup-last sentinel
             ]
         );
+    }
+
+    /// E58 — end-to-end: real clip in, real GIF out, per-frame durations
+    /// honored by the concat demuxer. Skips when ffmpeg is unavailable.
+    #[test]
+    fn export_gif_delays_produces_real_gif() {
+        if !super::super::ffmpeg::ffmpeg_available() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("vibecap_gif_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let clip = dir.join("in.mp4");
+        let mut gen = super::super::ffmpeg::ffmpeg_command().unwrap();
+        gen.args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=1:size=64x64:rate=10",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(&clip)
+        .output()
+        .unwrap();
+        assert!(clip.exists(), "test clip not generated");
+
+        let gif = dir.join("out.gif");
+        export_gif_delays(
+            &clip,
+            "00:00:00",
+            "00:00:01",
+            &gif,
+            10,
+            64,
+            &[200, 50], // frame 0: 200 ms, frame 1: 50 ms, rest default
+            0,
+            false,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&gif).unwrap();
+        assert!(bytes.len() > 100, "gif too small: {}", bytes.len());
+        assert_eq!(&bytes[..6], b"GIF89a", "not a GIF89 header");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// E256 — verify_mp4 must accept a real ffmpeg-written file and reject

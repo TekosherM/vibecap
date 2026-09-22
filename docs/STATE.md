@@ -575,3 +575,15 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   reachable through egui 0.28; mono was the item's accepted fallback).
 - Roadmap status: all four rounds shipped; zero open items remain.
 - Tests: 114 green.
+
+### Review fix pass (agent-code-review)
+- E36 meter: -af moved INSIDE the mix -filter_complex (asplit tap ->
+  astats/ametadata/direct=1 -> anullsink) after real ffmpeg rejected
+  "-af on complex-graph stream". -af stays for the single-device path.
+  ametadata direct=1 reduces avio buffering so peak lines flush fast.
+- audio_peak_db: -inf (digital silence) maps to -90 dB floor instead of
+  freezing the meter on the last loud value.
+- export_gif_delays: temp dir pre-cleaned (stale frames could bleed into
+  a same-stem retry); numeric frame-index sort (lexical order breaks
+  past 9,999 frames); new ffmpeg-gated e2e test produces a real GIF89a.
+- Tests: 115 green, zero warnings.
