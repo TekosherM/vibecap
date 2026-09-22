@@ -19,7 +19,7 @@ mod win32;
 // headless/embedding call sites, not the GUI — keep them warning-free).
 #[allow(unused_imports)]
 pub use capture::{
-    capture_live_frame, capture_screenshot, capture_screenshot_interactive,
+    audio_peak_db, capture_live_frame, capture_screenshot, capture_screenshot_interactive,
     capture_screenshot_opts, capture_screenshot_region, capture_to_dir, crop_image_file,
     even_screen_rect, export_gif_clip, export_gif_clip_ex, ffmpeg_log_ring, record_dry_run_line,
     record_screen_clip_opts, remember_ffmpeg_log, remux_to_clean_mp4, spawn_screen_recorder,

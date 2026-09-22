@@ -1054,6 +1054,15 @@ fn record_args(
         a.push(vf.join(","));
     }
 
+    if with_audio {
+        // E36 — live level meter: astats computes a per-frame peak and
+        // ametadata prints it to stdout, which lands in the sibling
+        // .ffmpeg.log the GUI tails. dBFS lines at ~fps rate.
+        a.push("-af".into());
+        a.push(
+            "astats=metadata=1:measure_overall=Peak_level,ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file=-".into(),
+        );
+    }
     a.push("-c:v".into());
     a.push("libx264".into());
     // Real-time screen capture: the default "medium" preset saturates a core on
@@ -1074,6 +1083,25 @@ fn record_args(
     }
     a.push(out_s.to_string());
     Ok(a)
+}
+
+/// E36 — newest `Peak_level` dBFS in the recorder's .ffmpeg.log (written by
+/// the astats/ametadata meter filter while audio is on). `None` when absent.
+pub fn audio_peak_db(log_path: &Path) -> Option<f32> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(log_path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let tail = len.min(16_384);
+    f.seek(SeekFrom::End(-(tail as i64))).ok()?;
+    let mut buf = vec![0u8; tail as usize];
+    f.read_exact(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let i = text.rfind("Peak_level=")?;
+    let rest = &text[i + "Peak_level=".len()..];
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == 'e'))
+        .unwrap_or(rest.len());
+    rest[..end].parse().ok()
 }
 
 /// E280 — resolved recorder argv as a printable shell line (no spawn).
@@ -1337,6 +1365,77 @@ mod tests {
         assert!(joined.contains("-framerate 1/5"), "{joined}");
         assert!(joined.contains("fps=30"), "{joined}");
         assert!(!joined.contains("dshow"), "{joined}");
+    }
+
+    /// E36 — audio-on recordings carry the astats/ametadata meter filter so
+    /// Peak_level lines land in .ffmpeg.log for the GUI's live meter; silent
+    /// recordings and time-lapses skip it.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn record_args_audio_meter_filter() {
+        let opts = CaptureOpts::default().with_audio_device("TestMic");
+        let on = record_args(
+            std::path::Path::new("C:\\out\\v.mp4"),
+            30,
+            true,
+            None,
+            &opts,
+            true,
+            true,
+        )
+        .unwrap()
+        .join(" ");
+        assert!(on.contains("astats=metadata=1"), "{on}");
+        assert!(on.contains("ametadata=mode=print"), "{on}");
+
+        let off = record_args(
+            std::path::Path::new("C:\\out\\v.mp4"),
+            30,
+            false,
+            None,
+            &opts,
+            true,
+            true,
+        )
+        .unwrap()
+        .join(" ");
+        assert!(!off.contains("astats"), "{off}");
+
+        let lapse = record_args(
+            std::path::Path::new("C:\\out\\v.mp4"),
+            30,
+            true,
+            None,
+            &CaptureOpts::default()
+                .with_audio_device("TestMic")
+                .with_timelapse(5),
+            true,
+            true,
+        )
+        .unwrap()
+        .join(" ");
+        assert!(!lapse.contains("astats"), "{lapse}");
+    }
+
+    /// E36 — the GUI parser pulls the newest Peak_level line out of the
+    /// log tail (ffmpeg writes `key=value` under a frame header).
+    #[test]
+    fn audio_peak_db_parses_newest_line() {
+        let dir = std::env::temp_dir().join(format!("vibecap_meter_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("t.ffmpeg.log");
+        std::fs::write(
+            &log,
+            "frame:1 pts:1\nlavfi.astats.Overall.Peak_level=-20.5\n\
+             frame:2 pts:2\nlavfi.astats.Overall.Peak_level=-7.25\n",
+        )
+        .unwrap();
+        let db = audio_peak_db(&log).unwrap();
+        assert!((db - (-7.25)).abs() < 0.001, "{db}");
+
+        std::fs::write(&log, "no meter lines here\n").unwrap();
+        assert!(audio_peak_db(&log).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// E256 — verify_mp4 must accept a real ffmpeg-written file and reject

@@ -540,3 +540,17 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   darkened to zinc-600.
 - E12: icons.rs detail strokes normalized to base+0.3 named stroke.
 - Tests: 108 green.
+
+### Live audio meter + rail reorder
+- E36: `-af astats=metadata=1:measure_overall=Peak_level,ametadata=mode=
+  print:file=-` rides the recording's own ffmpeg — Peak_level dBFS lines
+  land in the sibling .ffmpeg.log (already file-redirected, so no pipe
+  drain/deadlock risk). `audio_peak_db` tails the last 16 KB ~4x/s while
+  recording; capture card paints a 6 px meter bar (accent < -18 dB, warn,
+  danger >= -6) + mono dB readout. Time-lapse/silent recordings skip it.
+- E29: right-click a rail stage -> Pin to top / Move up / Move down /
+  Reset; `rail_order` labels persist in session.json; zone dividers
+  (CAPTURE/KEEP/AGENT) follow the custom order; Settings stays pinned.
+- E49 marked done — the meter reads the amix output's Peak_level
+  (per-source meters would need separate pipes; deferred).
+- Tests: 113 green.

@@ -207,6 +207,9 @@ pub struct SessionState {
     /// E26 — icon-only rail (labels + divider text hidden).
     #[serde(default)]
     pub rail_collapsed: bool,
+    /// E29 — persisted rail stage order (labels); empty = canonical.
+    #[serde(default)]
+    pub rail_order: Vec<String>,
     /// E46 — top tab strip instead of the left rail (Snagit-style chrome).
     #[serde(default)]
     pub top_tabs: bool,
@@ -368,6 +371,7 @@ impl Default for SessionState {
             restore_tab: true,
             window_sizes: std::collections::HashMap::new(),
             rail_collapsed: false,
+            rail_order: Vec::new(),
             top_tabs: false,
             inspector_open: true,
             region_live_backdrop: false,

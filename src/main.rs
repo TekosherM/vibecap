@@ -625,6 +625,9 @@ pub(crate) struct VibecapApp {
     audio_device: String,
     /// E49 — optional second dshow device mixed into recordings (loopback).
     audio_mix_device: String,
+    /// E36 — newest dBFS peak from the recorder's astats meter (via .ffmpeg.log).
+    audio_level_db: f32,
+    audio_meter_at: Option<Instant>,
     fps_target: u32,
     /// C55 — recording quality (libx264 `-crf`): 18 sharp / 23 balanced / 28 small.
     record_crf: u8,
@@ -1063,6 +1066,8 @@ pub(crate) struct VibecapApp {
     window_sizes: std::collections::HashMap<String, [f32; 2]>,
     /// E26 — icon-only rail.
     rail_collapsed: bool,
+    /// E29 — persisted rail stage order (labels); empty = canonical.
+    rail_order: Vec<String>,
     /// E46 — horizontal tab strip across the top instead of the left rail.
     top_tabs: bool,
     /// E38 — docked metadata inspector on Review stages.
@@ -1414,6 +1419,7 @@ impl VibecapApp {
             restore_tab: true,
             window_sizes: std::collections::HashMap::new(),
             rail_collapsed: false,
+            rail_order: Vec::new(),
             top_tabs: false,
             reduce_motion: false,
             aurora_hue: 0.0,
@@ -1700,6 +1706,7 @@ impl VibecapApp {
         };
         self.window_sizes = s.window_sizes;
         self.rail_collapsed = s.rail_collapsed;
+        self.rail_order = s.rail_order.clone();
         self.top_tabs = s.top_tabs;
         self.inspector_open = s.inspector_open;
         self.region_live_backdrop = s.region_live_backdrop;
@@ -1958,6 +1965,7 @@ impl VibecapApp {
             restore_tab: self.restore_tab,
             window_sizes: self.window_sizes.clone(),
             rail_collapsed: self.rail_collapsed,
+            rail_order: self.rail_order.clone(),
             top_tabs: self.top_tabs,
             inspector_open: self.inspector_open,
             region_live_backdrop: self.region_live_backdrop,
@@ -7342,6 +7350,25 @@ impl eframe::App for VibecapApp {
         // E74 — clipboard watcher (800 ms seq poll inside; the copy cost is
         // one user32 read until a change actually lands).
         self.tick_clipboard_watcher(ctx);
+        // E36 — poll the recorder's meter output ~4×/s while audio is on.
+        if self.is_recording && self.capture_audio {
+            if self
+                .audio_meter_at
+                .map(|t| t.elapsed() > Duration::from_millis(250))
+                .unwrap_or(true)
+            {
+                self.audio_meter_at = Some(Instant::now());
+                if let Some(mp4) = &self.current_mp4_file {
+                    let log = mp4.with_extension("ffmpeg.log");
+                    if let Some(db) = crate::platform::audio_peak_db(&log) {
+                        self.audio_level_db = db;
+                    }
+                }
+            }
+        } else {
+            self.audio_level_db = -90.0;
+            self.audio_meter_at = None;
+        }
         // E73 — scheduled still: fires as soon as its Instant passes and no
         // capture/selection owns the screen.
         if let Some(t) = self.scheduled_shot_at {
@@ -8356,6 +8383,7 @@ impl eframe::App for VibecapApp {
                         rec_live,
                         self.brand_logo.as_ref(),
                         &mut self.rail_collapsed,
+                        &mut self.rail_order,
                     ) {
                         self.current_tab = self.tab_for_loop(stage);
                     }

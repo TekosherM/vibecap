@@ -1,7 +1,7 @@
 //! Capture tab UI (extracted from main for Phase 1a).
 
 use eframe::egui;
-use egui::{RichText, Stroke};
+use egui::{vec2, Rect, RichText, Rounding, Sense, Stroke};
 
 use crate::ui::theme;
 use crate::ui::{btn_small, switch};
@@ -130,6 +130,44 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 }
                                 ShutterAction::Gif => app.trigger_gif_clip(ctx),
                             }
+                        }
+                        // E36 — live input meter while audio is on: the
+                        // recorder's astats filter writes Peak_level dBFS to
+                        // the .ffmpeg.log; the app tails it ~4×/s.
+                        if app.is_recording && app.capture_audio {
+                            ui.add_space(theme::SP_1);
+                            let db = app.audio_level_db;
+                            let frac = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                            let color = if db > -6.0 {
+                                theme::DANGER()
+                            } else if db > -18.0 {
+                                theme::WARN()
+                            } else {
+                                theme::ACCENT()
+                            };
+                            let w = ui.available_width();
+                            let (rect, _) =
+                                ui.allocate_exact_size(vec2(w, 6.0), Sense::hover());
+                            ui.painter().rect_filled(
+                                rect,
+                                Rounding::same(3.0),
+                                theme::SURFACE_2(),
+                            );
+                            if frac > 0.0 {
+                                ui.painter().rect_filled(
+                                    Rect::from_min_size(
+                                        rect.min,
+                                        vec2(rect.width() * frac, rect.height()),
+                                    ),
+                                    Rounding::same(3.0),
+                                    color,
+                                );
+                            }
+                            ui.label(
+                                RichText::new(format!("🎙 {:+.0} dB", db.max(-99.0)))
+                                    .font(theme::mono_font(10.0))
+                                    .color(theme::TEXT_DIM()),
+                            );
                         }
                         // E57 — if a capture owns the park but the studio is
                         // visible anyway (tray open, CLI poke), say so instead

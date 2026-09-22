@@ -240,7 +240,7 @@ pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, subtitle: &str) {
 
 // ── Loop rail ───────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LoopStage {
     Shutter,
     Review,
@@ -279,6 +279,39 @@ impl LoopStage {
             Self::Settings => Icon::Settings,
         }
     }
+
+    /// E29 — persisted rail order stores labels as keys.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::all().into_iter().find(|s| s.label() == key)
+    }
+
+    /// E29 — zone label for the rail divider ahead of this stage.
+    fn zone(self) -> &'static str {
+        match self {
+            Self::Shutter | Self::Review => "CAPTURE",
+            Self::Media => "KEEP",
+            Self::Inbox => "AGENT",
+            Self::Settings => "APP",
+        }
+    }
+
+    /// E29 — effective rail order: the persisted list, unknown/dup keys
+    /// dropped, any missing stage appended in canonical order. Settings
+    /// always stays pinned at the bottom like a normal app.
+    pub fn ordered(order: &[String]) -> Vec<Self> {
+        let mut v: Vec<Self> = order
+            .iter()
+            .filter_map(|k| Self::from_key(k))
+            .filter(|s| !matches!(s, Self::Settings))
+            .collect();
+        v.dedup();
+        for s in Self::all() {
+            if !matches!(s, Self::Settings) && !v.contains(&s) {
+                v.push(s);
+            }
+        }
+        v
+    }
 }
 
 /// Left Loop rail. Returns newly selected stage if the user clicked.
@@ -289,6 +322,7 @@ pub fn loop_rail(
     rec_live: bool,
     logo: Option<&egui::TextureHandle>,
     collapsed: &mut bool,
+    order: &mut Vec<String>,
 ) -> Option<LoopStage> {
     let mut picked = None;
     // E26 — icon-only collapse: 48px rail, labels/divider text hidden,
@@ -421,23 +455,52 @@ pub fn loop_rail(
             };
             // Funnel: Capture → Review ↓, then the archive legs, Settings pinned
             // to the bottom like a normal app.
-            for (i, stage) in LoopStage::all().iter().enumerate() {
+            // E29 — order comes from the persisted rail_order; right-click a
+            // stage to pin it to the top, nudge it, or reset the rail.
+            let stages = LoopStage::ordered(order);
+            let mut prev_zone = "";
+            for (i, stage) in stages.iter().enumerate() {
                 let stage = *stage;
-                if matches!(stage, LoopStage::Settings) {
-                    continue;
+                if stage.zone() != prev_zone {
+                    divider(ui, stage.zone());
+                    prev_zone = stage.zone();
                 }
-                if i == 0 {
-                    divider(ui, "CAPTURE");
-                } else if matches!(stage, LoopStage::Media) {
-                    divider(ui, "KEEP");
-                } else if matches!(stage, LoopStage::Inbox) {
-                    divider(ui, "AGENT");
-                }
-                if stage_button(ui, stage).clicked() {
+                let resp = stage_button(ui, stage);
+                if resp.clicked() {
                     picked = Some(stage);
                 }
+                resp.context_menu(|ui| {
+                    let mut set = |v: Vec<LoopStage>| {
+                        *order = v.iter().map(|s| s.label().to_string()).collect();
+                    };
+                    if ui.button("Pin to top").clicked() {
+                        let mut v = vec![stage];
+                        v.extend(stages.iter().copied().filter(|s| *s != stage));
+                        set(v);
+                        ui.close_menu();
+                    }
+                    if ui.button("Move up").clicked() && i > 0 {
+                        let mut v = stages.clone();
+                        v.swap(i, i - 1);
+                        set(v);
+                        ui.close_menu();
+                    }
+                    if ui.button("Move down").clicked() && i + 1 < stages.len() {
+                        let mut v = stages.clone();
+                        v.swap(i, i + 1);
+                        set(v);
+                        ui.close_menu();
+                    }
+                    if !order.is_empty() && ui.button("Reset rail order").clicked() {
+                        order.clear();
+                        ui.close_menu();
+                    }
+                });
                 // Flow hint between the first two funnel steps.
-                if i == 0 && !is_collapsed {
+                if matches!(stage, LoopStage::Shutter)
+                    && matches!(stages.get(i + 1), Some(LoopStage::Review))
+                    && !is_collapsed
+                {
                     ui.label(RichText::new("↓").color(theme::TEXT_DIM()).size(11.0));
                 }
                 ui.add_space(theme::SP_1);
@@ -1289,4 +1352,46 @@ pub fn shutter_strip(
         });
 
     action
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LoopStage;
+
+    /// E29 — the persisted rail order is honored, unknown/dup keys drop,
+    /// missing stages append canonically, and Settings never leaves the
+    /// bottom slot.
+    #[test]
+    fn rail_order_honors_persisted_list() {
+        let o = LoopStage::ordered(&[]);
+        assert_eq!(
+            o,
+            vec![
+                LoopStage::Shutter,
+                LoopStage::Review,
+                LoopStage::Media,
+                LoopStage::Inbox
+            ]
+        );
+
+        let custom = vec![
+            "Inbox".to_string(),
+            "Library".to_string(),
+            "Bogus".to_string(),
+        ];
+        let o = LoopStage::ordered(&custom);
+        assert_eq!(
+            o,
+            vec![
+                LoopStage::Inbox,
+                LoopStage::Media,
+                LoopStage::Shutter,
+                LoopStage::Review
+            ]
+        );
+
+        // Settings can never be promoted out of the bottom pin.
+        let sneaky = vec!["Settings".to_string(), "Inbox".to_string()];
+        assert!(!LoopStage::ordered(&sneaky).contains(&LoopStage::Settings));
+    }
 }

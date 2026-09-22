@@ -70,7 +70,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 33. **Naming tokens** `{app}-{date}-{seq}` with a live preview in Settings. Default `screenshot_YYYY-MM-DD_HH-MM-SS.jpg` is unreadable in a folder of 200. ✓ (was already shipped — `{app} {date} {time} {seq} {orig}` tokens + live Preview line in Settings)
 34. **Save-to last folder vs default media dir.** Agents pass `--output-dir`; GUI always uses `save_dir`. Add “set as agent default” so GUI and CLI agree (`VIBECAP_OUTPUT_DIR`). ✓ ('Use for CLI/agents' now persists VIBECAP_OUTPUT_DIR to HKCU\Environment via set_user_env, plus a 'Clear agent default' button)
 35. **GIF as a first-class shutter action** (still / record / GIF). Today GIF is an export from Clip or `--gif` on stop. ✓ (GIF button in the shutter strip next to Record)
-36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies. ◑ (the lie is fixed — Windows recordings now add a real dshow audio input and fail loudly when no device resolves; live level meter still open)
+36. **Audio meter** when “Include audio” is on. Windows audio is `VIBECAP_AUDIO_DEVICE` / `virtual-audio-capturer` — if the device is missing, the switch currently lies. ✓ (recordings add a real dshow input and fail loudly with no device; `-af astats=metadata=1,ametadata=print` writes Peak_level dBFS to .ffmpeg.log, which the app tails ~4×/s into a live meter bar under the shutter strip — accent < -18 dB, warn, danger ≥ -6)
 37. **Disable or warn the audio switch** on Windows until a device is detected (`ffmpeg -list_devices`). ✓ (async device probe + warn row existed; now the recording actually carries audio — and with zero devices the spawn errors honestly instead of recording silence)
 38. **FPS 24/30/60 + custom.** Segmented 30/60 only (`settings_tab.rs`). 24 is enough for bug clips and half the disk. ✓ (was already shipped — 24/30/60 chips in Settings)
 39. **Cursor draw toggle** for stills (`-draw_mouse 0` hardcoded). Demos want the pointer; bug stills often don’t. ✓ (was already shipped — 'Draw cursor on stills' switch → `draw_mouse` session field → `-draw_mouse`)
@@ -241,7 +241,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 46. **Window-record via pick** — same WindowPick overlay → record rect (crop record, no focus juggle). ✓
 47. **Follow-cursor recording** — crop rect pans with the pointer (for zoomed tutorials).
 48. **Webcam bubble** — second gdigrab/dshow source composited corner-overlay (big).
-49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters. ◑ (second dshow device mixed via amix=inputs:2 with explicit -map; live level meters still open)
+49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters. ✓ (second dshow device mixed via amix=inputs:2 with explicit -map; the E36 live meter reads the mixed output's Peak_level — per-source meters would need per-input astats + separate pipes, deferred)
 50. **Pause/resume hotkey** — dedicated digit. ✓ (opt-in Ctrl+Shift+N via 'Pause hotkey' in Settings; WakeEvent::PauseToggle wakes a parked studio like Stop)
 51. **REC bar source line** — shows target rect/monitor + audio state. ✓ (caption row under the timer: "Display 2" / "Region 800×600" / "Window: app" + ⚑ count; audio flag only where capture honors it)
 52. **REC bar position memory** — draggable, persists. ✓ (empty-space drag via ViewportCommand::StartDrag; position tracked from outer_rect, session-persisted, bounds-checked on load)
@@ -366,7 +366,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 26. **Collapsible rail** — icon-only 48 px mode; labels on hover tooltip. ✓ (rail_collapsed session flag + «/» toggle at rail bottom + Settings switch; 48px icons, hairline dividers, tooltips already present)
 27. **Rail badges** — numeric badge on Inbox (pending count), dot on Library (new items since open). ✓ (Inbox count shipped; Library new-dot open)
 28. **Rail section labels** — CAPTURE / REVIEW / SYSTEM group dividers in expanded mode. ✓ (caps dividers CAPTURE/KEEP/AGENT/APP segment the rail stages)
-29. **Rail drag-reorder** — let users pin favorite stages to top.
+29. **Rail drag-reorder** — let users pin favorite stages to top. ✓ (right-click a rail stage → Pin to top / Move up / Move down / Reset; order persists via `rail_order` labels, zone dividers follow the custom order, Settings stays bottom-pinned)
 30. **Keyboard rail nav** — Ctrl+1..5 jump to stages; shown in `?` sheet. ✓ (was already shipped)
 31. **Breadcrumb in Review** — `Library › clip_name` so Esc-depth is visible. ✓ (dim "Library ›" link prefix on Clip/Still headers; click jumps back)
 32. **Back button** — in-header ‹ Back for Review/Clip/Still; Alt+← binding. ✓ (Alt+←/→ shipped; header button open)
