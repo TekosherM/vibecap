@@ -575,6 +575,40 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
     });
     ui.checkbox(&mut app.gif_pingpong, "Ping-pong ↺")
         .on_hover_text("Boomerang — plays forward then in reverse (2× duration)");
+    // E58 — true per-frame delay list: each output frame's delay in ms,
+    // exported through the concat-demuxer path so durations are exact.
+    ui.checkbox(&mut app.gif_delay_edit, "Per-frame delays")
+        .on_hover_text("Set every output frame's delay in ms (slower, two-pass export)");
+    if app.gif_delay_edit {
+        let dur = (parse_timecode(&app.trim_end).unwrap_or(5.0)
+            - parse_timecode(&app.trim_start).unwrap_or(0.0))
+        .max(0.2);
+        let frames = ((dur * app.gif_fps as f64).round() as usize).clamp(1, 96);
+        let def_ms = (1000 / app.gif_fps.max(1)) as u32;
+        if app.gif_delays.len() < frames {
+            app.gif_delays.resize(frames, def_ms);
+        }
+        egui::ScrollArea::vertical()
+            .id_source("gif_delay_rows")
+            .max_height(110.0)
+            .show(ui, |ui| {
+                for i in 0..frames {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("{:>3}", i + 1))
+                                .font(theme::mono_font(10.0))
+                                .color(theme::TEXT_DIM()),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut app.gif_delays[i])
+                                .range(20..=5000)
+                                .suffix(" ms")
+                                .speed(4),
+                        );
+                    });
+                }
+            });
+    }
     ui.add_space(theme::SP_2);
     group(ui, "PRESETS", |ui| {
         let file_clone = file.to_path_buf();
@@ -694,6 +728,25 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
                 app.trim_start.replace(':', "-"),
                 timestamp
             ));
+            // E58 — per-frame overrides take the two-pass concat path so
+            // each frame's delay is exact (hold + ping-pong fold into the
+            // same list).
+            if app.gif_delay_edit && !app.gif_delays.is_empty() {
+                let (start, end) = (app.trim_start.clone(), app.trim_end.clone());
+                let (fps, width) = (app.gif_fps, app.gif_width);
+                let (delays, hold, pong) = (
+                    app.gif_delays.clone(),
+                    app.gif_hold_ms,
+                    app.gif_pingpong,
+                );
+                let src = file_clone.clone();
+                app.spawn_work_job("GIF exported", move || {
+                    crate::platform::export_gif_delays(
+                        &src, &start, &end, &gif_out, fps, width, &delays, hold, pong,
+                    )
+                });
+                return;
+            }
             app.spawn_ffmpeg_job(
                 vec![
                     "-ss".into(),

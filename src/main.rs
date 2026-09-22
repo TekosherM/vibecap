@@ -658,6 +658,10 @@ pub(crate) struct VibecapApp {
     gif_pingpong: bool,
     /// E58 — end-of-loop hold (ms): clone the last frame via tpad.
     gif_hold_ms: u32,
+    /// E58 — per-frame GIF delay overrides (ms), indexed by output frame;
+    /// `gif_delay_edit` reveals the per-frame list in the Clip GIF group.
+    gif_delays: Vec<u32>,
+    gif_delay_edit: bool,
     /// Editable clip notes — persisted to `<file>.notes.txt` beside the media.
     clip_notes: String,
     record_markers: Vec<f64>,
@@ -1299,6 +1303,8 @@ impl VibecapApp {
             gif_fps: 15,
             gif_width: 800,
             gif_hold_ms: 0,
+            gif_delays: Vec::new(),
+            gif_delay_edit: false,
             hotkey_shot_digit: 3,
             hotkey_rec_digit: 2,
             hotkey_shot_digit_prev: 3,
@@ -4806,6 +4812,26 @@ impl VibecapApp {
                         Err(e) => (false, format!("❌ could not start ffmpeg: {}", e)),
                     }
                 }
+            };
+            let _ = tx.send((ok, msg));
+        });
+    }
+
+    /// E58 — multi-step jobs (frame extract → concat list → mux) need a
+    /// worker that runs a closure, not a single ffmpeg argv.
+    fn spawn_work_job(
+        &mut self,
+        ok_msg: &str,
+        work: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) {
+        let Some(tx) = self.ffmpeg_tx.clone() else {
+            return;
+        };
+        let ok_msg = ok_msg.to_string();
+        std::thread::spawn(move || {
+            let (ok, msg) = match work() {
+                Ok(()) => (true, ok_msg),
+                Err(e) => (false, format!("❌ {e}")),
             };
             let _ = tx.send((ok, msg));
         });

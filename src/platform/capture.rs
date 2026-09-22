@@ -660,6 +660,120 @@ pub fn export_gif_clip_ex(
     run_status(cmd, "ffmpeg gif export")
 }
 
+/// E58 — build an ffconcat list with a `duration` per frame so the GIF
+/// muxer writes true per-frame delays (the last file line repeats so its
+/// duration sticks, per the concat-demuxer spec). `hold_ms` extends the
+/// final frame; `pingpong` appends the frames reversed with reversed
+/// delays (boomerang). Paths must be forward-slash absolute.
+pub fn gif_concat_list(
+    frames: &[String],
+    delays_ms: &[u32],
+    default_ms: u32,
+    hold_ms: u32,
+    pingpong: bool,
+) -> String {
+    let n = frames.len();
+    let mut seq: Vec<usize> = (0..n).collect();
+    if pingpong && n > 1 {
+        seq.extend((0..n).rev());
+    }
+    let mut out = String::from("ffconcat version 1.0\n");
+    for (pos, &fi) in seq.iter().enumerate() {
+        let mut d = delays_ms.get(fi).copied().unwrap_or(default_ms).max(20);
+        if pos + 1 == seq.len() {
+            d += hold_ms;
+        }
+        out.push_str(&format!(
+            "file '{}'\nduration {:.3}\n",
+            frames[fi],
+            d as f32 / 1000.0
+        ));
+    }
+    if let Some(last) = seq.last() {
+        out.push_str(&format!("file '{}'\n", frames[*last]));
+    }
+    out
+}
+
+/// E58 — true per-frame GIF delays: extract output frames at fps/width,
+/// write a concat list with per-frame durations, mux in a second pass.
+/// Runs synchronously — call from a worker thread.
+pub fn export_gif_delays(
+    video: &Path,
+    start: &str,
+    end: &str,
+    out: &Path,
+    fps: u32,
+    width: u32,
+    delays_ms: &[u32],
+    hold_ms: u32,
+    pingpong: bool,
+) -> Result<(), String> {
+    let fps = fps.clamp(4, 30);
+    let width = width.clamp(160, 1920);
+    let tmp = std::env::temp_dir().join(format!(
+        "vibecap_gif_frames_{}_{}",
+        std::process::id(),
+        out.file_stem().and_then(|s| s.to_str()).unwrap_or("clip")
+    ));
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("temp dir: {e}"))?;
+    let pattern = tmp.join("f_%04d.png");
+    let mut ex = super::ffmpeg::ffmpeg_command()?;
+    ex.args([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        start,
+        "-to",
+        end,
+        "-i",
+        path_str(video)?,
+        "-vf",
+        &format!("fps={fps},scale={width}:-1:flags=lanczos"),
+        path_str(&pattern)?,
+    ]);
+    run_status(ex, "ffmpeg frame extract")?;
+
+    let mut frames: Vec<String> = std::fs::read_dir(&tmp)
+        .map_err(|e| format!("temp dir read: {e}"))?
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            (p.extension().and_then(|x| x.to_str()) == Some("png"))
+                .then(|| p.to_string_lossy().replace('\\', "/"))
+        })
+        .collect();
+    frames.sort();
+    if frames.is_empty() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err("frame extraction produced no frames".into());
+    }
+
+    let default_ms = (1000 / fps.max(1)) as u32;
+    let list = gif_concat_list(&frames, delays_ms, default_ms, hold_ms, pingpong);
+    let list_path = tmp.join("list.txt");
+    std::fs::write(&list_path, &list).map_err(|e| format!("concat list: {e}"))?;
+
+    let mut mx = super::ffmpeg::ffmpeg_command()?;
+    mx.args([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        path_str(&list_path)?,
+        path_str(out)?,
+    ]);
+    let res = run_status(mx, "ffmpeg gif mux");
+    let _ = std::fs::remove_dir_all(&tmp);
+    res
+}
+
 /// Convert a short MP4 chunk to a GIF (live inspection).
 pub fn mp4_to_gif(mp4: &Path, gif: &Path) -> Result<(), String> {
     let mut cmd = super::ffmpeg::ffmpeg_command()?;
@@ -1436,6 +1550,44 @@ mod tests {
         std::fs::write(&log, "no meter lines here\n").unwrap();
         assert!(audio_peak_db(&log).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// E58 — the concat list carries a `duration` per frame (override or
+    /// default), extends the last frame by the hold, repeats the final
+    /// file line, and appends reversed frames for ping-pong.
+    #[test]
+    fn gif_concat_list_per_frame_durations() {
+        let frames = vec!["C:/t/f_0001.png".to_string(), "C:/t/f_0002.png".to_string()];
+        let list = gif_concat_list(&frames, &[250], 67, 400, false);
+        assert!(list.starts_with("ffconcat version 1.0"), "{list}");
+        assert!(
+            list.contains("file 'C:/t/f_0001.png'\nduration 0.250"),
+            "{list}"
+        );
+        // frame 2 falls back to the default, then takes the 400 ms hold.
+        assert!(
+            list.contains("file 'C:/t/f_0002.png'\nduration 0.467"),
+            "{list}"
+        );
+        // Last file line repeats with no duration so the tail delay sticks.
+        assert!(
+            list.trim_end().ends_with("file 'C:/t/f_0002.png'"),
+            "{list}"
+        );
+
+        // Ping-pong: forward then reversed sequence with matching delays.
+        let pong = gif_concat_list(&frames, &[250], 67, 0, true);
+        let body: Vec<&str> = pong.lines().filter(|l| l.starts_with("file ")).collect();
+        assert_eq!(
+            body,
+            vec![
+                "file 'C:/t/f_0001.png'",
+                "file 'C:/t/f_0002.png'",
+                "file 'C:/t/f_0002.png'",
+                "file 'C:/t/f_0001.png'",
+                "file 'C:/t/f_0001.png'", // dup-last sentinel
+            ]
+        );
     }
 
     /// E256 — verify_mp4 must accept a real ffmpeg-written file and reject

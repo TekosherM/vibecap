@@ -250,7 +250,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 55. **Output presets** — CRF, fps, codec (H264/H265/VP9) in Settings. ✓ (CRF Sharp/Balanced/Small chips → -crf 18/23/28 via `CaptureOpts::crf`; fps already in Settings; live codec stays libx264 — export-side codec picker covers H264/VP9/AV1)
 56. **GIF ping-pong loop** toggle. ✓ (was already shipped — "Ping-pong ↺" on the GIF export)
 57. **GIF frame delete** in the filmstrip. ✓ (cut marks on thumbs + "Export without cuts" — per-frame delay editing stays open)
-58. **GIF per-frame delay** editor. ◑ (GIF group shows ms/frame derived from fps + a 0–4 s "end hold" slider that tpads a cloned last frame so loops breathe; true per-frame delay list still open)
+58. **GIF per-frame delay** editor. ✓ (GIF group shows ms/frame + end-hold; "Per-frame delays" toggle reveals a scrollable ms-per-frame list exported through a two-pass concat-demuxer path — extract fps/scale PNGs → ffconcat list with per-frame `duration` → mux — so every frame's delay is exact; hold extends the last entry, ping-pong appends reversed frames with reversed delays)
 59. **Re-export GIF** from an existing MP4 at new fps/width (no re-record). ✓ (was already shipped — GIF group encodes from the loaded clip)
 60. **WebM / AV1 output** option. ✓ (was already shipped — ENCODE group chips)
 61. **Stream-copy trim** — no re-encode when only cutting ends. ✓ (was already shipped — `-ss/-to -c copy`)

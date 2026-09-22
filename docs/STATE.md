@@ -554,3 +554,15 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - E49 marked done — the meter reads the amix output's Peak_level
   (per-source meters would need separate pipes; deferred).
 - Tests: 113 green.
+
+### Per-frame GIF delays
+- E58 closed: "Per-frame delays" checkbox in the Clip GIF group reveals a
+  scrollable ms-per-frame list (output frames = trim x fps, capped at 96
+  rows). Export takes a two-pass concat-demuxer path: ffmpeg extracts
+  fps/scale PNGs to a temp dir, `gif_concat_list` writes ffconcat with a
+  `duration` per frame (dup-last sentinel line so the tail delay sticks),
+  second ffmpeg pass muxes. End-hold folds into the last entry's
+  duration; ping-pong appends frames reversed with reversed delays.
+  Runs through `spawn_work_job` (multi-step worker sharing ffmpeg_tx).
+  No overrides -> the existing single-pass filter path stays.
+- Tests: 114 green.
