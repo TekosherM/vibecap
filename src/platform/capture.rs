@@ -716,6 +716,9 @@ pub fn export_gif_delays(
         std::process::id(),
         out.file_stem().and_then(|s| s.to_str()).unwrap_or("clip")
     ));
+    // Clear any leftover frames from a failed run of the same stem —
+    // otherwise stale PNGs bleed into this export's concat list.
+    let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(|e| format!("temp dir: {e}"))?;
     let pattern = tmp.join("f_%04d.png");
     let mut ex = super::ffmpeg::ffmpeg_command()?;
@@ -1009,6 +1012,11 @@ fn record_args(
     };
     let spec = resolve_grab(opts);
     let out_s = path_str(out_mp4)?;
+    // E36 — when the mic+system mix builds a -filter_complex graph, the
+    // level meter must live INSIDE it (ffmpeg rejects -af on a stream fed
+    // from a complex graph). `meter_in_graph` gates the simple -af push.
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+    let mut meter_in_graph = false;
     let mut a: Vec<String> = vec![
         "-y".into(),
         "-hide_banner".into(),
@@ -1107,8 +1115,18 @@ fn record_args(
                 a.push("dshow".into());
                 a.push("-i".into());
                 a.push(format!("audio={mix_dev}"));
+                // E36 — meter rides inside the complex graph: asplit feeds
+                // the encoder via [a] and the astats/ametadata tap sinks to
+                // anullsink after printing Peak_level to stdout.
                 a.push("-filter_complex".into());
-                a.push("[1:a][2:a]amix=inputs=2:duration=first[a]".into());
+                a.push(
+                    "[1:a][2:a]amix=inputs=2:duration=first,asplit=2[a][m];\
+                     [m]astats=metadata=1:measure_overall=Peak_level,\
+                     ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file=-,\
+                     anullsink"
+                        .into(),
+                );
+                meter_in_graph = true;
                 a.push("-map".into());
                 a.push("0:v".into());
                 a.push("-map".into());
@@ -1168,10 +1186,12 @@ fn record_args(
         a.push(vf.join(","));
     }
 
-    if with_audio {
+    if with_audio && !meter_in_graph {
         // E36 — live level meter: astats computes a per-frame peak and
         // ametadata prints it to stdout, which lands in the sibling
-        // .ffmpeg.log the GUI tails. dBFS lines at ~fps rate.
+        // .ffmpeg.log the GUI tails. dBFS lines at ~fps rate. Skipped when
+        // the meter already lives inside the mix filter_complex — ffmpeg
+        // rejects -af on a stream fed from a complex graph.
         a.push("-af".into());
         a.push(
             "astats=metadata=1:measure_overall=Peak_level,ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file=-".into(),
@@ -1212,6 +1232,12 @@ pub fn audio_peak_db(log_path: &Path) -> Option<f32> {
     let text = String::from_utf8_lossy(&buf);
     let i = text.rfind("Peak_level=")?;
     let rest = &text[i + "Peak_level=".len()..];
+    // astats reports `-inf` for digital silence — treat it as the meter
+    // floor rather than a parse miss (which would freeze the meter on the
+    // last loud sample).
+    if rest.starts_with("-inf") {
+        return Some(-90.0);
+    }
     let end = rest
         .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == 'e'))
         .unwrap_or(rest.len());
@@ -1455,6 +1481,13 @@ mod tests {
         assert!(joined.contains("amix=inputs=2"), "{joined}");
         assert!(joined.contains("-map 0:v"), "{joined}");
         assert!(joined.contains("-map [a]"), "{joined}");
+        // E36 — the level meter rides INSIDE the complex graph (asplit tap
+        // → astats/ametadata → anullsink); a plain -af would make ffmpeg
+        // refuse the stream ("simple and complex filtering cannot be used
+        // together for the same stream").
+        assert!(joined.contains("asplit=2[a][m]"), "{joined}");
+        assert!(joined.contains("anullsink"), "{joined}");
+        assert!(!args.iter().any(|s| s == "-af"), "{joined}");
     }
 
     /// E72 — time-lapse: fractional input rate + fps= output retime, and no
@@ -1546,6 +1579,15 @@ mod tests {
         .unwrap();
         let db = audio_peak_db(&log).unwrap();
         assert!((db - (-7.25)).abs() < 0.001, "{db}");
+
+        // astats emits -inf on digital silence — must parse as the floor,
+        // not a miss that leaves the meter frozen on the last loud value.
+        std::fs::write(
+            &log,
+            "frame:9 pts:9\nlavfi.astats.Overall.Peak_level=-inf\n",
+        )
+        .unwrap();
+        assert_eq!(audio_peak_db(&log), Some(-90.0));
 
         std::fs::write(&log, "no meter lines here\n").unwrap();
         assert!(audio_peak_db(&log).is_none());

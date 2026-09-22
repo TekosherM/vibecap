@@ -51,3 +51,29 @@ Reusable defect classes. Update when a confirmed bug reveals a pattern.
 **Symptom:** Evidence disappears on restart; agent dump after app quit fails.
 
 **Prevention:** Distinguish **explicit clear** (user disable / Clear button) from **process lifecycle**. Prefer prune-by-age/size over wipe-on-start. Document the contract in MCP.md.
+
+## Simple `-af`/`-vf` conflicts with a `-filter_complex` stream
+
+**Pattern:** ffmpeg argv built by string concat across multiple sites — a
+shared output section appends `-af <meter>` while an earlier section
+conditionally emits `-filter_complex ... [a]` for the mic+system mix.
+
+**Symptom:** ffmpeg refuses to start: "Simple and complex filtering cannot
+be used together for the same stream." Mixed recordings break entirely
+while single-device recordings work — argv tests pass either way.
+
+**Prevention:** When a stream comes from `-filter_complex`, put extra
+filters INSIDE the graph (`asplit` tap + `anullsink` sink) and gate the
+simple `-af`/`-vf` on the graph's absence. Argv-shape tests alone can't
+catch this — smoke the generated argv against real ffmpeg (a lavfi
+testsrc+sine one-liner proves it in seconds).
+
+## ffmpeg `astats` emits `-inf` on digital silence
+
+**Pattern:** Meter/parser assumes `key=value` values are numeric.
+
+**Symptom:** Parse returns None → caller keeps the last loud level → the
+live meter freezes exactly when the source goes silent.
+
+**Prevention:** Treat `-inf`/`inf`/`nan` as sentinel values mapped to the
+display floor, distinct from "no data yet". Test silence explicitly.
