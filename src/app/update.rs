@@ -156,18 +156,70 @@ pub fn staged_update_exists() -> bool {
     staged_update_path().map(|p| p.exists()).unwrap_or(false)
 }
 
-/// Startup housekeeping after a swap: the previous build at `<exe>.old`
-/// is no longer running — safe to delete. Also drops a zero-length or
+fn rejected_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.with_extension(if cfg!(windows) { "rej.exe" } else { "rej" }))
+}
+
+/// E264 — a previous binary parked by the last update is the rollback target.
+pub fn rollback_available() -> bool {
+    old_backup_path().map(|p| p.exists()).unwrap_or(false)
+}
+
+/// Startup housekeeping: the `.old` backup is NOT deleted — it stays beside
+/// the exe as the one-click rollback target until the next update replaces
+/// it (apply_staged removes it before parking a newer backup). What we do
+/// sweep: a `.rej` leftover from a completed rollback, and a zero-length or
 /// obviously-stale `.new` (a crashed download shouldn't block re-staging).
 pub fn cleanup_old_binary() {
-    if let Some(old) = old_backup_path() {
-        let _ = std::fs::remove_file(old);
+    if let Some(rej) = rejected_path() {
+        let _ = std::fs::remove_file(rej);
     }
     if let Some(new) = staged_update_path() {
         if std::fs::metadata(&new).map(|m| m.len()).unwrap_or(0) < 500_000 {
             let _ = std::fs::remove_file(new);
         }
     }
+}
+
+/// E264 — swap back to the previous build: current exe → `<exe>.rej`,
+/// `<exe>.old` → exe, then the same delayed detached relaunch as
+/// `apply_staged_and_restart`. The rejected binary is swept by
+/// `cleanup_old_binary` on the next launch. Caller must exit after Ok.
+pub fn rollback_and_restart() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let old = old_backup_path().ok_or_else(|| "no previous binary".to_string())?;
+    if !old.exists() {
+        return Err("no previous binary — nothing to roll back to".into());
+    }
+    let rej = rejected_path().ok_or_else(|| "no rejected path".to_string())?;
+    let _ = std::fs::remove_file(&rej);
+    std::fs::rename(&exe, &rej).map_err(|e| format!("could not park current exe: {e}"))?;
+    if let Err(e) = std::fs::rename(&old, &exe) {
+        // Never leave the install without a runnable exe.
+        let _ = std::fs::rename(&rej, &exe);
+        return Err(format!("could not restore previous binary: {e}"));
+    }
+    #[cfg(windows)]
+    {
+        let line = format!(
+            "ping -n 3 127.0.0.1 >nul & start \"\" \"{}\"",
+            exe.display()
+        );
+        Command::new("cmd")
+            .args(["/C", &line])
+            .spawn()
+            .map_err(|e| format!("relaunch: {e}"))?;
+    }
+    #[cfg(unix)]
+    {
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("sleep 2; \"{}\" >/dev/null 2>&1 &", exe.display()))
+            .spawn()
+            .map_err(|e| format!("relaunch: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Download the platform asset and extract the binary to `<exe>.new`.

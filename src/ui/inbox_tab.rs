@@ -126,7 +126,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     );
 
     // E295 — budget dashboard: tier + caps + a per-session spend sparkline.
-    {
+    // E197 — the same snapshot feeds per-thread "cost since asked" chips.
+    let usage_now = {
         let cfg = crate::app::budget::load_budget();
         let live = crate::app::default_live_dir().display().to_string();
         let (frames, mb, mins) = crate::app::budget::live_usage_snapshot(&live);
@@ -187,7 +188,8 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         })
         .response
         .on_hover_text("Worst of frames/MB/minutes vs caps, sampled every 15 s this session");
-    }
+        (frames as f64, mb)
+    };
     ui.horizontal(|ui| {
         ui.label(RichText::new("Search").small().color(theme::TEXT_DIM()));
         ui.add(
@@ -371,7 +373,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     );
                                     ui.add_space(theme::SP_2);
                                     for req in &new_pending {
-                                        thread_row(app, ui, req, true);
+                                        thread_row(app, ui, req, true, usage_now);
                                         ui.add_space(4.0);
                                     }
                                 }
@@ -439,7 +441,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             if !collapsed {
                                                 for req in rows {
                                                     ui.indent("grp", |ui| {
-                                                        thread_row(app, ui, req, true);
+                                                        thread_row(app, ui, req, true, usage_now);
                                                     });
                                                     ui.add_space(4.0);
                                                 }
@@ -447,7 +449,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         }
                                     } else {
                                         for req in &rest_pending {
-                                            thread_row(app, ui, req, true);
+                                            thread_row(app, ui, req, true, usage_now);
                                             ui.add_space(4.0);
                                         }
                                     }
@@ -463,7 +465,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     );
                                     ui.add_space(theme::SP_2);
                                     for req in &snoozed {
-                                        thread_row(app, ui, req, true);
+                                        thread_row(app, ui, req, true, usage_now);
                                         ui.add_space(4.0);
                                     }
                                 }
@@ -478,7 +480,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                     );
                                     ui.add_space(theme::SP_2);
                                     for req in &closed {
-                                        thread_row(app, ui, req, false);
+                                        thread_row(app, ui, req, false, usage_now);
                                         ui.add_space(4.0);
                                     }
                                 }
@@ -560,7 +562,13 @@ fn rel_age(secs: i64) -> String {
     }
 }
 
-fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pending: bool) {
+fn thread_row(
+    app: &mut VibecapApp,
+    ui: &mut egui::Ui,
+    req: &FeedbackRequest,
+    pending: bool,
+    usage_now: (f64, f64),
+) {
     let selected = app.feedback_selected.as_deref() == Some(req.id.as_str());
     let agent = if req.agent_label.is_empty() {
         "Agent"
@@ -652,6 +660,19 @@ fn thread_row(app: &mut VibecapApp, ui: &mut egui::Ui, req: &FeedbackRequest, pe
                 _ => req.created_at.clone(),
             };
             ui.label(RichText::new(stamp).size(10.0).color(age_color));
+            // E197 — per-thread spend: live-usage delta since this request
+            // was filed. Hidden when nothing has accrued (fresh request).
+            if let Some([f0, mb0]) = req.open_usage {
+                let df = (usage_now.0 - f0).max(0.0) as i64;
+                let dmb = (usage_now.1 - mb0).max(0.0);
+                if df > 0 || dmb > 0.05 {
+                    ui.label(
+                        RichText::new(format!("+{df} frames · +{dmb:.1} MB since asked"))
+                            .size(10.0)
+                            .color(theme::TEXT_DIM()),
+                    );
+                }
+            }
         })
         .response
         .interact(egui::Sense::click());

@@ -828,6 +828,36 @@ pub fn user_env(name: &str) -> Option<String> {
     }
 }
 
+/// E12 — attach encoded image bytes under a registered clipboard format
+/// (Windows "PNG"/"JFIF" next to the DIB). arboard already exposes rich
+/// formats on macOS/Linux — no-op Ok there.
+pub fn clipboard_add_encoded(bytes: &[u8], format_name: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::clipboard_add_encoded(bytes, format_name)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (bytes, format_name);
+        Ok(())
+    }
+}
+
+/// E90 — deepest visible child of `parent` under the screen point
+/// (Windows: EnumChildWindows). Other platforms return None — the picker
+/// falls back to the top-level rect.
+pub fn child_window_at(parent: u64, x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::child_window_at(parent, x, y)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (parent, x, y);
+        None
+    }
+}
+
 /// E10 — Esc-press edge for the parked pump's global cancel. Windows only.
 #[cfg(target_os = "windows")]
 pub fn esc_pressed_edge() -> bool {

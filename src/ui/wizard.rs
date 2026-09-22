@@ -10,7 +10,7 @@ use crate::app::{load_budget, save_budget, BudgetConfig};
 use crate::ui::theme;
 use crate::VibecapApp;
 
-pub const WIZARD_STEPS: u8 = 7;
+pub const WIZARD_STEPS: u8 = 8;
 
 /// Overlay wizard. Returns true if still open (caller should skip main chrome).
 pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
@@ -133,7 +133,8 @@ pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
                         2 => step_budget(app, ui),
                         3 => step_autostart(app, ui),
                         4 => step_health_check(app, ui),
-                        5 => step_agent_connect(app, ui),
+                        5 => step_keys(app, ctx, ui),
+                        6 => step_agent_connect(app, ui),
                         _ => step_shortcuts(app, ui),
                     }
 
@@ -735,6 +736,99 @@ fn step_health_check(app: &mut VibecapApp, ui: &mut egui::Ui) {
                 }
             });
         });
+}
+
+/// E224 — 30-second muscle-memory drill: the user physically presses S, R
+/// and Esc and each row lights up. The app's in-window shortcuts are gated
+/// on `!wizard_open`, so the presses register here without firing captures.
+fn step_keys(app: &mut VibecapApp, ctx: &egui::Context, ui: &mut egui::Ui) {
+    let (s, r, esc) = ctx.input(|i| {
+        (
+            i.key_pressed(egui::Key::S),
+            i.key_pressed(egui::Key::R),
+            i.key_pressed(egui::Key::Escape),
+        )
+    });
+    if s {
+        app.wizard_keys_hit |= 1;
+    }
+    if r {
+        app.wizard_keys_hit |= 2;
+    }
+    if esc {
+        app.wizard_keys_hit |= 4;
+    }
+
+    ui.label(
+        RichText::new("Three keys, thirty seconds")
+            .size(22.0)
+            .strong()
+            .color(theme::TEXT()),
+    );
+    ui.add_space(theme::SP_2);
+    ui.label(
+        RichText::new(
+            "Press each key now — the card swallows them, nothing fires. \
+             They'll be muscle memory before you need them.",
+        )
+        .size(14.0)
+        .color(theme::TEXT_MUTED()),
+    );
+    ui.add_space(theme::SP_3);
+
+    for (bit, key, action) in [
+        (1u8, "S", "screenshot — copies to clipboard"),
+        (2, "R", "record — press again to stop"),
+        (4, "Esc", "bail out of a region pick"),
+    ] {
+        let hit = app.wizard_keys_hit & bit != 0;
+        let (chip_fill, mark) = if hit {
+            (theme::SURFACE_3(), "✓")
+        } else {
+            (theme::SURFACE_2(), "·")
+        };
+        ui.horizontal(|ui| {
+            Frame::none()
+                .fill(chip_fill)
+                .rounding(theme::rounding_sm())
+                .stroke(Stroke::new(
+                    1.0_f32,
+                    if hit {
+                        theme::SUCCESS()
+                    } else {
+                        theme::BORDER()
+                    },
+                ))
+                .inner_margin(Margin::symmetric(10.0, 4.0))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(key)
+                            .size(13.0)
+                            .strong()
+                            .monospace()
+                            .color(theme::TEXT()),
+                    );
+                });
+            ui.label(RichText::new(action).size(13.0).color(theme::TEXT_MUTED()));
+            if hit {
+                ui.label(RichText::new(mark).color(theme::SUCCESS()).strong());
+            }
+        });
+        ui.add_space(8.0);
+    }
+    if app.wizard_keys_hit == 7 {
+        ui.label(
+            RichText::new("✓ All three — you're set.")
+                .size(12.0)
+                .color(theme::SUCCESS()),
+        );
+    } else {
+        ui.label(
+            RichText::new("(or just Continue — the full list is next)")
+                .size(11.0)
+                .color(theme::TEXT_DIM()),
+        );
+    }
 }
 
 fn step_shortcuts(_app: &mut VibecapApp, ui: &mut egui::Ui) {

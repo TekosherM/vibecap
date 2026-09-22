@@ -29,6 +29,11 @@ pub struct FeedbackRequest {
     /// Extra agent context (what they already tried, constraints, etc.).
     #[serde(default)]
     pub context: String,
+    /// E197 — live-inspection usage when the request was filed
+    /// `[frames, mb]`; None on legacy requests. The delta vs now is the
+    /// request's spend so far.
+    #[serde(default)]
+    pub open_usage: Option<[f64; 2]>,
 }
 
 fn default_feedback_priority() -> String {

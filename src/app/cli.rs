@@ -44,6 +44,9 @@ pub enum CliAction {
     /// E210 — `vibecap poke <show|hide|screenshot|record|stop>` — forwards a
     /// command to the running instance (or the next one to launch).
     Poke,
+    /// E264 — `vibecap update rollback` — swap back to the previous binary
+    /// parked by the last self-update and relaunch it.
+    UpdateRollback,
     /// E187 — a bare `vibecap://…` argument (registered URL scheme launches
     /// the exe with the URL as argv[1]). Written to the pending_deep marker.
     DeepLink,
@@ -255,6 +258,11 @@ pub fn parse_args(args: &[String]) -> CliArgs {
         CliAction::Open
     } else if first == Some("annotate") {
         CliAction::Annotate
+    } else if first == Some("update") {
+        match tokens.get(1).map(|s| s.as_str()) {
+            Some("rollback") => CliAction::UpdateRollback,
+            _ => CliAction::Help,
+        }
     } else if first == Some("record") {
         match tokens.get(1).map(|s| s.as_str()) {
             Some("start") => CliAction::RecordStart,
@@ -311,6 +319,7 @@ Usage:
                    [--badge x,y] [--text x,y,label] [--color red|#rrggbb]
                    [--stroke PX] [--out FILE]
   vibecap poke <show|hide|screenshot|record|stop>
+  vibecap update rollback     Swap back to the previous binary
   vibecap doctor [--json] [--fix]
   vibecap --mcp
   vibecap --paths
@@ -846,6 +855,13 @@ pub fn run_headless(cli: &CliArgs) -> Option<i32> {
             }
             Some(0)
         }
+        CliAction::UpdateRollback => match crate::app::update::rollback_and_restart() {
+            Ok(()) => {
+                println!("rolled back — restarting the previous build");
+                Some(0)
+            }
+            Err(e) => Some(cli_fail(cli, &e)),
+        },
         CliAction::Open => {
             let Some(id) = cli.target.as_deref() else {
                 return Some(usage_fail(cli, "usage: vibecap open <file-or-name>"));

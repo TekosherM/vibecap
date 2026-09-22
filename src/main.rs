@@ -964,6 +964,9 @@ pub(crate) struct VibecapApp {
     /// E204 — opt-in bare PrtScn still (steals the OS key while running).
     hotkey_prtscn: bool,
     hotkey_prtscn_prev: bool,
+    /// E12 — attach the file's PNG/JPEG encode to the clipboard next to
+    /// the raw bitmap copy.
+    clipboard_encode: String,
     /// E202 — subtle click when a still lands; session-backed, off default.
     shutter_sound: bool,
     /// E64 — last screenshot-hotkey press; a second tap inside 600 ms opens
@@ -1152,6 +1155,8 @@ pub(crate) struct VibecapApp {
     /// `Some(None)` = probe failed, `Some(Some(list))` = device names.
     wizard_audio_rx: Option<crossbeam_channel::Receiver<Option<Vec<String>>>>,
     wizard_audio_devices: Option<Option<Vec<String>>>,
+    /// E224 — keyboard-walkthrough bits: 1=S pressed, 2=R, 4=Esc.
+    wizard_keys_hit: u8,
 
     /// Back/forward stacks for Alt+← / Alt+→ stage navigation.
     tab_back: Vec<AppTab>,
@@ -1267,6 +1272,7 @@ impl VibecapApp {
             shutter_sound: false,
             last_shot_hk_at: None,
             region_after_still: false,
+            clipboard_encode: "png".into(),
             clipboard_watcher: false,
             clipboard_seq_seen: crate::platform::clipboard_seq(),
             clipboard_poll_at: None,
@@ -1746,6 +1752,7 @@ impl VibecapApp {
         }
         self.hotkey_prtscn = s.hotkey_prtscn;
         self.shutter_sound = s.shutter_sound;
+        self.clipboard_encode = s.clipboard_encode.clone();
         self.clipboard_watcher = s.clipboard_watcher;
         if self.clipboard_watcher {
             self.clipboard_seq_seen = crate::platform::clipboard_seq();
@@ -1865,6 +1872,7 @@ impl VibecapApp {
             target_hours: self.target_hours.clone(),
             hotkey_prtscn: self.hotkey_prtscn,
             shutter_sound: self.shutter_sound,
+            clipboard_encode: self.clipboard_encode.clone(),
             clipboard_watcher: self.clipboard_watcher,
             screen_permission_prompted: self.screen_permission_prompted,
             screen_permission_ok: self.screen_permission_ok,
@@ -4856,6 +4864,23 @@ impl VibecapApp {
                     bytes: std::borrow::Cow::Borrowed(rgba.as_raw()),
                 };
                 if board.set_image(img_data).is_ok() {
+                    // E12 — PNG stays sharp pasted into browsers/Office:
+                    // attach an encode of the same pixels under the registered
+                    // format next to the raw DIB arboard just wrote.
+                    let (fmt, image_fmt) = match self.clipboard_encode.as_str() {
+                        "jpeg" => ("JFIF", image::ImageFormat::Jpeg),
+                        "png" => ("PNG", image::ImageFormat::Png),
+                        _ => ("", image::ImageFormat::Png),
+                    };
+                    if !fmt.is_empty() {
+                        let mut buf = std::io::Cursor::new(Vec::new());
+                        if img.write_to(&mut buf, image_fmt).is_ok() {
+                            let _ = crate::platform::clipboard_add_encoded(buf.get_ref(), fmt);
+                        }
+                    }
+                    // Re-read after the encoded attach — SetClipboardData
+                    // bumps the sequence, and the watcher must not treat
+                    // our own write as a fresh external image.
                     self.clipboard_seq_seen = crate::platform::clipboard_seq();
                     self.show_toast("📋 Image copied to system clipboard!");
                     return true;
@@ -6169,7 +6194,7 @@ impl VibecapApp {
     /// resets to topmost), and dead space offers the whole monitor.
     /// Off-Windows the pick UI is unreachable — always None.
     #[cfg(windows)]
-    fn poll_window_pick(&mut self) -> Option<(String, i32, i32, i32, i32)> {
+    fn poll_window_pick(&mut self, drill: bool) -> Option<(String, i32, i32, i32, i32)> {
         let (x, y) = crate::platform::cursor_pos()?;
         if self
             .window_pick_last_pos
@@ -6182,6 +6207,21 @@ impl VibecapApp {
         let hits = crate::platform::windows_at_point(x, y);
         if !hits.is_empty() {
             let w = &hits[self.window_pick_cycle % hits.len()];
+            // E90 — Alt drills into the hovered app's child windows: the
+            // smallest visible child under the cursor becomes the pick rect
+            // (toolbars, panes, tooltip popups as their own region).
+            if drill {
+                if let Some((cx, cy, cw, ch)) = crate::platform::child_window_at(w.hwnd, x, y) {
+                    let mut label = if w.title.is_empty() {
+                        w.process.clone()
+                    } else {
+                        w.title.clone()
+                    };
+                    label = format!("{label} · child");
+                    self.window_pick_hover_monitor = false;
+                    return Some((label, cx, cy, cw, ch));
+                }
+            }
             // E17 — pick card shows title + process + which display it's on.
             let mut label = if w.title.is_empty() {
                 w.process.clone()
@@ -6208,7 +6248,7 @@ impl VibecapApp {
         crate::platform::monitor_at_point(x, y).map(|m| ("Display".to_string(), m.x, m.y, m.w, m.h))
     }
     #[cfg(not(windows))]
-    fn poll_window_pick(&mut self) -> Option<(String, i32, i32, i32, i32)> {
+    fn poll_window_pick(&mut self, _drill: bool) -> Option<(String, i32, i32, i32, i32)> {
         None
     }
 
@@ -7471,7 +7511,9 @@ impl eframe::App for VibecapApp {
                     .unwrap_or(true);
                 if due {
                     self.window_pick_poll_at = Some(Instant::now());
-                    self.window_pick_hover = self.poll_window_pick();
+                    // E90 — Alt held = drill into child windows under the cursor.
+                    let drill = ctx.input(|i| i.modifiers.alt);
+                    self.window_pick_hover = self.poll_window_pick(drill);
                 }
                 ctx.request_repaint_after(Duration::from_millis(60));
             }

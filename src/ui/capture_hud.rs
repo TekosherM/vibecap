@@ -283,7 +283,7 @@ pub fn show_region_selector(
                         paint_hint_pill(
                             &painter,
                             Pos2::new(screen.center().x, screen.min.y + 48.0),
-                            "Click a window to capture · scroll cycles overlaps · dead space = monitor · Esc cancel",
+                            "Click a window to capture · scroll cycles overlaps · Alt drills into panes · dead space = monitor · Esc cancel",
                             18.0,
                         );
                     }

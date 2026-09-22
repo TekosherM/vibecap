@@ -95,6 +95,10 @@ pub struct SessionState {
     /// E202 — subtle click when a still lands; off by default.
     #[serde(default)]
     pub shutter_sound: bool,
+    /// E12 — encoded format placed on the clipboard next to the raw bitmap:
+    /// "png" keeps sharp text edges, "jpeg" is smaller, "off" is DIB-only.
+    #[serde(default = "default_clipboard_encode")]
+    pub clipboard_encode: String,
     /// E74 — watch the system clipboard; a fresh image opens Still review.
     #[serde(default)]
     pub clipboard_watcher: bool,
@@ -251,6 +255,10 @@ fn default_hotkey_rec() -> u8 {
     2
 }
 
+fn default_clipboard_encode() -> String {
+    "png".into()
+}
+
 fn default_region_dim() -> u8 {
     110
 }
@@ -311,6 +319,7 @@ impl Default for SessionState {
             target_hours: std::collections::BTreeMap::new(),
             hotkey_prtscn: false,
             shutter_sound: false,
+            clipboard_encode: "png".into(),
             clipboard_watcher: false,
             region_pick_count: 0,
             hud_toolbar_bottom: false,

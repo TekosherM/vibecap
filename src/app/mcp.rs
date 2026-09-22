@@ -873,6 +873,14 @@ pub fn run_mcp_server() {
                                 options: options.clone(),
                                 preferred_reply,
                                 context,
+                                // E197 — baseline so get_feedback can report
+                                // what this request has cost so far.
+                                open_usage: {
+                                    let (f, mb, _) = live_usage_snapshot(
+                                        &mcp_live_dir().display().to_string(),
+                                    );
+                                    Some([f as f64, mb])
+                                },
                             };
                             let req_path = feedback_requests_dir().join(format!("{}.json", id));
                             match serde_json::to_string_pretty(&req)
@@ -954,18 +962,57 @@ pub fn run_mcp_server() {
                                                 false,
                                             )
                                         } else {
-                                            (format_feedback_answer(request_id, &resp), false)
+                                            let mut out =
+                                                format_feedback_answer(request_id, &resp);
+                                            // E197 — append this request's
+                                            // live-usage delta so the agent
+                                            // sees what its thread cost.
+                                            let open = std::fs::read_to_string(&req_path)
+                                                .ok()
+                                                .and_then(|s| {
+                                                    serde_json::from_str::<FeedbackRequest>(&s).ok()
+                                                })
+                                                .and_then(|r| r.open_usage);
+                                            if let Some([f0, mb0]) = open {
+                                                let (f1, mb1, _) = live_usage_snapshot(
+                                                    &mcp_live_dir().display().to_string(),
+                                                );
+                                                out.push_str(&format!(
+                                                    "\ncost_since_open: +{} frames, +{:.1} MB",
+                                                    (f1 as f64 - f0).max(0.0) as i64,
+                                                    (mb1 - mb0).max(0.0)
+                                                ));
+                                            }
+                                            (out, false)
                                         }
                                     }
                                     Err(_) => ("Corrupt feedback response file".to_string(), true),
                                 }
                             } else if req_path.exists() {
+                                // E197 — live cost accrues while pending too.
+                                let cost = std::fs::read_to_string(&req_path)
+                                    .ok()
+                                    .and_then(|s| {
+                                        serde_json::from_str::<FeedbackRequest>(&s).ok()
+                                    })
+                                    .and_then(|r| r.open_usage)
+                                    .map(|[f0, mb0]| {
+                                        let (f1, mb1, _) = live_usage_snapshot(
+                                            &mcp_live_dir().display().to_string(),
+                                        );
+                                        format!(
+                                            "\ncost_so_far: +{} frames, +{:.1} MB",
+                                            (f1 as f64 - f0).max(0.0) as i64,
+                                            (mb1 - mb0).max(0.0)
+                                        )
+                                    })
+                                    .unwrap_or_default();
                                 (
                                     format!(
                                         "⏳ status=pending request_id={}\n\
                                          Human has not answered yet. Keep polling (e.g. every 2–5s).\n\
-                                         They answer in Vibecap → 🤖 Agent Inbox — not via this chat.",
-                                        request_id
+                                         They answer in Vibecap → 🤖 Agent Inbox — not via this chat.{}",
+                                        request_id, cost
                                     ),
                                     false,
                                 )

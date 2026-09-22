@@ -22,6 +22,11 @@ const WS_EX_TOOLWINDOW: isize = 0x0000_0080;
 #[link(name = "user32")]
 extern "system" {
     fn EnumWindows(cb: unsafe extern "system" fn(Hwnd, isize) -> i32, lparam: isize) -> i32;
+    fn EnumChildWindows(
+        parent: Hwnd,
+        cb: unsafe extern "system" fn(Hwnd, isize) -> i32,
+        lparam: isize,
+    ) -> i32;
     fn GetWindowThreadProcessId(hwnd: Hwnd, pid: *mut u32) -> u32;
     fn GetWindowTextW(hwnd: Hwnd, lp: *mut u16, n: i32) -> i32;
     fn ShowWindow(hwnd: Hwnd, cmd: i32) -> i32;
@@ -292,12 +297,55 @@ extern "system" {
     ) -> i32;
     fn SetProcessDPIAware() -> i32;
     fn GetClipboardSequenceNumber() -> u32;
+    fn OpenClipboard(hwnd: Hwnd) -> i32;
+    fn CloseClipboard() -> i32;
+    fn SetClipboardData(fmt: u32, h: isize) -> isize;
+    fn RegisterClipboardFormatW(name: *const u16) -> u32;
 }
 
 /// Clipboard change counter — bumps on any clipboard write, so a watcher can
 /// detect a fresh image without touching OLE every poll.
 pub fn clipboard_seq() -> u32 {
     unsafe { GetClipboardSequenceNumber() }
+}
+
+/// E12 — attach encoded bytes under a registered format ("PNG" / "JFIF")
+/// *alongside* the raw DIB arboard already set. Apps that understand the
+/// format (browsers, Office, chat clients) paste the lossless file bytes
+/// instead of a re-rastered bitmap. Never empties the clipboard — call
+/// after `set_image`, which owns the board.
+pub fn clipboard_add_encoded(bytes: &[u8], format_name: &str) -> Result<(), String> {
+    const GMEM_MOVEABLE: u32 = 0x0002;
+    unsafe {
+        let fmt = RegisterClipboardFormatW(wide(format_name).as_ptr());
+        if fmt == 0 {
+            return Err("RegisterClipboardFormat failed".into());
+        }
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return Err("clipboard busy".into());
+        }
+        let h = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
+        if h.is_null() {
+            CloseClipboard();
+            return Err("GlobalAlloc failed".into());
+        }
+        let p = GlobalLock(h);
+        if p.is_null() {
+            GlobalFree(h);
+            CloseClipboard();
+            return Err("GlobalLock failed".into());
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), p as *mut u8, bytes.len());
+        GlobalUnlock(h);
+        // Ownership of `h` moves to the clipboard on success.
+        if SetClipboardData(fmt, h as isize) == 0 {
+            GlobalFree(h);
+            CloseClipboard();
+            return Err("SetClipboardData failed".into());
+        }
+        CloseClipboard();
+        Ok(())
+    }
 }
 
 #[link(name = "gdi32")]
@@ -893,6 +941,64 @@ pub fn windows_at_point(x: i32, y: i32) -> Vec<EnumWindow> {
         .into_iter()
         .cloned()
         .collect()
+}
+
+// ── E90 — Alt drills into child windows ──────────────────────────────────
+// `windows_at_point` only sees top-level frames; Alt+pick drills into the
+// hovered app's children so a toolbar, pane, or tooltip can be captured as
+// its own region. Smallest containing rect ≈ the deepest useful child.
+
+struct ChildEnumState {
+    pt: (i32, i32),
+    best: Option<RawRect>,
+    best_area: i64,
+}
+
+unsafe extern "system" fn enum_child_cb(hwnd: Hwnd, lp: isize) -> i32 {
+    unsafe {
+        let st = &mut *(lp as *mut ChildEnumState);
+        if IsWindowVisible(hwnd) == 0 {
+            return 1;
+        }
+        let mut rc = RawRect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        if GetWindowRect(hwnd, &mut rc) == 0 {
+            return 1;
+        }
+        let (x, y) = st.pt;
+        if x >= rc.left && x < rc.right && y >= rc.top && y < rc.bottom {
+            let area = (rc.right - rc.left) as i64 * (rc.bottom - rc.top) as i64;
+            // Skip degenerate/1-px hit-test shims.
+            if area >= 64 && area < st.best_area {
+                st.best = Some(rc);
+                st.best_area = area;
+            }
+        }
+        1
+    }
+}
+
+/// Deepest visible child of `parent` under (x,y) in screen pixels.
+/// None → caller keeps the top-level window rect.
+pub fn child_window_at(parent: u64, x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+    let mut st = ChildEnumState {
+        pt: (x, y),
+        best: None,
+        best_area: i64::MAX,
+    };
+    unsafe {
+        EnumChildWindows(
+            parent as Hwnd,
+            enum_child_cb,
+            &mut st as *mut ChildEnumState as isize,
+        );
+    }
+    st.best
+        .map(|r| (r.left, r.top, r.right - r.left, r.bottom - r.top))
 }
 
 /// Monitor containing a virtual-screen point — the dead-space pick target:

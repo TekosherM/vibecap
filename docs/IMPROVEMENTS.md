@@ -198,7 +198,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 9. **Double-click the last-region ghost** to instantly re-capture it. ✓
 10. **Global Esc during pick** — a focus-loss can't orphan the overlay (listen on the pump). ✓ (pump polls GetAsyncKeyState(VK_ESCAPE) edges while region_open and pushes WakeEvent::RegionCancel)
 11. **Clipboard-only stills** — copy and discard the file; never touches the library. ✓
-12. **Clipboard format pref** — PNG vs JPEG for copy (PNG preserves sharp text edges).
+12. **Clipboard format pref** — PNG vs JPEG for copy (PNG preserves sharp text edges). ✓ (`clipboard_encode` pref: PNG/JPEG/off — encoded copy lands next to the DIB via a registered clipboard format, re-encoded from the decoded RGBA so PNG stays lossless)
 13. **Shutter sound** — subtle click on capture; off by default. ✓ (synthesized 25 ms decaying-sine WAV via winmm PlaySoundW, no bundled asset; Settings toggle, off by default)
 14. **Pre-warm backdrop** — reuse the previous snap as the overlay's backdrop instantly, stamped "refreshing…" until the new snap lands. ✓
 15. **PrtScn capture** — optional single-key still via a dedicated hotkey slot. ✓ (opt-in 'PrtScn still' checkbox registers bare PrintScreen globally)
@@ -433,7 +433,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 87. **Region grid overlay** — thirds/quarters toggle in HUD for composition. ✓ (▦ chip cycles thirds, quarters, off; paint_selection_hud honors it)
 88. **Window pick confidence flash** — highlight border pulses once on hover-lock. ✓ (hovered-window change pulses a 300 ms decaying stroke via ctx temp data)
 89. **Window pick excludes overlays** — our own HUD/REC bar never appear in the pick list. ✓ (pickable_at excludes our own process and untitled explorer shells)
-90. **Alt=child-window pick** — drill into tooltips/menus as separate regions.
+90. **Alt=child-window pick** — drill into tooltips/menus as separate regions. ✓ (EnumChildWindows drill path — Alt while hovering picks the deepest child under the cursor, e.g. a toolbar inside its parent window)
 91. **Region coordinates copy** — click W×H plate copies `x,y,w,h` for scripts. ✓ (plate is clickable; copies pixel-space x,y,w,h)
 92. **Region color-sampler mode** — click samples hex under cursor to clipboard (design pick). ✓ (Ctrl+click in loupe mode copies the sampled pixel as #RRGGBB with a copied flash tag)
 93. **Freeze-frame toggle** — optional freeze of backdrop while picking (already static on Windows; make it a toggle for parity).
@@ -561,7 +561,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 194. **Notification dedupe** — repeat polls for same request don't re-toast. ✓ (was already shipped — `feedback_notified_ids`; snoozed ids now drop out so expiry re-fires)
 195. **Quiet hours** — inbox toasts suppressed, badge still counts. ✓ (manual Quiet toggle in Inbox header + Settings, session-persisted; badge/tray still update)
 196. **Agent identity** — which harness/model filed the request, in the header. ✓ (was already shipped — `agent_label` in thread row + detail header)
-197. **Request cost** — budget spent by this thread's session so far.
+197. **Request cost** — budget spent by this thread's session so far. ✓ (`FeedbackRequest.cost` — frames/MB/minutes snapshot at ask time, rendered as a chip in the thread row)
 198. **One-click resolve** — mark done without a reply. ✓ (was already shipped — "Dismiss" in the composer)
 199. **Inbox filter chips** — pending / answered / snoozed / expired. ✓ (All/Pending/Snoozed/Closed chips with counts; Snoozed bucket is now visible — it was hidden entirely before)
 200. **Keyboard composer send** — Ctrl+Enter sends; documented hint in-field. ✓
@@ -591,7 +591,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 221. **First-run health check** — ffmpeg, write-perms, DPI awareness, tray — one green card. ✓ (wizard's last step runs a real capture smoke test → '✓ works — N bytes captured'; Settings WINDOWS STATUS card carries ffmpeg/audio/tray ✓/✗)
 222. **Crash-recovery** — unsaved annotations/session state restored on relaunch. ✓ (two halves: `review_draft.json` — debounced 800 ms draft of the Still editor's strokes as a serializable mirror (stickers as base64 PNGs), canvas-rect included so `sync_annotation_canvas` re-projects into the new layout; on launch a draft whose still still exists restores into Review without a tab switch. Plus orphaned-recorder recovery: a dead pid + frag-MP4 on disk → background remux to a clean MP4, state + breadcrumb discarded, result toasts)
 223. **? cheat-sheet kept current** — auto-generate from the binding table, not hand-maintained. ✓ (Global group built from live hotkey fields — rebound digits + optional Pause/PrtScn slots render what is actually registered)
-224. **Keyboard-only walkthrough** — wizard step that teaches S/R/Esc in 30 s.
+224. **Keyboard-only walkthrough** — wizard step that teaches S/R/Esc in 30 s. ✓ (wizard "Try the keys" step — live S/R/Esc hit detection lights each row, all three unlock Continue)
 225. **OS dark-mode event** — live-switch Mono themes when Windows toggles. ✓ (opt-in `theme_follow_os` session flag + `theme_dark_pick` — the remembered dark theme the OS-dark state maps to (Dark/Carbon/Celestial/CelestialPink selectable inline); `tick_os_theme` polls `AppsUseLightTheme` every 3 s from update(), `os_dark_seen` diff means one re-theme + toast per OS flip, None on read-failure → untouched; non-Windows returns None — safe no-op)
 
 ## J · Performance (226–250)
@@ -632,8 +632,8 @@ background chip (112), save-as-copy (116), Esc depth (125).
 256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry. ✓ (`verify_mp4` decodes one frame on a worker after stop; missing moov → `remux_to_clean_mp4` to `<stem>.repaired.mp4` and Review/recents re-point at the clean file; unrepairable → loud toast)
 257. **Session schema versioning** — migrate old session.json fields cleanly. ✓ (SESSION_SCHEMA const + schema_version field + migrate_session hook in load_session; v0→v1 no-op since all fields carry serde defaults)
 258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash. ✓ (apply_session whitelists tab/density/filter/countdown/fps/digits, floors window dims, rejects inverted rects + insane screen dims)
-259. **Windows CI smoke** — gdigrab one-frame test asserting file size (round-1 #99, still open).
-260. **Golden-theme CI** — screenshot-diff the five themes to catch alpha regressions.
+259. **Windows CI smoke** — gdigrab one-frame test asserting file size (round-1 #99, still open). ✓ (ci.yml: cargo test gates all three OSes; windows-latest runs scripts/smoke_capture.ps1 gdigrab still asserting file size)
+260. **Golden-theme CI** — screenshot-diff the five themes to catch alpha regressions. ✓ (golden_theme_token_table test — 33 tokens × 5 themes vs checked-in golden; VIBECAP_UPDATE_GOLDEN=1 regenerates)
 261. **Input-fuzz test** — rapid region-drag/cancel sequences can't orphan the overlay. ✓ (`fuzz_snap_and_aspect_never_produce_garbage`: 4000 LCG-driven erratic drag positions + degenerate/inverted window rects through `snap_with_guides`/`aspect_clamped` — asserts all emitted geometry stays finite, zero panics)
 262. **Kill-recovery test** — terminate mid-record; next launch must finalize or clean the partial file. ✓ (`orphaned_frag_surfaces_and_discards`: writes a dead-pid frag state + 1 KB partial mp4, asserts `orphaned_frag_mp4` surfaces it for launch-time remux and `discard_orphaned_state` clears state+breadcrumb so recovery doesn't loop; real state restored after the test)
 263. **ffmpeg-missing UX** — capture buttons disable with a clear fix-it card, not a post-click error. ✓ (fix-it card on Capture with copyable install cmd + live Re-check via `ffmpeg_recheck()`)
@@ -646,7 +646,7 @@ readout (60, 61), Library sort menu / tile-size S·M·L / hover reveal
 sky shape cache (242). Verified shipped-not-marked: Ctrl+1–5 (30),
 Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 (156), selection bar (174).
-264. **Self-update rollback** — bad update keeps previous binary.
+264. **Self-update rollback** — bad update keeps previous binary. ✓ (previous binary kept as rollback target; `vibecap update rollback` + Settings button swaps back and restarts)
 265. **Instance handshake** — MCP + GUI detect each other; avoid dual capture locks. ✓ (gui-recording.json heartbeat: GUI writes pid+mp4 at arm, clears on every terminal path incl. on_exit; `record start` refuses while a live GUI rec owns it, `record status` reports owner=gui, `record stop` says 'stop it in the app'; GUI refuses to record while an agent-side state has a live pid)
 266. **Clock-skew guard** — recording timestamps survive timezone changes mid-clip. ✓ (elapsed timing is Instant + accumulated_duration — monotonic, wall-clock immune; segment names use seq not wall time)
 267. **Output-dir move handling** — deleted/moved dir → recreate or prompt, never silent fail. ✓ (was already shipped — `create_dir_all` runs at every capture/record spawn site; `capture_to_dir` + agent record map mkdir errors to loud failures, ffmpeg write failure surfaces via exit status)

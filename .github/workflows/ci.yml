@@ -55,6 +55,9 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+      - name: Unit tests (incl. golden theme table)
+        run: cargo test
+
       - name: CLI smoke
         shell: bash
         run: |
@@ -67,7 +70,6 @@ jobs:
       - name: Windows gdigrab still
         if: runner.os == 'Windows'
         shell: pwsh
-        continue-on-error: true
         run: |
           pwsh -File scripts/smoke_capture.ps1
 

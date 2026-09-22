@@ -1416,4 +1416,119 @@ mod tests {
         }
         set_theme_mode(ThemeMode::Dark);
     }
+
+    /// E260 — golden theme snapshot: every color token, per theme, diffed
+    /// against the checked-in table. A token change (intentional or a
+    /// copy-paste slip like the premultiplied-alpha bug) fails the test with
+    /// the new table in the message; regenerate deliberately with
+    /// `VIBECAP_UPDATE_GOLDEN=1 cargo test`.
+    #[test]
+    fn golden_theme_token_table() {
+        fn hex(c: Color32) -> String {
+            format!("{:02X}{:02X}{:02X}{:02X}", c.r(), c.g(), c.b(), c.a())
+        }
+        const NAMES: [&str; 35] = [
+            "CANVAS",
+            "SURFACE",
+            "SURFACE_2",
+            "SURFACE_3",
+            "TEXT",
+            "TEXT_MUTED",
+            "TEXT_DIM",
+            "ACCENT",
+            "ACCENT_INK",
+            "PRIMARY",
+            "PRIMARY_INK",
+            "PRIMARY_HOVER",
+            "PRIMARY_DOWN",
+            "BORDER",
+            "BORDER_STRONG",
+            "SELECTION_FILL",
+            "OVERLAY_DIM",
+            "OVERLAY_LABEL",
+            "OVERLAY_BLUR",
+            "NEUTRAL_STROKE",
+            "FOCUS_RING",
+            "DISABLED_FILL",
+            "DISABLED_TEXT",
+            "SUCCESS",
+            "WARN",
+            "DANGER",
+            "DANGER_SOFT",
+            "INFO",
+            "AGENT_TEAL",
+            "ON_SOLID",
+            "LOOP_ANNOTATE",
+            "PRI_HIGH_FILL",
+            "PRI_NORMAL_FILL",
+            "SURFACE_GLASS",
+            "SURFACE_GLASS_DIM",
+        ];
+        let mut snapshot = String::new();
+        for mode in THEME_ORDER {
+            set_theme_mode(mode);
+            snapshot.push_str(&format!("== {}\n", theme_mode_label(mode)));
+            for name in NAMES {
+                let value = match name {
+                    "CANVAS" => CANVAS(),
+                    "SURFACE" => SURFACE(),
+                    "SURFACE_2" => SURFACE_2(),
+                    "SURFACE_3" => SURFACE_3(),
+                    "TEXT" => TEXT(),
+                    "TEXT_MUTED" => TEXT_MUTED(),
+                    "TEXT_DIM" => TEXT_DIM(),
+                    "ACCENT" => ACCENT(),
+                    "ACCENT_INK" => ACCENT_INK(),
+                    "PRIMARY" => PRIMARY(),
+                    "PRIMARY_INK" => PRIMARY_INK(),
+                    "PRIMARY_HOVER" => PRIMARY_HOVER(),
+                    "PRIMARY_DOWN" => PRIMARY_DOWN(),
+                    "BORDER" => BORDER(),
+                    "BORDER_STRONG" => BORDER_STRONG(),
+                    "SELECTION_FILL" => SELECTION_FILL(),
+                    "OVERLAY_DIM" => OVERLAY_DIM(),
+                    "OVERLAY_LABEL" => OVERLAY_LABEL(),
+                    "OVERLAY_BLUR" => OVERLAY_BLUR(),
+                    "NEUTRAL_STROKE" => NEUTRAL_STROKE(),
+                    "FOCUS_RING" => FOCUS_RING(),
+                    "DISABLED_FILL" => DISABLED_FILL(),
+                    "DISABLED_TEXT" => DISABLED_TEXT(),
+                    "SUCCESS" => SUCCESS(),
+                    "WARN" => WARN(),
+                    "DANGER" => DANGER(),
+                    "DANGER_SOFT" => DANGER_SOFT(),
+                    "INFO" => INFO(),
+                    "AGENT_TEAL" => AGENT_TEAL(),
+                    "ON_SOLID" => ON_SOLID(),
+                    "LOOP_ANNOTATE" => LOOP_ANNOTATE(),
+                    "PRI_HIGH_FILL" => PRI_HIGH_FILL(),
+                    "PRI_NORMAL_FILL" => PRI_NORMAL_FILL(),
+                    "SURFACE_GLASS" => SURFACE_GLASS(),
+                    "SURFACE_GLASS_DIM" => SURFACE_GLASS_DIM(),
+                    _ => unreachable!(),
+                };
+                snapshot.push_str(&format!("{name}={}\n", hex(value)));
+            }
+        }
+        set_theme_mode(ThemeMode::Dark);
+
+        let golden =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/golden/theme_tokens.txt");
+        if std::env::var("VIBECAP_UPDATE_GOLDEN").is_ok() {
+            std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
+            std::fs::write(&golden, &snapshot).unwrap();
+            return;
+        }
+        let expected = std::fs::read_to_string(&golden).unwrap_or_else(|_| {
+            panic!(
+                "golden table missing at {} — run `VIBECAP_UPDATE_GOLDEN=1 cargo test golden`",
+                golden.display()
+            )
+        });
+        assert_eq!(
+            snapshot, expected,
+            "theme token table drifted — if intentional, regenerate with \
+             `VIBECAP_UPDATE_GOLDEN=1 cargo test golden`\n--- new ---\n{snapshot}"
+        );
+    }
 }

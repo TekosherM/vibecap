@@ -217,6 +217,45 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                #[cfg(target_os = "windows")]
+                {
+                    ui.label(RichText::new("Clipboard copy format").size(12.0));
+                    let label = match app.clipboard_encode.as_str() {
+                        "jpeg" => "JPEG — smaller",
+                        "off" => "Off — bitmap only",
+                        _ => "PNG — sharp text",
+                    };
+                    let before = app.clipboard_encode.clone();
+                    egui::ComboBox::from_id_source("clipboard_encode")
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut app.clipboard_encode,
+                                "png".into(),
+                                "PNG — sharp text",
+                            );
+                            ui.selectable_value(
+                                &mut app.clipboard_encode,
+                                "jpeg".into(),
+                                "JPEG — smaller",
+                            );
+                            ui.selectable_value(
+                                &mut app.clipboard_encode,
+                                "off".into(),
+                                "Off — bitmap only",
+                            );
+                        });
+                    if app.clipboard_encode != before {
+                        app.persist_session();
+                    }
+                    ui.label(
+                        RichText::new(
+                            "An encoded copy lands next to the bitmap — paste-ready in tools that skip DIB.",
+                        )
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                    );
+                }
                 if switch(ui, "Inbox quiet mode", &mut app.inbox_quiet) {
                     app.persist_session();
                 }
@@ -325,6 +364,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.filmstrip_low_res = false;
                     app.inbox_quiet = false;
                     app.clipboard_watcher = false;
+                    app.clipboard_encode = "png".into();
                     app.record_countdown_secs = 0;
                     app.region_dim = 110;
                     app.persist_session();
@@ -897,6 +937,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         match crate::app::update::apply_staged_and_restart() {
                             Ok(()) => app.quit_app(),
                             Err(e) => app.show_toast(format!("Update failed: {e}")),
+                        }
+                    }
+                }
+                // E264 — the previous build stays parked as <exe>.old; one
+                // click swaps back and relaunches it.
+                if crate::app::update::rollback_available() {
+                    if btn_secondary(ui, "Roll back to previous version") {
+                        match crate::app::update::rollback_and_restart() {
+                            Ok(()) => app.quit_app(),
+                            Err(e) => app.show_toast(format!("Rollback failed: {e}")),
                         }
                     }
                 }
