@@ -110,6 +110,54 @@ pub fn discard_orphaned_state() {
     clear_state(s.as_ref());
 }
 
+// ── E265 instance handshake ──────────────────────────────────────────────
+// GUI recordings never touched the agent state file, so `vibecap record
+// start` couldn't see them (and vice-versa). A small heartbeat file bridges
+// the two: the GUI writes it at arm and clears it at every terminal stop;
+// the agent path refuses to start while a live GUI recording owns it.
+
+fn gui_record_state_path() -> PathBuf {
+    vibecap_config_dir().join("gui-recording.json")
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct GuiRecordState {
+    /// PID of the *GUI* process (its ffmpeg child dies with it).
+    pub pid: u32,
+    pub mp4: String,
+    pub started_unix: u64,
+}
+
+/// GUI → file: announce that a studio recording is arming.
+pub fn write_gui_record_state(mp4: &Path) {
+    let state = GuiRecordState {
+        pid: std::process::id(),
+        mp4: mp4.display().to_string(),
+        started_unix: now_unix(),
+    };
+    if let Ok(json) = serde_json::to_string(&state) {
+        let _ = write_json_atomic(&gui_record_state_path(), &json);
+    }
+}
+
+/// GUI → file: recording reached a terminal state (stop/cancel/fail).
+pub fn clear_gui_record_state() {
+    let _ = std::fs::remove_file(gui_record_state_path());
+}
+
+/// Agent/CLI → GUI: is a studio recording live? Stale entries (crashed GUI)
+/// are swept so a leftover file can never wedge the CLI.
+pub fn live_gui_record() -> Option<GuiRecordState> {
+    let s: GuiRecordState =
+        serde_json::from_str(&std::fs::read_to_string(gui_record_state_path()).ok()?).ok()?;
+    if pid_alive(s.pid) {
+        Some(s)
+    } else {
+        clear_gui_record_state();
+        None
+    }
+}
+
 fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
@@ -206,6 +254,13 @@ pub fn start_agent_record(
         }
         clear_state(Some(&existing));
     }
+    // E265 — a studio recording owns the capture lock too.
+    if let Some(gui) = live_gui_record() {
+        return Err(format!(
+            "the Vibecap app is recording → {} (stop it in the app first)",
+            gui.mp4
+        ));
+    }
 
     let dir = resolve_output_dir(output_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not create output dir: {e}"))?;
@@ -237,6 +292,15 @@ pub fn start_agent_record(
 }
 
 pub fn record_status_line() -> String {
+    // E265 — report a live studio recording before falling through to the
+    // agent state file so `record status` never lies about the lock owner.
+    if let Some(gui) = live_gui_record() {
+        let elapsed = now_unix().saturating_sub(gui.started_unix);
+        return format!(
+            "recording=true owner=gui pid={} elapsed_secs={} mp4={}",
+            gui.pid, elapsed, gui.mp4
+        );
+    }
     match load_record_state() {
         None => "not recording".into(),
         Some(s) => {
@@ -275,7 +339,18 @@ pub enum GifOutcome {
 }
 
 pub fn stop_agent_record(want_gif: bool) -> Result<(AgentRecordState, GifOutcome), String> {
-    let state = load_record_state().ok_or_else(|| "not recording — nothing to stop".to_string())?;
+    let state = load_record_state().ok_or_else(|| {
+        // E265 — don't pretend "nothing to stop" when the studio owns a live
+        // recording; the CLI must not kill a process it didn't spawn.
+        if let Some(gui) = live_gui_record() {
+            format!(
+                "the Vibecap app is recording → {} — stop it in the app, not here",
+                gui.mp4
+            )
+        } else {
+            "not recording — nothing to stop".to_string()
+        }
+    })?;
     let was_alive = pid_alive(state.pid);
     if was_alive {
         terminate_pid(state.pid);

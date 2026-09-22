@@ -522,7 +522,11 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
     // E58 — end-of-loop hold: clone the last frame for N ms so the loop
     // breathes instead of snapping back (tpad before the GIF muxer).
     ui.horizontal(|ui| {
-        ui.label(RichText::new("end hold").size(11.0).color(theme::TEXT_DIM()));
+        ui.label(
+            RichText::new("end hold")
+                .size(11.0)
+                .color(theme::TEXT_DIM()),
+        );
         ui.add(
             egui::Slider::new(&mut app.gif_hold_ms, 0..=4000)
                 .suffix(" ms")

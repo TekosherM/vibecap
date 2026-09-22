@@ -130,6 +130,24 @@ pub(crate) enum CaptureTarget {
     Window,
 }
 
+impl CaptureTarget {
+    /// E51 — stable name for per-target memory persistence.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Fullscreen => "Fullscreen",
+            Self::Region => "Region",
+            Self::Window => "Window",
+        }
+    }
+    fn from_name(name: &str) -> Self {
+        match name {
+            "Region" => Self::Region,
+            "Window" => Self::Window,
+            _ => Self::Fullscreen,
+        }
+    }
+}
+
 /// What the most recent finished capture was — drives the app-level Ctrl+C
 /// "copy last capture" shortcut from any tab.
 #[derive(Clone)]
@@ -194,6 +212,12 @@ enum WakeEvent {
     RecordToggle,
     /// E50 — dedicated pause/resume hotkey (Ctrl+Shift+N, opt-in digit).
     PauseToggle,
+    /// E86 — opt-in region-still hotkey: jumps straight into the picker.
+    RegionStill,
+    /// E86 — opt-in window-still hotkey: captures the picked window app.
+    WindowStill,
+    /// E86 — opt-in GIF-clip hotkey: 3 s record → gif.
+    GifClip,
     /// E10 — Esc pressed while the region overlay was up but unfocused.
     RegionCancel,
     Tray(TrayAction),
@@ -323,6 +347,9 @@ fn spawn_wake_pump(
     id_summon: u32,
     id_pause: u32,
     id_prtscn: u32,
+    id_region: u32,
+    id_window: u32,
+    id_gif: u32,
     shared: Arc<WakeShared>,
     ctx: egui::Context,
 ) {
@@ -344,6 +371,12 @@ fn spawn_wake_pump(
                     } else if event.id == id_prtscn {
                         // E204 — bare PrtScn behaves like the screenshot hotkey.
                         pump_still_event(&shared, &ctx);
+                    } else if event.id == id_region && id_region != 0 {
+                        pump_event(&shared, &ctx, WakeEvent::RegionStill);
+                    } else if event.id == id_window && id_window != 0 {
+                        pump_event(&shared, &ctx, WakeEvent::WindowStill);
+                    } else if event.id == id_gif && id_gif != 0 {
+                        pump_event(&shared, &ctx, WakeEvent::GifClip);
                     }
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
@@ -802,6 +835,9 @@ pub(crate) struct VibecapApp {
     /// Hotkey id → summon/hide the window (Ctrl+Alt+V).
     hotkey_id_summon: u32,
     hotkey_id_pause: u32,
+    hotkey_id_region: u32,
+    hotkey_id_window: u32,
+    hotkey_id_gif: u32,
     hotkey_id_prtscn: u32,
 
     // System tray (menu bar / notification area)
@@ -915,6 +951,16 @@ pub(crate) struct VibecapApp {
     /// E50 — opt-in pause/resume hotkey digit (None = unbound).
     hotkey_pause_digit: Option<u8>,
     hotkey_pause_digit_prev: Option<u8>,
+    /// E86 — opt-in per-mode digits (Ctrl+Shift+N): jump to region pick / fire a window still.
+    hotkey_region_digit: Option<u8>,
+    hotkey_region_digit_prev: Option<u8>,
+    hotkey_window_digit: Option<u8>,
+    hotkey_window_digit_prev: Option<u8>,
+    hotkey_gif_digit: Option<u8>,
+    hotkey_gif_digit_prev: Option<u8>,
+    /// E51 — hour-of-day → last target; a morning region picker gets Region
+    /// back at launch instead of whatever the evening session used last.
+    target_hours: std::collections::BTreeMap<u8, String>,
     /// E204 — opt-in bare PrtScn still (steals the OS key while running).
     hotkey_prtscn: bool,
     hotkey_prtscn_prev: bool,
@@ -1102,6 +1148,10 @@ pub(crate) struct VibecapApp {
     /// (bytes written on success).
     wizard_test_rx: Option<crossbeam_channel::Receiver<Result<u64, String>>>,
     wizard_test_done: Option<Result<u64, String>>,
+    /// E288 — mic enumeration runs on a worker (ffmpeg spawn stalls ~300 ms);
+    /// `Some(None)` = probe failed, `Some(Some(list))` = device names.
+    wizard_audio_rx: Option<crossbeam_channel::Receiver<Option<Vec<String>>>>,
+    wizard_audio_devices: Option<Option<Vec<String>>>,
 
     /// Back/forward stacks for Alt+← / Alt+→ stage navigation.
     tab_back: Vec<AppTab>,
@@ -1205,6 +1255,13 @@ impl VibecapApp {
             hotkey_rec_digit_prev: 2,
             hotkey_pause_digit: None,
             hotkey_pause_digit_prev: None,
+            hotkey_region_digit: None,
+            hotkey_region_digit_prev: None,
+            hotkey_window_digit: None,
+            hotkey_window_digit_prev: None,
+            hotkey_gif_digit: None,
+            hotkey_gif_digit_prev: None,
+            target_hours: std::collections::BTreeMap::new(),
             hotkey_prtscn: false,
             hotkey_prtscn_prev: false,
             shutter_sound: false,
@@ -1230,6 +1287,9 @@ impl VibecapApp {
             hotkey_id_screenshot: 0,
             hotkey_id_summon: 0,
             hotkey_id_pause: 0,
+            hotkey_id_region: 0,
+            hotkey_id_window: 0,
+            hotkey_id_gif: 0,
             hotkey_id_prtscn: 0,
             trim_start: "00:00:00".to_string(),
             trim_end: "00:00:05".to_string(),
@@ -1334,6 +1394,9 @@ impl VibecapApp {
                 app.hotkey_id_summon,
                 app.hotkey_id_pause,
                 app.hotkey_id_prtscn,
+                app.hotkey_id_region,
+                app.hotkey_id_window,
+                app.hotkey_id_gif,
                 app.wake_shared.clone(),
                 cc.egui_ctx.clone(),
             );
@@ -1410,6 +1473,9 @@ impl VibecapApp {
     fn bind_extra_hotkeys(&mut self) {
         self.hotkey_id_pause = 0;
         self.hotkey_id_prtscn = 0;
+        self.hotkey_id_region = 0;
+        self.hotkey_id_window = 0;
+        self.hotkey_id_gif = 0;
         let Some(manager) = self.hotkey_manager.as_ref() else {
             return;
         };
@@ -1426,8 +1492,39 @@ impl VibecapApp {
             self.hotkey_id_prtscn = hk.id();
             let _ = manager.register(hk);
         }
+        // E86 — per-mode digits share the Ctrl+Shift+N bank; skip any that
+        // would collide with a sibling slot (register would fail anyway,
+        // but a stale prev-id would mis-dispatch after rebind).
+        let mut taken: Vec<u8> = vec![
+            self.hotkey_shot_digit.clamp(0, 9),
+            self.hotkey_rec_digit.clamp(0, 9),
+        ];
+        if let Some(d) = self.hotkey_pause_digit {
+            taken.push(d.clamp(0, 9));
+        }
+        for (digit, slot) in [
+            (self.hotkey_region_digit, &mut self.hotkey_id_region),
+            (self.hotkey_window_digit, &mut self.hotkey_id_window),
+            (self.hotkey_gif_digit, &mut self.hotkey_id_gif),
+        ] {
+            let Some(d) = digit else { continue };
+            let d = d.clamp(0, 9);
+            if taken.contains(&d) {
+                continue;
+            }
+            let hk = HotKey::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Self::digit_code(d),
+            );
+            *slot = hk.id();
+            let _ = manager.register(hk);
+            taken.push(d);
+        }
         self.hotkey_pause_digit_prev = self.hotkey_pause_digit;
         self.hotkey_prtscn_prev = self.hotkey_prtscn;
+        self.hotkey_region_digit_prev = self.hotkey_region_digit;
+        self.hotkey_window_digit_prev = self.hotkey_window_digit;
+        self.hotkey_gif_digit_prev = self.hotkey_gif_digit;
     }
 
     /// Unregister the extras as previously bound (ids are deterministic
@@ -1437,6 +1534,19 @@ impl VibecapApp {
             return;
         };
         if let Some(d) = self.hotkey_pause_digit_prev {
+            let _ = manager.unregister(HotKey::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Self::digit_code(d.clamp(0, 9)),
+            ));
+        }
+        for d in [
+            self.hotkey_region_digit_prev,
+            self.hotkey_window_digit_prev,
+            self.hotkey_gif_digit_prev,
+        ]
+        .into_iter()
+        .flatten()
+        {
             let _ = manager.unregister(HotKey::new(
                 Some(Modifiers::CONTROL | Modifiers::SHIFT),
                 Self::digit_code(d.clamp(0, 9)),
@@ -1617,6 +1727,23 @@ impl VibecapApp {
             self.hotkey_rec_digit = s.hotkey_rec_digit;
         }
         self.hotkey_pause_digit = s.hotkey_pause_digit.filter(|d| *d <= 9);
+        self.hotkey_region_digit = s.hotkey_region_digit.filter(|d| *d <= 9);
+        self.hotkey_window_digit = s.hotkey_window_digit.filter(|d| *d <= 9);
+        self.hotkey_gif_digit = s.hotkey_gif_digit.filter(|d| *d <= 9);
+        // E51 — per-target memory: this hour's habit wins over the raw last pick.
+        self.target_hours = s.target_hours;
+        let hour = Local::now().hour() as u8;
+        let remembered = self
+            .target_hours
+            .get(&hour)
+            .or(if s.capture_target_name.is_empty() {
+                None
+            } else {
+                Some(&s.capture_target_name)
+            });
+        if let Some(name) = remembered {
+            self.capture_target = CaptureTarget::from_name(name);
+        }
         self.hotkey_prtscn = s.hotkey_prtscn;
         self.shutter_sound = s.shutter_sound;
         self.clipboard_watcher = s.clipboard_watcher;
@@ -1731,6 +1858,11 @@ impl VibecapApp {
             hotkey_shot_digit: self.hotkey_shot_digit,
             hotkey_rec_digit: self.hotkey_rec_digit,
             hotkey_pause_digit: self.hotkey_pause_digit,
+            hotkey_region_digit: self.hotkey_region_digit,
+            hotkey_window_digit: self.hotkey_window_digit,
+            hotkey_gif_digit: self.hotkey_gif_digit,
+            capture_target_name: self.capture_target.name().to_string(),
+            target_hours: self.target_hours.clone(),
             hotkey_prtscn: self.hotkey_prtscn,
             shutter_sound: self.shutter_sound,
             clipboard_watcher: self.clipboard_watcher,
@@ -2500,6 +2632,17 @@ impl VibecapApp {
         if self.capture_target == CaptureTarget::Window && self.capture_focus_target().is_none() {
             self.show_toast("Pick a window app first — or switch to Full.");
             return;
+        }
+        // E265 — a CLI/MCP agent recording already holds the capture lock;
+        // refuse rather than spawn a second ffmpeg fighting for the desktop.
+        if let Some(s) = app::agent_record::load_record_state() {
+            if app::agent_record::record_pid_alive(s.pid) {
+                self.show_toast(format!(
+                    "⚠️ A CLI recording is already running → {} — `vibecap record stop` first.",
+                    s.mp4
+                ));
+                return;
+            }
         }
         if let Some(app) = self.capture_focus_target() {
             if let Err(e) = focus_app(&app) {
@@ -4805,6 +4948,7 @@ impl VibecapApp {
             self.recording_arming = false;
             // Drop receiver; worker may still finish — drain_record_spawn kills it.
             self.record_spawn_rx = None;
+            app::agent_record::clear_gui_record_state();
             self.release_record_exclusion();
             self.show_window(ctx);
             self.show_toast("❌ Recording cancelled");
@@ -4832,6 +4976,7 @@ impl VibecapApp {
         self.recording_arming = false;
         self.recording_cancel_armed = false;
 
+        app::agent_record::clear_gui_record_state();
         self.release_record_exclusion();
         self.show_window(ctx);
         self.show_toast("❌ Recording cancelled");
@@ -4900,6 +5045,7 @@ impl VibecapApp {
 
     /// Post-stop steps — safe only after ffmpeg has written the moov atom.
     fn finish_stop_recording(&mut self, ctx: &egui::Context) {
+        app::agent_record::clear_gui_record_state();
         self.release_record_exclusion();
         if self.shutter_sound {
             crate::platform::record_tone(false);
@@ -5300,6 +5446,9 @@ impl VibecapApp {
         self.recording_cancel_armed = false;
         self.arm_cancel.store(false, Ordering::SeqCst);
         self.current_mp4_file = Some(mp4_file.clone());
+        // E265 — announce to `vibecap record start` that the studio owns the
+        // capture lock; cleared on every terminal path below.
+        app::agent_record::write_gui_record_state(&mp4_file);
 
         // Windows: keep the studio on screen but invisible to the capture
         // (WDA_EXCLUDEFROMCAPTURE). A minimized window gets no WM_PAINT, so
@@ -5388,6 +5537,7 @@ impl VibecapApp {
                 let _ = std::fs::remove_file(path);
             }
             self.current_mp4_file = None;
+            app::agent_record::clear_gui_record_state();
             self.release_record_exclusion();
             return;
         }
@@ -5417,6 +5567,7 @@ impl VibecapApp {
             }
             Err(e) => {
                 self.current_mp4_file = None;
+                app::agent_record::clear_gui_record_state();
                 self.release_record_exclusion();
                 self.show_window(ctx);
                 self.show_toast(format!("❌ Record failed: {e}"));
@@ -5425,6 +5576,13 @@ impl VibecapApp {
     }
 
     fn trigger_capture(&mut self, ctx: &egui::Context, is_screenshot: bool) {
+        // E51 — record the target under the current hour before dispatch;
+        // even a region-pick opening counts as "user wanted Region".
+        self.target_hours.insert(
+            Local::now().hour() as u8,
+            self.capture_target.name().to_string(),
+        );
+        self.persist_session();
         if !is_screenshot {
             if self.capture_target == CaptureTarget::Region {
                 if self.selected_screen_rect.is_none() {
@@ -6874,6 +7032,8 @@ impl eframe::App for VibecapApp {
         }
         self.persist_session();
         self.flush_session_now();
+        // E265 — never leave a stale studio-record heartbeat behind.
+        app::agent_record::clear_gui_record_state();
         app::instance::release_gui_lock();
     }
 
@@ -7713,6 +7873,20 @@ impl eframe::App for VibecapApp {
                 WakeEvent::Screenshot => hotkey_shots += 1,
                 WakeEvent::RecordToggle => hotkey_recs += 1,
                 WakeEvent::PauseToggle => self.toggle_pause(),
+                // E86 — per-mode hotkeys: region jumps into the picker,
+                // window fires the window-target still path directly.
+                WakeEvent::RegionStill => {
+                    if !self.is_selecting_region && self.region_snap_rx.is_none() {
+                        self.start_region_pick(ctx, RegionPickKind::Screenshot);
+                    }
+                }
+                WakeEvent::WindowStill => {
+                    let prev = self.capture_target;
+                    self.capture_target = CaptureTarget::Window;
+                    self.trigger_capture(ctx, true);
+                    self.capture_target = prev;
+                }
+                WakeEvent::GifClip => self.trigger_gif_clip(ctx),
                 WakeEvent::RegionCancel => {
                     if self.is_selecting_region {
                         self.pending_region_kind = None;
@@ -7915,6 +8089,9 @@ impl eframe::App for VibecapApp {
             self.hotkey_shot_digit,
             self.hotkey_rec_digit,
             self.hotkey_pause_digit,
+            self.hotkey_region_digit,
+            self.hotkey_window_digit,
+            self.hotkey_gif_digit,
             self.hotkey_prtscn,
         );
 

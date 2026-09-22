@@ -419,6 +419,9 @@ pub fn show_cheatsheet(
     shot_digit: u8,
     rec_digit: u8,
     pause_digit: Option<u8>,
+    region_digit: Option<u8>,
+    window_digit: Option<u8>,
+    gif_digit: Option<u8>,
     prtscn: bool,
 ) {
     if !*open {
@@ -445,6 +448,15 @@ pub fn show_cheatsheet(
     ];
     if let Some(d) = pause_digit {
         global_rows.push((format!("Ctrl+Shift+{d}"), "Pause / resume record"));
+    }
+    if let Some(d) = region_digit {
+        global_rows.push((format!("Ctrl+Shift+{d}"), "Region pick"));
+    }
+    if let Some(d) = window_digit {
+        global_rows.push((format!("Ctrl+Shift+{d}"), "Window screenshot"));
+    }
+    if let Some(d) = gif_digit {
+        global_rows.push((format!("Ctrl+Shift+{d}"), "3 s GIF clip"));
     }
     if prtscn {
         global_rows.push(("PrtScn".to_string(), "Screenshot"));

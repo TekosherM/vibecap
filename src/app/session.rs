@@ -75,6 +75,20 @@ pub struct SessionState {
     /// E50 — pause/resume hotkey digit (Ctrl+Shift+N); None = unbound.
     #[serde(default)]
     pub hotkey_pause_digit: Option<u8>,
+    /// E86 — region-pick hotkey digit (Ctrl+Shift+N); None = unbound.
+    #[serde(default)]
+    pub hotkey_region_digit: Option<u8>,
+    /// E86 — window-still hotkey digit (Ctrl+Shift+N); None = unbound.
+    #[serde(default)]
+    pub hotkey_window_digit: Option<u8>,
+    /// E86 — GIF-clip hotkey digit (Ctrl+Shift+N); None = unbound.
+    #[serde(default)]
+    pub hotkey_gif_digit: Option<u8>,
+    /// E51 — per-target memory: last used target, plus hour-of-day → target.
+    #[serde(default)]
+    pub capture_target_name: String,
+    #[serde(default)]
+    pub target_hours: std::collections::BTreeMap<u8, String>,
     /// E204 — bare PrtScn takes a still (opt-in; steals the OS key).
     #[serde(default)]
     pub hotkey_prtscn: bool,
@@ -290,6 +304,11 @@ impl Default for SessionState {
             hotkey_shot_digit: 3,
             hotkey_rec_digit: 2,
             hotkey_pause_digit: None,
+            hotkey_region_digit: None,
+            hotkey_window_digit: None,
+            hotkey_gif_digit: None,
+            capture_target_name: String::new(),
+            target_hours: std::collections::BTreeMap::new(),
             hotkey_prtscn: false,
             shutter_sound: false,
             clipboard_watcher: false,

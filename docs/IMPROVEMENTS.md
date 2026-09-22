@@ -287,7 +287,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 ## F · Hotkeys, tray, system
 
 85. **Hotkey rebind UI** — Settings editor, applies without restart (open #81). ✓ (hotkey digits rebindable in Settings; rebind_global_hotkeys applies live)
-86. **Per-mode hotkeys** — region-still / window-still / GIF / pause.
+86. **Per-mode hotkeys** — region-still / window-still / GIF / pause. ✓ (opt-in Ctrl+Shift+N digits for Region pick, Window still, GIF clip + Pause; collision-guarded against the shot/rec/pause slots; Settings checkboxes + sliders; generated cheatsheet rows)
 87. **Tray recent-captures** submenu. ✓ (tray 'Recent captures' — 5 slots)
 88. **Tray pause/resume** item during record. ✓ (Pause/Resume Recording under Stop, Recording{paused} label + ⏸ title)
 89. **Tray "repeat last capture"** item. ✓
@@ -391,7 +391,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 
 ## C · Capture tab & flow (51–75)
 
-51. **Per-target memory** — remember Region vs Window per session *and* per hour-of-day.
+51. **Per-target memory** — remember Region vs Window per session *and* per hour-of-day. ✓ (session `capture_target_name` + `target_hours` map: the current hour's habit wins at launch, else the last pick; every trigger records target→hour)
 52. **Shutter button split-menu** — chevron on Screenshot offering Region/Window/Full variants without leaving the row. ✓ (▾ next to the shutter pops one-shot variants: capture once as Full/Region/Window, then restores the persisted From pick)
 53. **Capture preview strip on hover** — hovering a recent tile grows it 1.5× with play. ✓ (`animate_bool` grow 120×68→180×102; video tiles reuse `scrub_cache` frames advanced by time at 6 fps — the hover lags the size change one frame by design)
 54. **Drag recent tile out** — straight to Explorer/Slack from the capture card. ✓ (`Sense::click_and_drag` + `drag_started` → `platform::start_file_drag` OLE CF_HDROP; drag-threshold means plain clicks never start a drag)
@@ -569,7 +569,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 ## I · Tray, hotkeys & OS integration (201–225)
 
 201. **Hotkey rebind UI** — Settings editor, applies live (round-1 open). ✓ (`rebind_global_hotkeys` unregisters/re-registers; conflict toast names the taken combo)
-202. **Per-mode hotkeys** — region-still, window-still, GIF, pause each rebindable.
+202. **Per-mode hotkeys** — region-still, window-still, GIF, pause each rebindable. ✓ (same E86 plumbing — four opt-in digit slots with Apply rebind)
 203. **Hotkey conflict detect** — warn when binding collides with OS/browser. ✓ (rebind reports 'already taken by another app' per failed combo — includes pause/PrtScn)
 204. **Tray recent-captures** — last 5 items submenu with copy/reveal. ✓ (5 slots follow the library scan; click opens the file)
 205. **Tray pause/resume** — during record. ✓ ("Pause/Resume Recording" item under Stop, enabled only while recording; `TrayLiveState::Recording{paused}` drives label + ⏸ tray title; parked clicks wake through `pump_needs_wake` like Stop)
@@ -584,7 +584,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 214. **Update checker** — GitHub Releases poll, opt-in, changelog toast. ✓ (worker-thread check — the old sync curl blocked the UI; "Check on launch" session toggle (off = fully offline); newer tag → changelog toast + Settings shows notes preview + Download ↗ opening the release page)
 215. **Auto-update channel** — staged: check → download → apply on exit. ✓ (asset picked by target triple → curl download → tar unpack → magic+size sanity → `<exe>.new` staged beside the exe → "Restart to apply" renames running exe → `.old`, swaps in `.new`, relaunches via delayed `cmd`; rollback if the swap rename fails; `.old` cleaned on next launch)
 216. **Context-menu verb** — Explorer right-click "Annotate with Vibecap" on images. ✓ (HKCU `SystemFileAssociations\image` verb → `"vibecap.exe" annotate "%1"` — one PerceivedType key covers .png/.jpg/.webp/…, no elevation; raw RegCreateKeyExW/RegDeleteTreeW FFI in win32.rs; Settings checkbox installs/removes; verb lands in Review via the pending-still handoff whether the GUI is running or cold)
-217. **Share target** — Windows share contract so apps can send Vibecap images.
+217. **Share target** — Windows share contract so apps can send Vibecap images. ✓ (ship-able slice without MSIX: Explorer right-click verb 'Annotate with Vibecap' → `vibecap annotate "%1"`, HKCU-only, install/remove + test; a true ShareTarget contract still needs packaged app identity)
 218. **Startup-on-login option** — tray-only resident mode. ✓ (was already shipped — run-at-login registers `"<exe>" --hidden`; `--hidden` starts parked in the tray)
 219. **Notification-area copy** — all "menu bar" strings fixed for Windows. ✓ (was already shipped — user-visible strings are cfg-gated ("notification area / system tray" on Windows); remaining hits are code comments)
 220. **Windows permissions card** — mic/loopback device, tray status, gdigrab test. ✓ (WINDOWS STATUS card: ✓/✗ for ffmpeg gdigrab/audio/tray, resolved mic name, 'Test screenshot' runs a real grab)
@@ -601,7 +601,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 228. **Filmstrip parallel extract** — ffmpeg `-vsync` batch or threaded frame pull. ✓ (JPEG decode + RGBA convert spread across up to 8 scoped threads, round-robin slots, ordered reassembly; progress callback still fires per-frame)
 229. **Lazy library page** — only render visible tiles; 1000-file folders shouldn't instantiate 1000 widgets. ✓ (row-culled grid: chunks outside the scroll viewport allocate height but skip tile widgets + image-loader calls)
 230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old. ✓ (backdrop+snap now survive overlay exit; `region_backdrop_at` <2 s + file exists → instant reopen, no grab)
-231. **DPI-aware texture cache** — don't re-rasterize icons on scale change storms.
+231. **DPI-aware texture cache** — don't re-rasterize icons on scale change storms. ✓ (architecturally satisfied: all bitmaps are device-pixel TextureHandles uploaded once per decode — thumbs, filmstrip, still, backdrop, brand; display rects are point-space so a ppp change only rescales sampling. Icon glyphs are immediate-mode vector shapes, so nothing is keyed to DPI)
 232. **Font load once** — semibold/bold loads measured; cache family lookups. ✓ (font files load once behind a call_once block; font_semibold/font_bold family values cached in thread-locals — no per-call String alloc)
 233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change. ✓ (the repaint gate was keyed on `tray.is_some()` → 10 fps forever once the tray existed; now the 100 ms cadence only runs for real in-flight work, retro buffer ticks at 500 ms, live toasts get a 1 s expiry tick, and the pump's slow lane schedules frames for poke markers / watch-folder / OS-theme polls)
 234. **Recording finalize off-thread** — shipped for stop; extend to remux/GIF queue. ✓ (verified: stop finalize + orphan remux + GIF exports all run on spawned workers with channel drains)
@@ -647,7 +647,7 @@ sky shape cache (242). Verified shipped-not-marked: Ctrl+1–5 (30),
 Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 (156), selection bar (174).
 264. **Self-update rollback** — bad update keeps previous binary.
-265. **Instance handshake** — MCP + GUI detect each other; avoid dual capture locks.
+265. **Instance handshake** — MCP + GUI detect each other; avoid dual capture locks. ✓ (gui-recording.json heartbeat: GUI writes pid+mp4 at arm, clears on every terminal path incl. on_exit; `record start` refuses while a live GUI rec owns it, `record status` reports owner=gui, `record stop` says 'stop it in the app'; GUI refuses to record while an agent-side state has a live pid)
 266. **Clock-skew guard** — recording timestamps survive timezone changes mid-clip. ✓ (elapsed timing is Instant + accumulated_duration — monotonic, wall-clock immune; segment names use seq not wall time)
 267. **Output-dir move handling** — deleted/moved dir → recreate or prompt, never silent fail. ✓ (was already shipped — `create_dir_all` runs at every capture/record spawn site; `capture_to_dir` + agent record map mkdir errors to loud failures, ffmpeg write failure surfaces via exit status)
 268. **Long-path support** — >260 char paths via `\?\` prefix on Windows. ✓ (stills >240 chars capture to a short temp then long_move into place via verbatim-prefix rename; ffmpeg never sees `\?\`)
@@ -673,7 +673,7 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 285. **Settings sections as rail** — left-nav inside Settings instead of scroll. ✓ (left rail: All / Save / Recording / Library / Advanced / Shortcuts & look / Agent / About & help; All preserves the old scroll)
 286. **Setting tooltips** — every toggle explains its effect + default. ✓ (each switch row carries a dim explainer line under it; non-obvious checkboxes also have hover text — e.g. PrtScn, explorer verb, deep links, portable, follow-OS)
 287. **Reset-to-default per section** — not just global reset. ✓ ("↺ Reset section" on Save / Recording / Library / Retro / Shortcuts & look / Agent cards — restores shipped defaults, hotkeys rebind, theme resets to Dark)
-288. **Wizard Windows page** — ffmpeg test-shot, mic check, hotkey conflict check.
+288. **Wizard Windows page** — ffmpeg test-shot, mic check, hotkey conflict check. ✓ (new 'Check your setup' step: real capture smoke test, worker-thread mic enumeration via dshow list, hotkey registration status with rebind hint)
 289. **Wizard MCP detect** — find Cursor/Claude/Codex configs, offer snippet paste. ✓ (was already shipped — step_agent_connect renders mcp_client_rows for the big three clients with per-row config presence + paste-ready snippet)
 290. **Wizard theme pick** — live preview of all five, sets preference at first run. ✓ (welcome step renders the real five theme_swatch chips; clicking applies via set_theme)
 291. **Re-open wizard** — "Replay setup" in Settings. ✓ (was already shipped — "Replay first-run wizard" button resets wizard state)

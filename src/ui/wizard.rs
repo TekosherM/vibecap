@@ -10,7 +10,7 @@ use crate::app::{load_budget, save_budget, BudgetConfig};
 use crate::ui::theme;
 use crate::VibecapApp;
 
-pub const WIZARD_STEPS: u8 = 6;
+pub const WIZARD_STEPS: u8 = 7;
 
 /// Overlay wizard. Returns true if still open (caller should skip main chrome).
 pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
@@ -112,13 +112,28 @@ pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
                             Err(_) => app.wizard_test_rx = None,
                         }
                     }
+                    // E288 — same drain for the mic enumeration probe.
+                    if let Some(rx) = &app.wizard_audio_rx {
+                        match rx.try_recv() {
+                            Ok(res) => {
+                                app.wizard_audio_devices = Some(res);
+                                app.wizard_audio_rx = None;
+                            }
+                            Err(crossbeam_channel::TryRecvError::Empty) => {
+                                ui.ctx()
+                                    .request_repaint_after(std::time::Duration::from_millis(150));
+                            }
+                            Err(_) => app.wizard_audio_rx = None,
+                        }
+                    }
 
                     match step {
                         0 => step_welcome(app, ctx, ui),
                         1 => step_save_dir(app, ui),
                         2 => step_budget(app, ui),
                         3 => step_autostart(app, ui),
-                        4 => step_agent_connect(app, ui),
+                        4 => step_health_check(app, ui),
+                        5 => step_agent_connect(app, ui),
                         _ => step_shortcuts(app, ui),
                     }
 
@@ -552,7 +567,177 @@ fn step_agent_connect(app: &mut VibecapApp, ui: &mut egui::Ui) {
         });
 }
 
-fn step_shortcuts(app: &mut VibecapApp, ui: &mut egui::Ui) {
+/// E288 — pre-flight page: real ffmpeg test-shot, mic enumeration, and a
+/// hotkey-conflict read so first run fails here, not on the first capture.
+fn step_health_check(app: &mut VibecapApp, ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new("Check your setup")
+            .size(22.0)
+            .strong()
+            .color(theme::TEXT()),
+    );
+    ui.add_space(theme::SP_2);
+    ui.label(
+        RichText::new("Three quick checks before you rely on the hotkeys.")
+            .size(14.0)
+            .color(theme::TEXT_MUTED()),
+    );
+    ui.add_space(theme::SP_3);
+
+    Frame::none()
+        .fill(theme::SURFACE_2())
+        .rounding(theme::rounding_md())
+        .inner_margin(Margin::same(12.0))
+        .show(ui, |ui| {
+            // ── ffmpeg / test-shot ─────────────────────────────────────
+            ui.horizontal(|ui| {
+                let (mark, color) = if crate::platform::ffmpeg_available() {
+                    ("✓", theme::SUCCESS())
+                } else {
+                    ("✗", theme::DANGER())
+                };
+                ui.label(RichText::new(mark).color(color).strong());
+                ui.label(RichText::new("ffmpeg").size(12.5).color(theme::TEXT()));
+                if crate::platform::ffmpeg_available() {
+                    let busy = app.wizard_test_rx.is_some();
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("Test capture").small())
+                        .clicked()
+                    {
+                        let (tx, rx) = crossbeam_channel::bounded(1);
+                        std::thread::spawn(move || {
+                            let out = std::env::temp_dir().join("vibecap_wizard_test.png");
+                            let res = crate::platform::capture_screenshot_opts(
+                                &out,
+                                &crate::platform::CaptureOpts::default(),
+                            )
+                            .and_then(|_| {
+                                std::fs::metadata(&out)
+                                    .map(|m| m.len())
+                                    .map_err(|e| e.to_string())
+                            });
+                            let _ = std::fs::remove_file(&out);
+                            let _ = tx.send(res);
+                        });
+                        app.wizard_test_rx = Some(rx);
+                        app.wizard_test_done = None;
+                    }
+                    if busy {
+                        ui.label(
+                            RichText::new("capturing…")
+                                .size(11.0)
+                                .color(theme::TEXT_MUTED()),
+                        );
+                    } else if let Some(done) = &app.wizard_test_done {
+                        match done {
+                            Ok(bytes) => ui.label(
+                                RichText::new(format!("✓ {bytes} bytes"))
+                                    .size(11.0)
+                                    .color(theme::SUCCESS()),
+                            ),
+                            Err(e) => ui.label(
+                                RichText::new(format!("✗ {e}"))
+                                    .size(11.0)
+                                    .color(theme::DANGER()),
+                            ),
+                        };
+                    }
+                } else {
+                    ui.label(
+                        RichText::new(if cfg!(target_os = "windows") {
+                            "winget install Gyan.FFmpeg, then restart"
+                        } else if cfg!(target_os = "macos") {
+                            "brew install ffmpeg, then restart"
+                        } else {
+                            "install ffmpeg, then restart"
+                        })
+                        .size(11.0)
+                        .color(theme::WARN()),
+                    );
+                }
+            });
+            ui.add_space(6.0);
+
+            // ── mic ────────────────────────────────────────────────────
+            if app.wizard_audio_devices.is_none() && app.wizard_audio_rx.is_none() {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let devs = if crate::platform::ffmpeg_available() {
+                        Some(crate::platform::list_audio_input_devices())
+                    } else {
+                        None
+                    };
+                    let _ = tx.send(devs);
+                });
+                app.wizard_audio_rx = Some(rx);
+            }
+            ui.horizontal(|ui| {
+                match &app.wizard_audio_devices {
+                    None => {
+                        ui.label(RichText::new("…").color(theme::TEXT_DIM()));
+                        ui.label(
+                            RichText::new("Microphone — probing…")
+                                .size(12.5)
+                                .color(theme::TEXT_MUTED()),
+                        );
+                    }
+                    Some(None) => {
+                        ui.label(RichText::new("·").color(theme::TEXT_DIM()));
+                        ui.label(
+                            RichText::new("Microphone — needs ffmpeg first")
+                                .size(12.5)
+                                .color(theme::TEXT_MUTED()),
+                        );
+                    }
+                    Some(Some(devs)) if devs.is_empty() => {
+                        ui.label(RichText::new("·").color(theme::TEXT_DIM()));
+                        ui.label(
+                            RichText::new("Microphone — none found (optional)")
+                                .size(12.5)
+                                .color(theme::TEXT_MUTED()),
+                        );
+                    }
+                    Some(Some(devs)) => {
+                        ui.label(RichText::new("✓").color(theme::SUCCESS()).strong());
+                        ui.label(
+                            RichText::new(format!("Microphone — {}", devs[0]))
+                                .size(12.5)
+                                .color(theme::TEXT()),
+                        );
+                    }
+                }
+            });
+            ui.add_space(6.0);
+
+            // ── global hotkeys ─────────────────────────────────────────
+            ui.horizontal(|ui| {
+                let bound =
+                    app.hotkey_id_screenshot != 0 && app.hotkey_id_record != 0;
+                if bound {
+                    ui.label(RichText::new("✓").color(theme::SUCCESS()).strong());
+                    ui.label(
+                        RichText::new(format!(
+                            "Global hotkeys — Ctrl+Shift+{} / Ctrl+Shift+{}",
+                            app.hotkey_shot_digit, app.hotkey_rec_digit
+                        ))
+                        .size(12.5)
+                        .color(theme::TEXT()),
+                    );
+                } else {
+                    ui.label(RichText::new("⚠").color(theme::WARN()).strong());
+                    ui.label(
+                        RichText::new(
+                            "Global hotkeys failed — another app may own the combo; rebind in Settings",
+                        )
+                        .size(12.5)
+                        .color(theme::WARN()),
+                    );
+                }
+            });
+        });
+}
+
+fn step_shortcuts(_app: &mut VibecapApp, ui: &mut egui::Ui) {
     ui.label(
         RichText::new("You're ready.")
             .size(22.0)
@@ -595,56 +780,7 @@ fn step_shortcuts(app: &mut VibecapApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
     }
     ui.add_space(theme::SP_2);
-
-    // E83 — one-click capture smoke test: a real gdigrab/x11grab still to
-    // temp proves ffmpeg + permissions before the user relies on it.
-    if crate::platform::ffmpeg_available() {
-        ui.horizontal(|ui| {
-            let busy = app.wizard_test_rx.is_some();
-            if ui
-                .add_enabled(!busy, egui::Button::new("Run a test capture"))
-                .clicked()
-            {
-                let (tx, rx) = crossbeam_channel::bounded(1);
-                std::thread::spawn(move || {
-                    let out = std::env::temp_dir().join("vibecap_wizard_test.png");
-                    let res = crate::platform::capture_screenshot_opts(
-                        &out,
-                        &crate::platform::CaptureOpts::default(),
-                    )
-                    .and_then(|_| {
-                        std::fs::metadata(&out)
-                            .map(|m| m.len())
-                            .map_err(|e| e.to_string())
-                    });
-                    let _ = std::fs::remove_file(&out);
-                    let _ = tx.send(res);
-                });
-                app.wizard_test_rx = Some(rx);
-                app.wizard_test_done = None;
-            }
-            if busy {
-                ui.label(
-                    RichText::new("capturing…")
-                        .size(11.0)
-                        .color(theme::TEXT_MUTED()),
-                );
-            } else if let Some(done) = &app.wizard_test_done {
-                match done {
-                    Ok(bytes) => ui.label(
-                        RichText::new(format!("✓ works — {bytes} bytes captured"))
-                            .size(11.0)
-                            .color(theme::SUCCESS()),
-                    ),
-                    Err(e) => ui.label(
-                        RichText::new(format!("✗ {e}"))
-                            .size(11.0)
-                            .color(theme::DANGER()),
-                    ),
-                };
-            }
-        });
-    } else {
+    if !crate::platform::ffmpeg_available() {
         ui.label(
             RichText::new(if cfg!(target_os = "windows") {
                 "⚠ ffmpeg missing — winget install Gyan.FFmpeg, then restart Vibecap."
@@ -654,8 +790,8 @@ fn step_shortcuts(app: &mut VibecapApp, ui: &mut egui::Ui) {
             .size(11.0)
             .color(theme::WARN()),
         );
+        ui.add_space(theme::SP_2);
     }
-    ui.add_space(theme::SP_2);
     ui.label(
         RichText::new("Next: take a screenshot, or wire your agent to vibecap MCP.")
             .small()

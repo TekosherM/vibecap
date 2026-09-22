@@ -601,8 +601,7 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) -> Option
         Sense::drag(),
     );
     if strip_resp.drag_started() {
-        ui.ctx()
-            .send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
     jump
 }

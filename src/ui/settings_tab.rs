@@ -601,7 +601,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ui.label("Record");
                     ui.add(egui::Slider::new(&mut app.hotkey_rec_digit, 0..=9).prefix("#"));
                 });
-                // E50/E204 — opt-in extras: pause digit + bare PrtScn.
+                // E50/E204/E86 — opt-in extras: pause/region/window digits + bare PrtScn.
                 ui.horizontal(|ui| {
                     let mut pause_on = app.hotkey_pause_digit.is_some();
                     if ui.checkbox(&mut pause_on, "Pause hotkey").changed() {
@@ -610,6 +610,45 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     if let Some(d) = app.hotkey_pause_digit.as_mut() {
                         ui.add(egui::Slider::new(d, 0..=9).prefix("#"));
                     }
+                });
+                ui.horizontal(|ui| {
+                    let mut region_on = app.hotkey_region_digit.is_some();
+                    if ui
+                        .checkbox(&mut region_on, "Region pick hotkey")
+                        .on_hover_text("Ctrl+Shift+N jumps straight into the region picker")
+                        .changed()
+                    {
+                        app.hotkey_region_digit = region_on.then_some(5);
+                    }
+                    if let Some(d) = app.hotkey_region_digit.as_mut() {
+                        ui.add(egui::Slider::new(d, 0..=9).prefix("#"));
+                    }
+                    let mut window_on = app.hotkey_window_digit.is_some();
+                    if ui
+                        .checkbox(&mut window_on, "Window still hotkey")
+                        .on_hover_text("Ctrl+Shift+N captures the remembered window")
+                        .changed()
+                    {
+                        app.hotkey_window_digit = window_on.then_some(6);
+                    }
+                    if let Some(d) = app.hotkey_window_digit.as_mut() {
+                        ui.add(egui::Slider::new(d, 0..=9).prefix("#"));
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let mut gif_on = app.hotkey_gif_digit.is_some();
+                    if ui
+                        .checkbox(&mut gif_on, "GIF clip hotkey")
+                        .on_hover_text("Ctrl+Shift+N records a 3 s clip and exports a GIF")
+                        .changed()
+                    {
+                        app.hotkey_gif_digit = gif_on.then_some(7);
+                    }
+                    if let Some(d) = app.hotkey_gif_digit.as_mut() {
+                        ui.add(egui::Slider::new(d, 0..=9).prefix("#"));
+                    }
+                });
+                ui.horizontal(|ui| {
                     ui.checkbox(&mut app.hotkey_prtscn, "PrtScn still")
                         .on_hover_text("Bare PrtScn takes a screenshot while Vibecap runs");
                     if ui
@@ -1008,6 +1047,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.hotkey_shot_digit = 3;
                     app.hotkey_rec_digit = 2;
                     app.hotkey_pause_digit = None;
+                    app.hotkey_region_digit = None;
+                    app.hotkey_window_digit = None;
+                    app.hotkey_gif_digit = None;
                     app.hotkey_prtscn = false;
                     app.shutter_sound = false;
                     app.tray_dblclick = "open".into();
