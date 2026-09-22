@@ -124,6 +124,70 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             .size(10.0)
             .color(theme::TEXT_DIM()),
     );
+
+    // E295 — budget dashboard: tier + caps + a per-session spend sparkline.
+    {
+        let cfg = crate::app::budget::load_budget();
+        let live = crate::app::default_live_dir().display().to_string();
+        let (frames, mb, mins) = crate::app::budget::live_usage_snapshot(&live);
+        let fmt_cap = |v: u32| {
+            if v == 0 {
+                "∞".to_string()
+            } else {
+                v.to_string()
+            }
+        };
+        let label = format!(
+            "BUDGET {} · {}/{} fr · {:.1}/{} MB · {:.0}/{} min",
+            cfg.analysis_tier,
+            frames,
+            fmt_cap(cfg.max_frames),
+            mb,
+            if cfg.max_mb <= 0.0 {
+                "∞".to_string()
+            } else {
+                format!("{:.0}", cfg.max_mb)
+            },
+            mins,
+            fmt_cap(cfg.max_minutes),
+        );
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(label)
+                    .size(10.5)
+                    .color(theme::TEXT_MUTED())
+                    .monospace(),
+            );
+            if !app.budget_samples.is_empty() {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::Vec2::new(90.0, 14.0), egui::Sense::hover());
+                let p = ui.painter_at(rect);
+                let n = app.budget_samples.len();
+                let bw = rect.width() / 60.0_f32.max(n as f32);
+                for (i, v) in app.budget_samples.iter().enumerate() {
+                    let h = (rect.height() * v.clamp(0.05, 1.0)).max(1.0);
+                    let x = rect.right() - (n - i) as f32 * bw;
+                    let c = if *v >= 1.0 {
+                        theme::DANGER()
+                    } else if *v >= 0.75 {
+                        theme::WARN()
+                    } else {
+                        theme::ACCENT()
+                    };
+                    p.rect_filled(
+                        egui::Rect::from_min_size(
+                            egui::pos2(x, rect.bottom() - h),
+                            egui::Vec2::new(bw - 1.0, h),
+                        ),
+                        1.0,
+                        c.gamma_multiply(0.85),
+                    );
+                }
+            }
+        })
+        .response
+        .on_hover_text("Worst of frames/MB/minutes vs caps, sampled every 15 s this session");
+    }
     ui.horizontal(|ui| {
         ui.label(RichText::new("Search").small().color(theme::TEXT_DIM()));
         ui.add(

@@ -405,4 +405,46 @@ mod tests {
     fn pid_zero_is_dead() {
         assert!(!pid_alive(0));
     }
+
+    /// E262 — killed mid-record: a dead pid + frag state + a real partial
+    /// file surfaces as an orphan for the launch-time remux, and discard
+    /// clears the marker so recovery doesn't loop.
+    #[test]
+    fn orphaned_frag_surfaces_and_discards() {
+        // Preserve any real in-flight state around the test.
+        let state_path = agent_record_state_path();
+        let prior = std::fs::read_to_string(&state_path).ok();
+
+        let dir = std::env::temp_dir().join(format!("vibecap_orph_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mp4 = dir.join("partial.mp4");
+        std::fs::write(&mp4, vec![0u8; 1024]).unwrap();
+
+        let s = AgentRecordState {
+            pid: 0, // dead
+            mp4: mp4.display().to_string(),
+            output_dir: dir.display().to_string(),
+            display: None,
+            window: None,
+            gif: false,
+            started_at: "t".into(),
+            started_unix: 1,
+            frag: true,
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let _ = std::fs::create_dir_all(state_path.parent().unwrap());
+        std::fs::write(&state_path, &json).unwrap();
+
+        assert_eq!(orphaned_frag_mp4(), Some(mp4.clone()));
+
+        discard_orphaned_state();
+        assert!(load_record_state().is_none());
+        assert!(orphaned_frag_mp4().is_none());
+
+        // Restore + clean up.
+        if let Some(p) = prior {
+            let _ = std::fs::write(&state_path, p);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

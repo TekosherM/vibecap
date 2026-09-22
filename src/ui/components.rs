@@ -500,10 +500,12 @@ pub enum StatusJump {
 /// ffmpeg-missing → Settings.
 pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) -> Option<StatusJump> {
     let mut jump = None;
-    Frame::none()
+    // E36 — +2 px vertical margin: the strip is a click/drag surface, not
+    // a hairline. Dragging empty strip space moves the window.
+    let inner = Frame::none()
         .fill(theme::SURFACE_GLASS_DIM())
         .stroke(Stroke::new(1.0_f32, theme::BORDER()))
-        .inner_margin(Margin::symmetric(10.0, 6.0))
+        .inner_margin(Margin::symmetric(10.0, 8.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 if details {
@@ -591,6 +593,16 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) -> Option
                 });
             });
         });
+    // E36 — empty strip space drags the whole window (dead-space chrome).
+    let strip_resp = ui.interact(
+        inner.response.rect,
+        egui::Id::new("status_strip_drag"),
+        Sense::drag(),
+    );
+    if strip_resp.drag_started() {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
     jump
 }
 

@@ -481,3 +481,17 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   internal.
 - Verified shipped: #5 (theme_follow_os), #234 (finalize/remux/GIF all
   on workers), #289 (wizard MCP client detect).
+
+### Budget dashboard + resilience tests
+- #295: Inbox header budget strip — tier, frames/MB/minutes vs caps, and a
+  sparkline of per-session `budget_samples` (30 s cadence in update());
+  near-cap styling; empty/unlimited sessions render clean.
+- #36: status strip vertical margin +2 px; empty strip space StartDrags.
+- #262: `orphaned_frag_surfaces_and_discards` — dead-pid frag state +
+  real partial mp4 → `orphaned_frag_mp4` surfaces it, `discard_orphaned_state`
+  clears markers so launch recovery can't loop; real state is preserved
+  and restored around the test.
+- #261: `fuzz_snap_and_aspect_never_produce_garbage` — 4000 LCG-driven
+  erratic positions + degenerate window rects through the HUD snap/aspect
+  helpers; asserts finite geometry, zero panics.
+- Tests: 105 green.

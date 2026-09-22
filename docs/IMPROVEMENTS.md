@@ -373,7 +373,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 33. **Window-size memory per stage** — Library wants wide; Capture wants narrow. ✓ (session `window_sizes` map: leaving a stage stashes its size, entering restores it via InnerSize when it differs >20px)
 34. **Min window size enforcement** — below 720 px the rail overlaps content; clamp or collapse. ✓ (`with_min_inner_size([760, 560])` shipped earlier)
 35. **Adaptive column width** — the 720 px content column should widen on >1100 px windows. ✓ (col_w widens to 900 on >1100 px)
-36. **Status strip resize drag** — give the bottom bar a 2 px taller hit target.
+36. **Status strip resize drag** — give the bottom bar a 2 px taller hit target. ✓ (inner vertical margin 6→8 px; empty strip space StartDrags the window; segments use selectable_label hit rects)
 37. **Status strip segments clickable** — click "2 recordings" → jump to Library filtered. ✓ (storage→Library, tier→Settings, inbox n→Inbox, ffmpeg-missing→Settings)
 38. **Right-side inspector mode** — optional docked metadata panel in Review screens.
 39. **Zen mode** — hide rail + status strip; palette + hotkeys only. ✓ (palette ToggleZen; rail+strip gated, entry toast explains Ctrl+K exit)
@@ -634,8 +634,8 @@ background chip (112), save-as-copy (116), Esc depth (125).
 258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash. ✓ (apply_session whitelists tab/density/filter/countdown/fps/digits, floors window dims, rejects inverted rects + insane screen dims)
 259. **Windows CI smoke** — gdigrab one-frame test asserting file size (round-1 #99, still open).
 260. **Golden-theme CI** — screenshot-diff the five themes to catch alpha regressions.
-261. **Input-fuzz test** — rapid region-drag/cancel sequences can't orphan the overlay.
-262. **Kill-recovery test** — terminate mid-record; next launch must finalize or clean the partial file.
+261. **Input-fuzz test** — rapid region-drag/cancel sequences can't orphan the overlay. ✓ (`fuzz_snap_and_aspect_never_produce_garbage`: 4000 LCG-driven erratic drag positions + degenerate/inverted window rects through `snap_with_guides`/`aspect_clamped` — asserts all emitted geometry stays finite, zero panics)
+262. **Kill-recovery test** — terminate mid-record; next launch must finalize or clean the partial file. ✓ (`orphaned_frag_surfaces_and_discards`: writes a dead-pid frag state + 1 KB partial mp4, asserts `orphaned_frag_mp4` surfaces it for launch-time remux and `discard_orphaned_state` clears state+breadcrumb so recovery doesn't loop; real state restored after the test)
 263. **ffmpeg-missing UX** — capture buttons disable with a clear fix-it card, not a post-click error. ✓ (fix-it card on Capture with copyable install cmd + live Re-check via `ffmpeg_recheck()`)
 
 ### Round-3 first cut (built this pass)
@@ -680,7 +680,7 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 292. **In-app changelog** — What's New card after update. ✓ (apply stashes tag+notes in session; ABOUT & HELP card shows them once with "Got it" dismiss)
 293. **Docs links in-app** — ? icon → relevant doc section per tab. ✓ (ABOUT & HELP card links capture recipes / MCP tools / roadmap / releases)
 294. **Stats card** — captures/week, bytes saved, streaks (round-2 #99, still open). ✓ (Library header stats line)
-295. **Budget dashboard** — per-session spend sparkline in Inbox.
+295. **Budget dashboard** — per-session spend sparkline in Inbox. ✓ (Inbox header strip: tier, frames/MB/minutes usage vs caps, and a sparkline of `budget_samples` taken every 30 s in `update()`; warning styling when near/over a cap; unlimited caps and empty sessions render clean)
 296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview. ✓ (insert chips for {app}/{date}/{time}/{seq}/{orig}/-/_ append to the pattern under the live preview)
 297. **Export diagnostics bundle** — one click → zip of logs+session+doctor for bug reports. ✓ (bug_report_pack now emits bug_<ts>.zip: screenshot + retro.gif + doctor.json + system.txt + session/budget/draft + newest .ffmpeg.log, STORED via app::zip)
 298. **Community theme repo hook** — `--theme-import URL` fetch+validate.

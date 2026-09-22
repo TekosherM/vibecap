@@ -997,6 +997,10 @@ pub(crate) struct VibecapApp {
     budget_minutes_input: String,
     budget_tier: String,
     budget_loaded: bool,
+    /// E295 — per-session utilization samples (0..1, worst of
+    /// frames/MB/minutes caps) for the Inbox sparkline.
+    budget_samples: Vec<f32>,
+    budget_sample_at: Option<Instant>,
 
     // Image Editor wardrobe
     img_edit_file: Option<PathBuf>,
@@ -1236,6 +1240,8 @@ impl VibecapApp {
             budget_mb_input: "0.0".to_string(),
             budget_minutes_input: "0".to_string(),
             budget_tier: "standard".to_string(),
+            budget_samples: Vec::new(),
+            budget_sample_at: None,
             img_resize_pct: 100,
             img_src_wh: (0, 0),
             export_fmt: StillExportFmt::Jpg,
@@ -7030,6 +7036,32 @@ impl eframe::App for VibecapApp {
                         self.last_error.as_deref(),
                     );
                 }
+            }
+        }
+
+        // E295 — 15 s samples of worst-cap utilization for the Inbox sparkline.
+        let sample_due = self
+            .budget_sample_at
+            .map(|t| t.elapsed() >= Duration::from_secs(15))
+            .unwrap_or(true);
+        if sample_due {
+            self.budget_sample_at = Some(Instant::now());
+            let cfg = load_budget();
+            let (frames, mb, mins) =
+                crate::app::budget::live_usage_snapshot(&default_live_dir().display().to_string());
+            let mut worst = 0.0f32;
+            if cfg.max_frames > 0 {
+                worst = worst.max(frames as f32 / cfg.max_frames as f32);
+            }
+            if cfg.max_mb > 0.0 {
+                worst = worst.max((mb / cfg.max_mb) as f32);
+            }
+            if cfg.max_minutes > 0 {
+                worst = worst.max((mins / cfg.max_minutes as f64) as f32);
+            }
+            self.budget_samples.push(worst.min(1.0));
+            if self.budget_samples.len() > 120 {
+                self.budget_samples.remove(0);
             }
         }
 

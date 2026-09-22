@@ -1365,6 +1365,42 @@ mod tests {
         assert!(g2.is_empty());
     }
 
+    /// E261 — input fuzz: thousands of erratic drag positions + degenerate
+    /// window rects must never produce NaN/negative-infinite geometry or
+    /// panic — rapid drag/cancel storms flow through these helpers.
+    #[test]
+    fn fuzz_snap_and_aspect_never_produce_garbage() {
+        let mut seed = 0x9E3779B9u64;
+        let mut rng = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1920.0, 1080.0));
+        for _ in 0..4000 {
+            let f = |r: u64| (r % 6000) as f32 - 1000.0; // -1000..5000 incl. offscreen
+            let pos = Pos2::new(f(rng()), f(rng()));
+            // Random window rects — some degenerate, some inverted, some huge.
+            let w0 = f(rng());
+            let h0 = f(rng());
+            let win = Rect::from_min_max(
+                Pos2::new(f(rng()), f(rng())),
+                Pos2::new(f(rng()) + w0, f(rng()) + h0),
+            );
+            let (p, guides) = snap_with_guides(pos, screen, &[win]);
+            assert!(p.x.is_finite() && p.y.is_finite());
+            for (a, b) in &guides {
+                assert!(a.x.is_finite() && a.y.is_finite());
+                assert!(b.x.is_finite() && b.y.is_finite());
+            }
+            let ratio = (rng() % 400) as f32 / 100.0; // 0.0..4.0 incl. zero guard
+            let sel = Rect::from_min_max(pos, Pos2::new(pos.x + w0, pos.y + h0));
+            let locked = aspect_clamped(sel, ratio);
+            assert!(locked.min.is_finite() && locked.max.is_finite());
+        }
+    }
+
     #[test]
     fn snap_hits_screen_and_window_on_both_axes() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1920.0, 1080.0));
