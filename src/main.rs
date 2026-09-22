@@ -927,6 +927,9 @@ pub(crate) struct VibecapApp {
     batch_shot_count: u32,
     /// E39 — zen mode: rail + status strip hidden; palette/hotkeys only.
     zen_mode: bool,
+    /// E249 — decoded still keyed by (path, mtime): slider tweaks re-run ops
+    /// on this instead of re-decoding the file every frame of the drag.
+    still_decode_cache: Option<(PathBuf, u64, image::DynamicImage)>,
     region_snap_path: Option<PathBuf>,
     region_snap_rx: Option<Receiver<Result<(PathBuf, u32, u32, Vec<u8>), String>>>,
     brand_logo: Option<egui::TextureHandle>,
@@ -1181,6 +1184,7 @@ impl VibecapApp {
             last_sidecar_sweep: None,
             batch_shot_count: 0,
             zen_mode: false,
+            still_decode_cache: None,
             region_history: Vec::new(),
             region_pick_count: 0,
             hud_toolbar_bottom: false,
@@ -1779,11 +1783,11 @@ impl VibecapApp {
     }
 
     /// Edited pixels with annotations baked in — shared by save/copy/export.
-    fn edited_baked_image(&self) -> Result<image::DynamicImage, String> {
+    fn edited_baked_image(&mut self) -> Result<image::DynamicImage, String> {
         let Some(path) = self.img_edit_file.clone() else {
             return Err("No image loaded".into());
         };
-        let mut dyn_img = match self.compute_edited_image() {
+        let mut dyn_img = match self.compute_edited_image(None) {
             Ok(img) => img,
             Err(_) => image::open(&path).map_err(|e| format!("Could not read image: {e}"))?,
         };
@@ -4155,9 +4159,33 @@ impl VibecapApp {
         self.scan_feedback_requests();
     }
 
-    fn compute_edited_image(&self) -> Result<image::DynamicImage, String> {
+    /// Decode the still once per (path, mtime) — slider tweaks re-run ops on
+    /// the cached decode instead of re-reading + re-decoding the file (E249).
+    fn source_still(&mut self) -> Result<image::DynamicImage, String> {
         let path = self.img_edit_file.clone().ok_or("No image selected")?;
-        let mut img = image::open(&path).map_err(|e| format!("Could not open image: {}", e))?;
+        let mtime = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if let Some((p, mt, img)) = &self.still_decode_cache {
+            if *p == path && *mt == mtime {
+                return Ok(img.clone());
+            }
+        }
+        let img = image::open(&path).map_err(|e| format!("Could not open image: {}", e))?;
+        self.still_decode_cache = Some((path, mtime, img.clone()));
+        Ok(img)
+    }
+
+    /// `max_dim` caps the working image after crop — the Still preview passes
+    /// 1600 so >25 MP sources stay responsive; export passes `None` (E249).
+    fn compute_edited_image(
+        &mut self,
+        max_dim: Option<u32>,
+    ) -> Result<image::DynamicImage, String> {
+        let mut img = self.source_still()?;
         if img.width() as u64 * img.height() as u64 > 50_000_000 {
             return Err("Image too large (>50 MP) — refusing to edit.".to_string());
         }
@@ -4180,6 +4208,11 @@ impl VibecapApp {
                 return Err("Crop exceeds image bounds — nothing was cropped.".to_string());
             }
             img = img.crop_imm(cx, cy, cw, ch);
+        }
+        if let Some(cap) = max_dim {
+            if img.width().max(img.height()) > cap {
+                img = img.thumbnail(cap, cap);
+            }
         }
         img = match self.img_rotate {
             90 => img.rotate90(),
@@ -4233,7 +4266,7 @@ impl VibecapApp {
             return;
         }
         self.img_preview_params = params;
-        if let Ok(img) = self.compute_edited_image() {
+        if let Ok(img) = self.compute_edited_image(Some(1600)) {
             let preview = img.resize(640, 480, image::imageops::FilterType::Triangle);
             let size = [preview.width() as _, preview.height() as _];
             let buf = preview.to_rgba8();
@@ -4318,6 +4351,12 @@ impl VibecapApp {
         self.latest_screenshot = Some(path.clone());
         self.is_annotating = true;
         if let Ok(img) = image::open(&path) {
+            // E249 — canvas texture is capped; export still bakes full-res.
+            let img = if img.width().max(img.height()) > 4096 {
+                img.thumbnail(4096, 4096)
+            } else {
+                img
+            };
             let size = [img.width() as _, img.height() as _];
             let image_buffer = img.to_rgba8();
             let pixels = image_buffer.as_flat_samples();

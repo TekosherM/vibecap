@@ -401,3 +401,11 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #31: "Library ›" breadcrumb link prefixes Clip/Still headers.
 - #71: Shift+release in the region HUD crops a still from the frozen
   backdrop and keeps the overlay open; 📷N chip counts the batch, Esc ends.
+
+### Perf/reliability marks + still decode cache
+- #249: source_still decode cache keyed by (path,mtime); preview caps the
+  working image at 1600px post-crop, annotate canvas texture at 4096;
+  export/bake stay full-res.
+- Verified shipped: #226 (worker decode for thumbs/filmstrip), #241 (sky
+  shape cache), #266 (Instant-based elapsed), #269 (ASCII stem sanitize),
+  #274 (next_seq monotonic names).
