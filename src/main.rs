@@ -267,7 +267,7 @@ fn spawn_pump_still(cfg: CaptureCfg, shared: Arc<WakeShared>, ctx: egui::Context
             &shot,
             &CaptureOpts::default()
                 .with_draw_mouse(cfg.draw_mouse)
-                .with_monitor(cfg.monitor),
+                .with_monitor(crate::platform::resolve_monitor(cfg.monitor)),
         )
         .map(|_| shot);
         match &result {
@@ -2534,7 +2534,12 @@ impl VibecapApp {
             )
             .into_bytes(),
         ));
-        for cfg in ["session.json", "budget.json", "review_draft.json"] {
+        for cfg in [
+            "session.json",
+            "budget.json",
+            "review_draft.json",
+            "crash.log",
+        ] {
             let p = crate::app::io::vibecap_config_dir().join(cfg);
             if let Ok(b) = std::fs::read(&p) {
                 entries.push((cfg.to_string(), b));
@@ -3182,6 +3187,22 @@ impl VibecapApp {
         });
         self.update_rx = Some(rx);
         self.update_status = "checking…".into();
+    }
+
+    /// E273 — the saved display pick can outlive the display (undock).
+    /// Re-target to the default and say so once, rather than capturing a
+    /// dead index forever.
+    fn resolved_monitor(&mut self) -> Option<u32> {
+        let want = self.capture_monitor?;
+        match crate::platform::resolve_monitor(Some(want)) {
+            some @ Some(_) => some,
+            None => {
+                self.capture_monitor = None;
+                self.persist_session();
+                self.show_toast("Saved display unplugged — capture retargeted to primary");
+                None
+            }
+        }
     }
 
     /// E222 — launch recovery: unsaved Review annotations + a frag-MP4
@@ -4736,6 +4757,8 @@ impl VibecapApp {
             crate::platform::record_tone(false);
         }
         if let Some(mp4) = self.current_mp4_file.clone() {
+            // E245 — keep the recorder's stderr tail in-process for doctor.
+            crate::platform::remember_ffmpeg_log(&mp4);
             if !self.record_markers.is_empty() {
                 let side = mp4.with_extension("markers.txt");
                 let body = self
@@ -5101,6 +5124,7 @@ impl VibecapApp {
         };
         // Window recordings resolve the window rectangle inside the recorder;
         // pass the target through so they never silently become fullscreen.
+        let record_monitor = self.resolved_monitor();
         let record_opts = match self.capture_target {
             CaptureTarget::Window => CaptureOpts::from_parts(
                 None,
@@ -5109,8 +5133,8 @@ impl VibecapApp {
                         .unwrap_or_else(|| self.window_app.clone()),
                 ),
             )
-            .with_monitor(self.capture_monitor),
-            _ => CaptureOpts::default().with_monitor(self.capture_monitor),
+            .with_monitor(record_monitor),
+            _ => CaptureOpts::default().with_monitor(record_monitor),
         }
         .with_crf(self.record_crf)
         .with_audio_device(&self.audio_device)
@@ -5324,7 +5348,7 @@ impl VibecapApp {
         let ctx_clone = ctx.clone();
         let save_dir = self.save_dir.clone();
         let draw_mouse = self.draw_mouse;
-        let monitor = self.capture_monitor;
+        let monitor = self.resolved_monitor();
         let pattern = self.name_pattern.clone();
         let app_token = focus_target.clone();
         let mut delay_ms = self.capture_delay_secs.saturating_mul(1000);
@@ -5454,7 +5478,7 @@ impl VibecapApp {
         let pattern = self.name_pattern.clone();
         let app_token = self.capture_focus_target();
         let opts =
-            CaptureOpts::from_parts(None, app_token.clone()).with_monitor(self.capture_monitor);
+            CaptureOpts::from_parts(None, app_token.clone()).with_monitor(self.resolved_monitor());
         std::thread::spawn(move || {
             // SW_HIDE is synchronous — ~100 ms covers compositor propagation.
             let hide_ms = if cfg!(target_os = "windows") {
@@ -8115,10 +8139,14 @@ impl eframe::App for VibecapApp {
                 self.confirm_delete = None;
             }
         }
+        // E236 — first painted frame ≈ interactive; recorded once.
+        app::note_first_frame();
     }
 }
 
 fn main() -> eframe::Result<()> {
+    // E236 — t0 for the launch→interactive measurement.
+    app::mark_app_start();
     // Panic capture (K249): append crash info to <config>/crash.log — a
     // windows-subsystem GUI dies silently otherwise.
     let default_hook = std::panic::take_hook();

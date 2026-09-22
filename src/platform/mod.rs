@@ -21,15 +21,22 @@ mod win32;
 pub use capture::{
     capture_live_frame, capture_screenshot, capture_screenshot_interactive,
     capture_screenshot_opts, capture_screenshot_region, capture_to_dir, crop_image_file,
-    even_screen_rect, export_gif_clip, export_gif_clip_ex, record_dry_run_line,
-    record_screen_clip_opts, remux_to_clean_mp4, spawn_screen_recorder, spawn_screen_recorder_opts,
-    spawn_voice_memo, verify_mp4, LiveFormat, ScreenRect,
+    even_screen_rect, export_gif_clip, export_gif_clip_ex, ffmpeg_log_ring, record_dry_run_line,
+    record_screen_clip_opts, remember_ffmpeg_log, remux_to_clean_mp4, spawn_screen_recorder,
+    spawn_screen_recorder_opts, spawn_voice_memo, verify_mp4, LiveFormat, ScreenRect,
 };
 pub use ffmpeg::{
     extract_preview_wav, ffmpeg_available, ffmpeg_command, ffmpeg_log_tail, ffmpeg_path,
     ffmpeg_recheck, format_timecode, list_audio_input_devices, parse_timecode, probe_duration,
     run_ffmpeg,
 };
+/// E273 — a saved monitor index can outlive the display it named
+/// (dock/undock). Drop stale picks to the default instead of capturing
+/// the wrong screen or erroring out.
+pub fn resolve_monitor(monitor: Option<u32>) -> Option<u32> {
+    monitor.filter(|&m| (m as usize) < list_monitors().len())
+}
+
 pub use notify::notify_agent_question;
 
 /// F126 — loop the extracted preview WAV while the clip flipbook plays.
@@ -76,11 +83,11 @@ pub use shell::window_rect_on_screen;
 pub use shell::{
     activate_own_app, clipboard_seq, esc_pressed_edge, explorer_verb_enabled, focus_app,
     foreground_is_menu, frontmost_app_name, list_capture_windows, list_capture_windows_cached,
-    list_monitors, list_running_apps, on_battery, open_path, open_screen_recording_settings,
-    open_with, os_apps_dark, record_tone, request_screen_recording_access, reveal_in_file_manager,
-    run_at_login_enabled, screen_capture_allowed, set_explorer_verb, set_run_at_login,
-    set_url_scheme, set_user_env, shutter_click, start_file_drag, url_scheme_enabled, user_env,
-    window_tools_hint,
+    list_monitors, list_running_apps, long_move, on_battery, open_path,
+    open_screen_recording_settings, open_with, os_apps_dark, process_memory_mb, record_tone,
+    request_screen_recording_access, reveal_in_file_manager, run_at_login_enabled,
+    screen_capture_allowed, set_explorer_verb, set_run_at_login, set_url_scheme, set_user_env,
+    shutter_click, start_file_drag, url_scheme_enabled, user_env, window_tools_hint,
 };
 pub use source::{default_output_dir_display, resolve_output_dir, CaptureOpts};
 

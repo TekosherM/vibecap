@@ -449,3 +449,17 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   async image loader (shimmer gated by reduce_motion).
 - #271: tray-less sessions show a persistent "no tray — close quits" chip
   in the header (close already quits when tray creation failed).
+
+### Diagnostics + reliability tranche
+- #245: FFMPEG_LOG_RING — finish_stop_recording snapshots the recorder's
+  .ffmpeg.log tail (8 KB); doctor_report/doctor_text read memory, not disk.
+- #236: mark_app_start at main() + note_first_frame after first update();
+  startup_ms lands in doctor JSON/text and the bug bundle.
+- #237: process_memory_mb — psapi GetProcessMemoryInfo (Windows), VmRSS
+  (Linux); doctor reports memory_mb.
+- #248: verified — update check is a worker thread, never blocks paint.
+- #268: stills over 240 chars capture to a temp name and long_move into
+  place via \?\ rename (ffmpeg never sees a verbatim path).
+- #273: resolve_monitor drops a stale display index to default + toast;
+  wired into GUI stills, recordings, and the pump's hidden-capture path.
+- #297 follow-up: crash.log joins the bug bundle entry list.

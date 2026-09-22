@@ -891,6 +891,59 @@ pub fn on_battery() -> Option<bool> {
     }
 }
 
+/// E268 — `\\?\`-prefixed verbatim path for std::fs calls past MAX_PATH.
+/// No-op on short/relative paths and non-Windows.
+fn long_path(path: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let s = path.to_string_lossy();
+        if s.len() > 240 && path.is_absolute() && !s.starts_with(r"\\?\") {
+            return std::path::PathBuf::from(format!(r"\\?\{}", s.replace('/', "\\")));
+        }
+    }
+    path.to_path_buf()
+}
+
+/// E268 — move `from` to `to`, tolerating >260-char destinations on
+/// Windows (std::fs handles `\\?\` even though child processes can't).
+pub fn long_move(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    let to = long_path(to);
+    if let Some(parent) = to.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::rename(from, &to)
+        .or_else(|_| {
+            std::fs::copy(from, &to)
+                .map(|_| ())
+                .and_then(|_| std::fs::remove_file(from))
+        })
+        .map_err(|e| format!("could not place {}: {e}", to.display()))
+}
+
+/// E237 — working-set memory of this process in MiB. Windows uses
+/// psapi `GetProcessMemoryInfo`; unix reads VmRSS from /proc/self/status.
+pub fn process_memory_mb() -> Option<u64> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::process_memory_mb()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("VmRSS:"))
+                    .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
+            })
+            .map(|kb| kb / 1024)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        None
+    }
+}
+
 /// E163 — start an OS file drag of `paths` out of the app window. Windows
 /// uses OLE CF_HDROP (modal DoDragDrop loop); other platforms unsupported.
 pub fn start_file_drag(paths: &[std::path::PathBuf]) -> Result<(), String> {

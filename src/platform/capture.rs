@@ -98,6 +98,28 @@ pub fn capture_screenshot(out: &Path) -> Result<(), String> {
 /// are last-resort fallbacks only when x11grab cannot start and the caller
 /// did not name a display.
 pub fn capture_screenshot_opts(out: &Path, opts: &CaptureOpts) -> Result<(), String> {
+    // E268 — ffmpeg argv can't consume `\\?\` verbatim paths, so a
+    // >240-char destination captures to a short temp name and moves into
+    // place via the prefixed rename below.
+    #[cfg(target_os = "windows")]
+    if out.to_string_lossy().len() > 240 {
+        let tmp = std::env::temp_dir().join(format!(
+            "vibecap_lp_{}_{}",
+            std::process::id(),
+            out.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "shot.jpg".into())
+        ));
+        let res = capture_screenshot_inner(&tmp, opts);
+        return match res {
+            Ok(()) => super::long_move(&tmp, out),
+            Err(e) => Err(e),
+        };
+    }
+    capture_screenshot_inner(out, opts)
+}
+
+fn capture_screenshot_inner(out: &Path, opts: &CaptureOpts) -> Result<(), String> {
     // Windows resolves focus itself per-branch (focused → desktop crop,
     // unfocused → HWND grab), so it skips the shared pre-focus.
     #[cfg(target_os = "windows")]
@@ -687,6 +709,25 @@ pub fn remux_to_clean_mp4(src: &Path, dest: &Path) -> Result<(), String> {
     let log = src.with_extension("ffmpeg.log");
     let _ = std::fs::remove_file(log);
     Ok(())
+}
+
+/// E245 — last recorder's stderr tail held in-process so doctor and the
+/// diagnostics bundle read memory instead of re-reading the file.
+static FFMPEG_LOG_RING: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Snapshot the tail of `<mp4>.ffmpeg.log` into the ring after finalize.
+pub fn remember_ffmpeg_log(mp4: &Path) {
+    let log = mp4.with_extension("ffmpeg.log");
+    if let Some(tail) = super::ffmpeg::ffmpeg_log_tail(&log, 8192) {
+        if let Ok(mut g) = FFMPEG_LOG_RING.lock() {
+            *g = Some(tail);
+        }
+    }
+}
+
+/// The remembered tail — None until a recording has finished this session.
+pub fn ffmpeg_log_ring() -> Option<String> {
+    FFMPEG_LOG_RING.lock().ok().and_then(|g| g.clone())
 }
 
 /// E256 — cheap post-stop readability probe: decode one frame through the

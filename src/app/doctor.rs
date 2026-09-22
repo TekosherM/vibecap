@@ -27,6 +27,13 @@ pub struct DoctorReport {
     pub mcp_tool_names: Vec<String>,
     /// True when a stale record state points at a dead pid.
     pub stale_record_state: bool,
+    /// E245 — last recorder's stderr tail (in-memory ring; None until a
+    /// recording has finished this session).
+    pub ffmpeg_log_tail: Option<String>,
+    /// E236 — ms from process start to first painted frame (GUI only).
+    pub startup_ms: Option<u64>,
+    /// E237 — working-set memory of this process in MiB.
+    pub memory_mb: Option<u64>,
 }
 
 fn env_or_none(k: &str) -> Option<String> {
@@ -74,6 +81,9 @@ pub fn doctor_report() -> DoctorReport {
             .map(|s| s.to_string())
             .collect(),
         stale_record_state: stale,
+        ffmpeg_log_tail: crate::platform::ffmpeg_log_ring(),
+        startup_ms: crate::app::startup_elapsed_ms(),
+        memory_mb: crate::platform::process_memory_mb(),
     }
 }
 
@@ -156,6 +166,25 @@ pub fn doctor_text() -> String {
         lines.push(format!("window_crop={hint}"));
     }
     lines.push(format!("mcp_tools={}", r.mcp_tools));
+    if let Some(ms) = r.startup_ms {
+        lines.push(format!("startup_ms={ms}"));
+    }
+    if let Some(mb) = r.memory_mb {
+        lines.push(format!("memory_mb={mb}"));
+    }
+    if let Some(tail) = &r.ffmpeg_log_tail {
+        lines.push("ffmpeg_log_tail:".into());
+        for l in tail
+            .lines()
+            .rev()
+            .take(12)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
+            lines.push(format!("  {l}"));
+        }
+    }
     if r.stale_record_state {
         lines.push("stale_record_state=yes (doctor --fix clears it)".into());
     }

@@ -558,6 +558,38 @@ extern "system" {
         free_total: *mut u64,
     ) -> i32;
     fn GetSystemPowerStatus(status: *mut RawPowerStatus) -> i32;
+    fn GetCurrentProcess() -> *mut c_void;
+}
+
+#[link(name = "psapi")]
+extern "system" {
+    fn GetProcessMemoryInfo(process: *mut c_void, counters: *mut RawMemCounters, size: u32) -> i32;
+}
+
+#[repr(C)]
+struct RawMemCounters {
+    cb: u32,
+    page_fault_count: u32,
+    peak_working_set: usize,
+    working_set: usize,
+    quota_peak_paged: usize,
+    quota_paged: usize,
+    quota_peak_nonpaged: usize,
+    quota_nonpaged: usize,
+    pagefile: usize,
+    peak_pagefile: usize,
+}
+
+/// E237 — current working set in MiB (None when the probe fails).
+pub fn process_memory_mb() -> Option<u64> {
+    let mut c: RawMemCounters = unsafe { std::mem::zeroed() };
+    c.cb = std::mem::size_of::<RawMemCounters>() as u32;
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) };
+    if ok == 0 {
+        None
+    } else {
+        Some((c.working_set / (1024 * 1024)) as u64)
+    }
 }
 
 #[repr(C)]

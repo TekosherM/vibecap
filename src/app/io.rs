@@ -8,6 +8,38 @@ pub fn vibecap_config_dir() -> PathBuf {
     platform_config_dir()
 }
 
+// ── Startup timing (E236) ────────────────────────────────────────────
+
+static APP_T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+static STARTUP_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Call at process start (main()) — t0 for the cold-launch budget.
+pub fn mark_app_start() {
+    let _ = APP_T0.set(std::time::Instant::now());
+}
+
+/// Call once at the end of the first painted update() — records
+/// launch→interactive latency. Later calls are no-ops.
+pub fn note_first_frame() {
+    if let Some(t0) = APP_T0.get() {
+        let ms = t0.elapsed().as_millis() as u64;
+        let _ = STARTUP_MS.compare_exchange(
+            0,
+            ms.max(1),
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+    }
+}
+
+/// ms from process start to first painted frame; None for CLI/headless.
+pub fn startup_elapsed_ms() -> Option<u64> {
+    match STARTUP_MS.load(std::sync::atomic::Ordering::SeqCst) {
+        0 => None,
+        v => Some(v),
+    }
+}
+
 /// Write-then-rename so a concurrent reader never sees a partial file.
 pub fn write_json_atomic(path: &PathBuf, contents: &str) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
