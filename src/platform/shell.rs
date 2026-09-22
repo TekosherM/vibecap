@@ -858,6 +858,20 @@ pub fn child_window_at(parent: u64, x: i32, y: i32) -> Option<(i32, i32, i32, i3
     }
 }
 
+/// E22 — live thumbnail pixels of a window (Windows PrintWindow/StretchBlt);
+/// `None` elsewhere — the pick card just shows its text label.
+pub fn window_thumb_rgba(hwnd: u64, max_dim: u32) -> Option<(u32, u32, Vec<u8>)> {
+    #[cfg(target_os = "windows")]
+    {
+        super::win32::window_thumb_rgba(hwnd as isize, max_dim)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (hwnd, max_dim);
+        None
+    }
+}
+
 /// E10 — Esc-press edge for the parked pump's global cancel. Windows only.
 #[cfg(target_os = "windows")]
 pub fn esc_pressed_edge() -> bool {

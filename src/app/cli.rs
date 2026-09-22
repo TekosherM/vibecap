@@ -47,6 +47,10 @@ pub enum CliAction {
     /// E264 — `vibecap update rollback` — swap back to the previous binary
     /// parked by the last self-update and relaunch it.
     UpdateRollback,
+    /// E298 — `vibecap theme import <url|file>` — fetch a shared theme
+    /// recipe (the Settings "Share theme" JSON) and merge it into the
+    /// session so the GUI applies it.
+    ThemeImport,
     /// E187 — a bare `vibecap://…` argument (registered URL scheme launches
     /// the exe with the URL as argv[1]). Written to the pending_deep marker.
     DeepLink,
@@ -263,6 +267,11 @@ pub fn parse_args(args: &[String]) -> CliArgs {
             Some("rollback") => CliAction::UpdateRollback,
             _ => CliAction::Help,
         }
+    } else if first == Some("theme") {
+        match tokens.get(1).map(|s| s.as_str()) {
+            Some("import") => CliAction::ThemeImport,
+            _ => CliAction::Help,
+        }
     } else if first == Some("record") {
         match tokens.get(1).map(|s| s.as_str()) {
             Some("start") => CliAction::RecordStart,
@@ -275,6 +284,7 @@ pub fn parse_args(args: &[String]) -> CliArgs {
     };
     let target = match action {
         CliAction::Open | CliAction::Annotate | CliAction::Poke => tokens.get(1).cloned(),
+        CliAction::ThemeImport => tokens.get(2).cloned(),
         CliAction::DeepLink => tokens.first().cloned(),
         _ => None,
     };
@@ -320,6 +330,7 @@ Usage:
                    [--stroke PX] [--out FILE]
   vibecap poke <show|hide|screenshot|record|stop>
   vibecap update rollback     Swap back to the previous binary
+  vibecap theme import <url|file>  Apply a shared theme recipe (see Settings → Share theme)
   vibecap doctor [--json] [--fix]
   vibecap --mcp
   vibecap --paths
@@ -862,6 +873,67 @@ pub fn run_headless(cli: &CliArgs) -> Option<i32> {
             }
             Err(e) => Some(cli_fail(cli, &e)),
         },
+        CliAction::ThemeImport => {
+            let Some(src) = cli.target.as_deref() else {
+                return Some(usage_fail(cli, "usage: vibecap theme import <url|file>"));
+            };
+            // http(s) fetches go through the OS curl (bundled on Win10+,
+            // macOS, and virtually every Linux image); local paths read direct.
+            let body = if src.starts_with("http://") || src.starts_with("https://") {
+                let mut cmd = std::process::Command::new("curl");
+                cmd.args(["-fsSL", "--max-time", "15", src]);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+                }
+                match cmd.output() {
+                    Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+                    Ok(o) => {
+                        return Some(cli_fail(
+                            cli,
+                            &format!("fetch failed: {}", String::from_utf8_lossy(&o.stderr)),
+                        ));
+                    }
+                    Err(e) => return Some(cli_fail(cli, &format!("curl failed: {e}"))),
+                }
+            } else {
+                match std::fs::read_to_string(src) {
+                    Ok(t) => t,
+                    Err(e) => return Some(cli_fail(cli, &format!("cannot read {src}: {e}"))),
+                }
+            };
+            match serde_json::from_str::<serde_json::Value>(&body) {
+                Ok(v) if v.get("vibecap_theme").is_some() => {
+                    let mut s = crate::app::session::load_session();
+                    if let Some(t) = v.get("theme").and_then(|t| t.as_str()) {
+                        s.theme = t.to_string();
+                    }
+                    if let Some(h) = v.get("aurora_hue").and_then(|h| h.as_f64()) {
+                        s.aurora_hue = (h as f32).clamp(-40.0, 40.0);
+                    }
+                    if let Some(b) = v.get("follow_os").and_then(|b| b.as_bool()) {
+                        s.theme_follow_os = b;
+                    }
+                    if let Some(b) = v.get("schedule").and_then(|b| b.as_bool()) {
+                        s.theme_schedule = b;
+                    }
+                    if let Some(d) = v.get("dark_pick").and_then(|d| d.as_str()) {
+                        s.theme_dark_pick = d.to_string();
+                    }
+                    crate::app::session::save_session(&s);
+                    println!(
+                        "theme recipe applied ({}) — the Studio picks it up on next launch",
+                        s.theme
+                    );
+                    Some(0)
+                }
+                _ => Some(cli_fail(
+                    cli,
+                    "not a Vibecap theme recipe (missing vibecap_theme marker)",
+                )),
+            }
+        }
         CliAction::Open => {
             let Some(id) = cli.target.as_deref() else {
                 return Some(usage_fail(cli, "usage: vibecap open <file-or-name>"));

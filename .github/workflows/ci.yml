@@ -67,18 +67,29 @@ jobs:
           "$BIN" --version
           "$BIN" doctor || true
 
-      - name: Windows gdigrab still
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          pwsh -File scripts/smoke_capture.ps1
-
       - name: MCP smoke (macOS)
         if: matrix.smoke
         shell: bash
         run: |
           chmod +x scripts/smoke_mcp.sh
           ./scripts/smoke_mcp.sh
+
+  # E246 — real gdigrab capture runs in parallel with the unit-test matrix
+  # instead of serializing behind it.
+  win-capture:
+    name: windows gdigrab smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y
+      - name: Build release
+        run: cargo build --release
+      - name: gdigrab still
+        shell: pwsh
+        run: pwsh -File scripts/smoke_capture.ps1
 
   web:
     name: web

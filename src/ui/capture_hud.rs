@@ -102,6 +102,8 @@ pub fn show_region_selector(
     backdrop_stale: bool,
     was_dragging: &mut bool,
     window_pick: Option<&(String, i32, i32, i32, i32)>,
+    // E22 — live thumbnail of the hovered window, if the grab landed.
+    window_pick_thumb: Option<&egui::TextureHandle>,
     aspect_lock: &mut Option<f32>,
     window_pick_cycle: &mut usize,
     dim_alpha: u8,
@@ -339,6 +341,35 @@ pub fn show_region_selector(
                         }
                         painter.rect_filled(plate, 4.0, theme::ACCENT());
                         painter.galley(plate.min + pad, galley, theme::ON_SOLID());
+                        // E22 — live thumbnail card floats below the label
+                        // (above the plate when the window hugs the top edge).
+                        if let Some(tex) = window_pick_thumb {
+                            let ts = tex.size_vec2();
+                            let scale = (96.0 / ts.x).min(64.0 / ts.y);
+                            let tsize = ts * scale;
+                            let mut tr = Rect::from_min_size(
+                                egui::pos2(plate.min.x, plate.max.y + 6.0),
+                                tsize,
+                            );
+                            if tr.max.y > screen.max.y - 8.0 {
+                                tr = tr.translate(Vec2::new(
+                                    0.0,
+                                    -(tr.height() + plate.height() + 12.0),
+                                ));
+                            }
+                            painter.rect_filled(tr.expand(3.0), 4.0, theme::SURFACE());
+                            painter.image(
+                                tex.id(),
+                                tr,
+                                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                                egui::Color32::WHITE,
+                            );
+                            painter.rect_stroke(
+                                tr.expand(3.0),
+                                4.0,
+                                Stroke::new(1.0_f32, theme::ACCENT()),
+                            );
+                        }
                     }
                     // Ctrl+click samples a hex color instead of picking (E92).
                     if response.clicked() && !ctrl_held {

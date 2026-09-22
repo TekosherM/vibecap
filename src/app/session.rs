@@ -214,6 +214,10 @@ pub struct SessionState {
     /// on so the trim/export and annotation tools stay reachable.
     #[serde(default = "default_true")]
     pub inspector_open: bool,
+    /// E93 — refresh the region-pick backdrop ~1.2 s while selecting instead
+    /// of a frozen frame (Windows capture-exclusion path only).
+    #[serde(default)]
+    pub region_live_backdrop: bool,
     /// E23 — flatten pulses/hover-grow for motion-sensitive users.
     #[serde(default)]
     pub reduce_motion: bool,
@@ -366,6 +370,7 @@ impl Default for SessionState {
             rail_collapsed: false,
             top_tabs: false,
             inspector_open: true,
+            region_live_backdrop: false,
             reduce_motion: false,
             aurora_hue: 0.0,
             saved_regions: Vec::new(),

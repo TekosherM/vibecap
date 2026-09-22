@@ -301,6 +301,8 @@ extern "system" {
     fn CloseClipboard() -> i32;
     fn SetClipboardData(fmt: u32, h: isize) -> isize;
     fn RegisterClipboardFormatW(name: *const u16) -> u32;
+    fn GetWindowDC(hwnd: Hwnd) -> *mut c_void;
+    fn PrintWindow(hwnd: Hwnd, hdc: *mut c_void, flags: u32) -> i32;
 }
 
 /// Clipboard change counter — bumps on any clipboard write, so a watcher can
@@ -348,6 +350,149 @@ pub fn clipboard_add_encoded(bytes: &[u8], format_name: &str) -> Result<(), Stri
     }
 }
 
+/// E22 — live thumbnail of a window for the pick card: PrintWindow renders
+/// the window (even occluded/minimized ones, with PW_RENDERFULLCONTENT) into
+/// a GDI bitmap; BitBlt from the window DC is the fallback. Returns
+/// (w, h, RGBA) already downscaled so the longest side is ≤ `max_dim`.
+pub fn window_thumb_rgba(hwnd: isize, max_dim: u32) -> Option<(u32, u32, Vec<u8>)> {
+    unsafe { SetProcessDPIAware() };
+    let mut rc = RawRect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    unsafe {
+        if GetWindowRect(hwnd as Hwnd, &mut rc) == 0 {
+            return None;
+        }
+    }
+    let (w, h) = (rc.right - rc.left, rc.bottom - rc.top);
+    if w < 8 || h < 8 {
+        return None;
+    }
+    // Cap the render target — a maximized 4K window needn't be grabbed at
+    // full size for a 96 px card.
+    const CAP: i32 = 1600;
+    let (bw, bh) = if w.max(h) > CAP {
+        let s = CAP as f64 / w.max(h) as f64;
+        ((w as f64 * s) as i32, (h as f64 * s) as i32)
+    } else {
+        (w, h)
+    };
+    unsafe {
+        let screen = GetDC(std::ptr::null_mut());
+        if screen.is_null() {
+            return None;
+        }
+        let mem = CreateCompatibleDC(screen);
+        let bmp = if mem.is_null() {
+            std::ptr::null_mut()
+        } else {
+            CreateCompatibleBitmap(screen, bw, bh)
+        };
+        if mem.is_null() || bmp.is_null() {
+            if !bmp.is_null() {
+                DeleteObject(bmp);
+            }
+            if !mem.is_null() {
+                DeleteDC(mem);
+            }
+            ReleaseDC(std::ptr::null_mut(), screen);
+            return None;
+        }
+        let old = SelectObject(mem, bmp);
+        // PrintWindow at real size isn't possible when capped — render at
+        // window size only when uncapped, else stretch the window DC.
+        // PrintWindow renders at real window size — usable only uncapped;
+        // the capped path stretch-blits the window DC instead.
+        let mut painted = false;
+        if (bw, bh) == (w, h) {
+            const PW_RENDERFULLCONTENT: u32 = 2;
+            painted = PrintWindow(hwnd as Hwnd, mem, PW_RENDERFULLCONTENT) != 0;
+        }
+        if !painted {
+            let wdc = GetWindowDC(hwnd as Hwnd);
+            if wdc.is_null() {
+                SelectObject(mem, old);
+                DeleteObject(bmp);
+                DeleteDC(mem);
+                ReleaseDC(std::ptr::null_mut(), screen);
+                return None;
+            }
+            let blt = if (bw, bh) == (w, h) {
+                BitBlt(mem, 0, 0, bw, bh, wdc, 0, 0, SRCCOPY)
+            } else {
+                StretchBlt(mem, 0, 0, bw, bh, wdc, 0, 0, w, h, SRCCOPY)
+            };
+            ReleaseDC(hwnd as Hwnd, wdc);
+            if blt == 0 {
+                SelectObject(mem, old);
+                DeleteObject(bmp);
+                DeleteDC(mem);
+                ReleaseDC(std::ptr::null_mut(), screen);
+                return None;
+            }
+        }
+        let mut bmi = BitmapInfo {
+            bmi_header: BitmapInfoHeader {
+                bi_size: std::mem::size_of::<BitmapInfoHeader>() as u32,
+                bi_width: bw,
+                bi_height: -bh, // top-down
+                bi_planes: 1,
+                bi_bit_count: 32,
+                bi_compression: BI_RGB,
+                bi_size_image: 0,
+                bi_x_pels_per_meter: 0,
+                bi_y_pels_per_meter: 0,
+                bi_clr_used: 0,
+                bi_clr_important: 0,
+            },
+            bmi_colors: [0],
+        };
+        let mut buf = vec![0u8; bw as usize * bh as usize * 4];
+        let lines = GetDIBits(
+            mem,
+            bmp,
+            0,
+            bh as u32,
+            buf.as_mut_ptr() as *mut c_void,
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+        SelectObject(mem, old);
+        DeleteObject(bmp);
+        DeleteDC(mem);
+        ReleaseDC(std::ptr::null_mut(), screen);
+        if lines == 0 {
+            return None;
+        }
+        // BGRA → RGBA, then nearest-neighbor down to max_dim.
+        for px in buf.as_chunks_mut::<4>().0 {
+            px.swap(0, 2);
+        }
+        let scale = max_dim as f64 / bw.max(bh) as f64;
+        if scale >= 1.0 {
+            return Some((bw as u32, bh as u32, buf));
+        }
+        let (tw, th) = (
+            ((bw as f64 * scale) as u32).max(1),
+            ((bh as f64 * scale) as u32).max(1),
+        );
+        let mut out = vec![0u8; tw as usize * th as usize * 4];
+        for ty in 0..th {
+            let sy = (ty as f64 / scale) as u32;
+            for tx in 0..tw {
+                let sx = (tx as f64 / scale) as u32;
+                let s = (sy as usize * bw as usize + sx as usize) * 4;
+                let d = (ty as usize * tw as usize + tx as usize) * 4;
+                out[d..d + 4].copy_from_slice(&buf[s..s + 4]);
+            }
+        }
+        Some((tw, th, out))
+    }
+}
+
 #[link(name = "gdi32")]
 extern "system" {
     fn CreateCompatibleDC(hdc: *mut c_void) -> *mut c_void;
@@ -362,6 +507,19 @@ extern "system" {
         sdc: *mut c_void,
         sx: i32,
         sy: i32,
+        rop: u32,
+    ) -> i32;
+    fn StretchBlt(
+        ddc: *mut c_void,
+        dx: i32,
+        dy: i32,
+        dw: i32,
+        dh: i32,
+        sdc: *mut c_void,
+        sx: i32,
+        sy: i32,
+        sw: i32,
+        sh: i32,
         rop: u32,
     ) -> i32;
     fn GetDIBits(

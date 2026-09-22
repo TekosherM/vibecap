@@ -907,6 +907,12 @@ pub(crate) struct VibecapApp {
     cheatsheet_open: bool,
     /// Window-pick mode: topmost window under the cursor (title + OS-px rect).
     window_pick_hover: Option<(String, i32, i32, i32, i32)>,
+    /// E22 — hwnd the hover tuple represents (feeds the thumbnail grab).
+    window_pick_hwnd: Option<u64>,
+    /// E22 — hwnd → live thumbnail texture cache for the pick card.
+    pick_thumbs: std::collections::HashMap<u64, egui::TextureHandle>,
+    /// E22 — in-flight thumbnail grab (hwnd is what the worker is painting).
+    pick_thumb_rx: Option<(u64, Receiver<Option<(u32, u32, Vec<u8>)>>)>,
     /// Hover is dead space → the pick target is the whole monitor, not a window.
     window_pick_hover_monitor: bool,
     /// Scroll-wheel Z-cycle index into the overlapping windows under the cursor.
@@ -1019,6 +1025,13 @@ pub(crate) struct VibecapApp {
     still_decode_cache: Option<(PathBuf, u64, image::DynamicImage)>,
     region_snap_path: Option<PathBuf>,
     region_snap_rx: Option<Receiver<Result<(PathBuf, u32, u32, Vec<u8>), String>>>,
+    /// E93 — this snap is a live-backdrop refresh, not the pick's freeze.
+    region_snap_is_refresh: bool,
+    /// E93 — live backdrop while picking (requires capture exclusion; the
+    /// overlay must not photograph itself). Off = the classic frozen frame.
+    region_live_backdrop: bool,
+    /// E93 — last live refresh kick; re-fires every ~1.2 s while picking.
+    region_live_at: Option<Instant>,
     brand_logo: Option<egui::TextureHandle>,
     filmstrip_rx: Option<Receiver<Result<(Vec<(u32, u32, Vec<u8>)>, f64, f64), String>>>,
 
@@ -1689,6 +1702,7 @@ impl VibecapApp {
         self.rail_collapsed = s.rail_collapsed;
         self.top_tabs = s.top_tabs;
         self.inspector_open = s.inspector_open;
+        self.region_live_backdrop = s.region_live_backdrop;
         self.reduce_motion = s.reduce_motion;
         self.aurora_hue = s.aurora_hue;
         if let Some(p) = s.edit_file {
@@ -1946,6 +1960,7 @@ impl VibecapApp {
             rail_collapsed: self.rail_collapsed,
             top_tabs: self.top_tabs,
             inspector_open: self.inspector_open,
+            region_live_backdrop: self.region_live_backdrop,
             reduce_motion: self.reduce_motion,
             aurora_hue: self.aurora_hue,
         }
@@ -6009,11 +6024,16 @@ impl VibecapApp {
         // last freeze immediately rather than a blank dim.
         self.region_backdrop_stale = self.region_backdrop.is_some();
         self.is_selecting_region = false;
+        self.region_snap_is_refresh = false;
+        self.region_live_at = None;
         self.window_pick_hover = None;
         self.window_pick_hover_monitor = false;
+        self.window_pick_hwnd = None;
         self.window_pick_cycle = 0;
         self.window_pick_last_pos = None;
         self.window_pick_poll_at = None;
+        self.pick_thumbs.clear();
+        self.pick_thumb_rx = None;
         self.batch_shot_count = 0;
 
         // macOS: live transparent overlay. Windows/Linux: freeze a still first
@@ -6132,6 +6152,59 @@ impl VibecapApp {
         ctx.request_repaint_after(Duration::from_millis(50));
     }
 
+    /// E93 — while the overlay is open in live mode, re-grab the backdrop
+    /// every ~1.2 s. Only on the capture-exclusion path: without it the
+    /// opaque overlay would photograph itself into an infinite dim mirror.
+    fn tick_live_backdrop(&mut self, ctx: &egui::Context) {
+        if !self.is_selecting_region
+            || !self.region_live_backdrop
+            || !self.region_affinity
+            || self.region_snap_rx.is_some()
+        {
+            return;
+        }
+        if self
+            .region_live_at
+            .map(|t| t.elapsed() < Duration::from_millis(1200))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.region_live_at = Some(Instant::now());
+        self.region_snap_is_refresh = true;
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.region_snap_rx = Some(rx);
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let ts = Local::now().format("%Y-%m-%d_%H-%M-%S-%3f").to_string();
+            let snap = std::env::temp_dir().join(format!("vibecap_region_live_{ts}.jpg"));
+            let result = capture_screenshot(&snap).and_then(|_| {
+                let img = image::open(&snap).map_err(|e| format!("could not read snap: {e}"))?;
+                let rgba = img.to_rgba8();
+                Ok((snap, rgba.width(), rgba.height(), rgba.into_raw()))
+            });
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+
+    /// E22 — land a worker's thumbnail into the hwnd-keyed texture cache.
+    fn drain_pick_thumb(&mut self, ctx: &egui::Context) {
+        let Some((hwnd, rx)) = self.pick_thumb_rx.as_ref() else {
+            return;
+        };
+        let Ok(res) = rx.try_recv() else {
+            return;
+        };
+        let hwnd = *hwnd;
+        self.pick_thumb_rx = None;
+        if let Some((w, h, px)) = res {
+            let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &px);
+            let tex = ctx.load_texture(format!("pick_thumb_{hwnd}"), img, Default::default());
+            self.pick_thumbs.insert(hwnd, tex);
+        }
+    }
+
     fn drain_region_snap(&mut self, ctx: &egui::Context) {
         let Some(rx) = self.region_snap_rx.as_ref() else {
             return;
@@ -6142,6 +6215,32 @@ impl VibecapApp {
         self.region_snap_rx = None;
         self.screenshot_in_flight = false;
         self.wake_shared.still_busy.store(false, Ordering::SeqCst);
+        let is_refresh = std::mem::take(&mut self.region_snap_is_refresh);
+        // E93 — a refresh result only swaps the backdrop; selection state,
+        // affinity, and window placement stay exactly as they are.
+        if is_refresh {
+            if let Ok((path, w, h, pixels)) = result {
+                let expected = w as usize * h as usize * 4;
+                if w > 0 && h > 0 && pixels.len() == expected {
+                    let color_image =
+                        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
+                    let tex = ctx.load_texture("region_backdrop", color_image, Default::default());
+                    self.region_backdrop = Some(tex);
+                    self.region_backdrop_px = (w, h);
+                    self.region_backdrop_rgba = Some((w, h, pixels));
+                    self.region_backdrop_stale = false;
+                    self.region_backdrop_at = Some(Instant::now());
+                    if let Some(old) = self.region_snap_path.replace(path.clone()) {
+                        if old != path {
+                            let _ = std::fs::remove_file(old);
+                        }
+                    }
+                } else {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            return;
+        }
         match result {
             Ok((path, w, h, pixels)) => {
                 // A cancel/Esc during the instant-overlay phase cleared the
@@ -6255,6 +6354,7 @@ impl VibecapApp {
                     };
                     label = format!("{label} · child");
                     self.window_pick_hover_monitor = false;
+                    self.window_pick_hwnd = Some(w.hwnd); // child → parent's pixels
                     return Some((label, cx, cy, cw, ch));
                 }
             }
@@ -6278,9 +6378,11 @@ impl VibecapApp {
                 label = format!("{label} · Display {}", m.index + 1);
             }
             self.window_pick_hover_monitor = false;
+            self.window_pick_hwnd = Some(w.hwnd);
             return Some((label, w.x, w.y, w.w, w.h));
         }
         self.window_pick_hover_monitor = true;
+        self.window_pick_hwnd = None;
         crate::platform::monitor_at_point(x, y).map(|m| ("Display".to_string(), m.x, m.y, m.w, m.h))
     }
     #[cfg(not(windows))]
@@ -6302,6 +6404,8 @@ impl VibecapApp {
         self.window_pick_cycle = 0;
         self.window_pick_last_pos = None;
         self.window_pick_poll_at = None;
+        self.window_pick_hwnd = None;
+        self.pick_thumb_rx = None;
         // E94 — toolbar dock choice is a session pref.
         self.persist_session();
         self.show_window(ctx);
@@ -7366,6 +7470,7 @@ impl eframe::App for VibecapApp {
         self.drain_recent_thumbs(ctx);
         self.drain_window_list();
         self.drain_region_snap(ctx);
+        self.tick_live_backdrop(ctx);
         self.drain_filmstrip(ctx);
         self.drain_mp4_verify();
         self.drain_update_download();
@@ -7560,7 +7665,21 @@ impl eframe::App for VibecapApp {
                     // E90 — Alt held = drill into child windows under the cursor.
                     let drill = ctx.input(|i| i.modifiers.alt);
                     self.window_pick_hover = self.poll_window_pick(drill);
+                    // E22 — kick a thumbnail grab for the newly-hovered hwnd.
+                    if let Some(hwnd) = self.window_pick_hwnd {
+                        let in_flight = self.pick_thumb_rx.as_ref().map(|(h, _)| *h) == Some(hwnd);
+                        if !self.pick_thumbs.contains_key(&hwnd) && !in_flight {
+                            let (tx, rx) = crossbeam_channel::bounded(1);
+                            self.pick_thumb_rx = Some((hwnd, rx));
+                            let ctx2 = ctx.clone();
+                            std::thread::spawn(move || {
+                                let _ = tx.send(crate::platform::window_thumb_rgba(hwnd, 192));
+                                ctx2.request_repaint();
+                            });
+                        }
+                    }
                 }
+                self.drain_pick_thumb(ctx);
                 ctx.request_repaint_after(Duration::from_millis(60));
             }
             match show_region_selector(
@@ -7578,6 +7697,7 @@ impl eframe::App for VibecapApp {
                 } else {
                     None
                 },
+                self.window_pick_hwnd.and_then(|h| self.pick_thumbs.get(&h)),
                 &mut self.region_aspect_lock,
                 &mut self.window_pick_cycle,
                 self.region_dim,

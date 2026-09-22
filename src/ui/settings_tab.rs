@@ -344,6 +344,22 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                #[cfg(target_os = "windows")]
+                if switch(
+                    ui,
+                    "Live backdrop while picking",
+                    &mut app.region_live_backdrop,
+                ) {
+                    app.persist_session();
+                }
+                #[cfg(target_os = "windows")]
+                ui.label(
+                    RichText::new(
+                        "Refreshes the picker backdrop ~1.2 s — windows keep moving under the dim. Needs capture exclusion (Win10 2004+).",
+                    )
+                    .size(11.0)
+                    .color(theme::TEXT_DIM()),
+                );
                 ui.add_space(theme::SP_2);
                 if btn_secondary(ui, "Bug report pack") {
                     app.bug_report_pack(ctx);
@@ -366,6 +382,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.inbox_quiet = false;
                     app.clipboard_watcher = false;
                     app.clipboard_encode = "png".into();
+                    app.region_live_backdrop = false;
                     app.record_countdown_secs = 0;
                     app.region_dim = 110;
                     app.persist_session();

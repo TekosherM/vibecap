@@ -51,7 +51,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 ## 3 · Window & app targeting
 
 21. **Window list = real windows, not process names.** `list_running_apps` / combo is titles+process; multiple Chrome windows collapse to one “chrome”. Need HWND/title rows. ✓ (list_capture_windows returns HWND/title/rect/minimized rows)
-22. **Live thumbnails in the window picker** (or at least the focused window’s title + bounds). Combo of strings is easy to pick wrong.
+22. **Live thumbnails in the window picker** (or at least the focused window’s title + bounds). Combo of strings is easy to pick wrong. ✓ (PrintWindow/StretchBlt grab per hovered hwnd on a worker, cached as textures; the pick card floats a live thumb under the label)
 23. **Refresh list automatically** when opening Window target (not only first scan + ↻). ✓ (2 s TTL re-scan when the Window target is selected)
 24. **Focus verify before shot.** `focus_app` can `AppActivate` the wrong substring (`code` vs `Code.exe`). Prefer exact process-name match, then title contains. ✓ (was already shipped — `match_score` exact-first on title OR process, non-minimized preferred, then `focus_window` verifies `GetForegroundWindow()==hwnd`; no AppActivate anywhere)
 25. **Don’t steal focus for occluded HWND-capable GDI windows** when the user asked for Window and the window is visible in the list — but **do** focus GPU apps. Branch already exists; surface it in the UI (“will bring to front”). ✓ (branch exists + "GPU apps will be brought to the front" hint on the card)
@@ -436,7 +436,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 90. **Alt=child-window pick** — drill into tooltips/menus as separate regions. ✓ (EnumChildWindows drill path — Alt while hovering picks the deepest child under the cursor, e.g. a toolbar inside its parent window)
 91. **Region coordinates copy** — click W×H plate copies `x,y,w,h` for scripts. ✓ (plate is clickable; copies pixel-space x,y,w,h)
 92. **Region color-sampler mode** — click samples hex under cursor to clipboard (design pick). ✓ (Ctrl+click in loupe mode copies the sampled pixel as #RRGGBB with a copied flash tag)
-93. **Freeze-frame toggle** — optional freeze of backdrop while picking (already static on Windows; make it a toggle for parity).
+93. **Freeze-frame toggle** — optional freeze of backdrop while picking (already static on Windows; make it a toggle for parity). ✓ (`region_live_backdrop` pref — on the capture-exclusion path the picker backdrop re-grabs every ~1.2 s; off = classic frozen frame)
 94. **HUD remembers toolbar side** — toolbar docks top or bottom per last use. ✓ (chip toggles dock; session hud_toolbar_bottom persists across runs)
 95. **Cancel zone hint** — first-time hint "Esc to cancel" fades after 3 uses. ✓ (session region_pick_count hides the top hints after 3 completed picks)
 96. **Region history stack** — Ctrl+Z steps back through previous rects this session. ✓ (region_history (32-deep) + Ctrl+Z in the HUD restores previous rects)
@@ -616,7 +616,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 243. **Toast timer coalescing** — one timer drives all toast lifetimes. ✓ (satisfied by #250 — the single 1 s repaint tick retires both `toast_message` and `capture_toast`; no per-toast timers exist)
 244. **Session write debounce** — don't serialize+write session on every state change; batch 500 ms. ✓ (`persist_session` now marks `session_dirty` (Cell); `tick_session_write` in update() flushes at most once per 500 ms; `quit_app`/`on_exit` flush synchronously; dirty state requests a repaint so the flush can't starve under repaint-on-demand)
 245. **Log ring-buffer** — `.ffmpeg.log` tail kept in memory for doctor, not re-read from disk. ✓ (remember_ffmpeg_log snapshots the 8 KB tail at stop into FFMPEG_LOG_RING; doctor reads memory, not disk)
-246. **Parallel test capture** — smoke tests run gdigrab in parallel with unit tests.
+246. **Parallel test capture** — smoke tests run gdigrab in parallel with unit tests. ✓ (gdigrab smoke moved to its own windows-latest job running parallel to the unit-test matrix)
 247. **Binary size audit** — strip symbols, LTO release; target <15 MB installed. ✓ (release profile: `lto = "thin"` + `strip = true`; CGU=1 left off for iteration speed)
 248. **Cold-start no-network** — update check must never block first paint. ✓ (verified: start_update_check runs on a worker thread)
 249. **Large-file still guard** — >25 MP stills decode at half-res for canvas, full-res on export. ✓ (still_decode_cache keyed by (path,mtime) so tweaks never re-decode; preview caps working image at 1600 px post-crop, annotate canvas texture at 4096; export/bake still full-res)
@@ -683,6 +683,6 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 295. **Budget dashboard** — per-session spend sparkline in Inbox. ✓ (Inbox header strip: tier, frames/MB/minutes usage vs caps, and a sparkline of `budget_samples` taken every 30 s in `update()`; warning styling when near/over a cap; unlimited caps and empty sessions render clean)
 296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview. ✓ (insert chips for {app}/{date}/{time}/{seq}/{orig}/-/_ append to the pattern under the live preview)
 297. **Export diagnostics bundle** — one click → zip of logs+session+doctor for bug reports. ✓ (bug_report_pack now emits bug_<ts>.zip: screenshot + retro.gif + doctor.json + system.txt + session/budget/draft + newest .ffmpeg.log, STORED via app::zip)
-298. **Community theme repo hook** — `--theme-import URL` fetch+validate.
+298. **Community theme repo hook** — `--theme-import URL` fetch+validate. ✓ (`vibecap theme import <url|file>` — curl/fs fetch, validates the vibecap_theme marker, merges into session.json)
 299. **Locale-ready strings** — wrap UI strings in a `tr()` macro now so i18n isn't a rewrite later.
 300. **API surface freeze** — document which CLI/MCP contracts are stable vs internal for agent authors. ✓ (docs/API.md: stable CLI verbs/JSON append-only rules, MCP tools, env vars, on-disk paths vs internal surfaces)
