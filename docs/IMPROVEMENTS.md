@@ -412,8 +412,8 @@ Numbered 1–300 for this round. Sections sized 25 each.
 69. **Window target shows last pick** — "Window: Chrome — DevTools" persisted on the card. ✓ (`window_app` joins session state; combo + 🎯 Pick persist on change; the target hint reads "Window: <name>" when a pick exists)
 70. **Confirm-before-overwrite** — same-name collision in output dir prompts once per session. ✓ (auto-captures dedupe via `next_seq` so names never collide; Still save/export go through the OS save dialog's own overwrite confirm)
 71. **Multi-shot batch** — hold modifier + click regions repeatedly = rapid sequence of stills. ✓ (Shift+release crops from the frozen backdrop and keeps the overlay; 📷N chip counts saves; Esc ends)
-72. **Time-lapse mode** — capture frame every N sec into a video (stills → mp4).
-73. **Scheduled capture** — "in 10 min, grab this window" for meetings.
+72. **Time-lapse mode** — capture frame every N sec into a video (stills → mp4). ✓ (Options → TIME-LAPSE: 2/5/15/60/300 s interval; gdigrab runs at 1/N fps, `fps=<target>` retimes the output — 5 s ≈ 150× at 30 fps; audio auto-off; REC bar shows "lapse Ns")
+73. **Scheduled capture** — "in 10 min, grab this window" for meetings. ✓ (delay ≥60 s becomes a scheduled shot: studio stays interactive, card shows live countdown + Cancel, fires via the normal still path when the Instant lands)
 74. **Clipboard watcher mode** — studio stays parked; a shot auto-opens Still review. ✓ (opt-in Settings switch; 800 ms GetClipboardSequenceNumber poll → arboard get_image → saves PNG + opens Still; own captures excluded by refreshing seq after every set_image; Windows-only)
 75. **Capture sound per action** — distinct subtle tones for still/record-start/record-stop. ✓ (`record_tone(start)` — rising 620→980 Hz chirp on start, falling on stop, synthesized WAV like the shutter click; same opt-in switch)
 

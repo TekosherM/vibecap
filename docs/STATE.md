@@ -409,3 +409,11 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - Verified shipped: #226 (worker decode for thumbs/filmstrip), #241 (sky
   shape cache), #266 (Instant-based elapsed), #269 (ASCII stem sanitize),
   #274 (next_seq monotonic names).
+
+### Time-lapse + scheduled stills
+- #72: CaptureOpts.timelapse_secs -> gdigrab -framerate 1/N + output
+  fps=<target> retime; audio forced off; REC bar shows "lapse Ns";
+  session-persisted, Options > TIME-LAPSE combo.
+- #73: delay >=60 s schedules instead of parking - scheduled_shot_at
+  Instant, card countdown + Cancel, fires through trigger_capture with
+  scheduled_fire_now bypass.

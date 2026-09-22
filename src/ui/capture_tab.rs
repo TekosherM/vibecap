@@ -377,23 +377,46 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             egui::ComboBox::from_id_source("capture_delay_secs")
                                 .selected_text(if app.capture_delay_secs == 0 {
                                     "None".to_string()
+                                } else if app.capture_delay_secs >= 60 {
+                                    format!("{}m", app.capture_delay_secs / 60)
                                 } else {
                                     format!("{}s", app.capture_delay_secs)
                                 })
                                 .width(72.0)
                                 .show_ui(ui, |ui| {
-                                    for secs in [0u64, 3, 5, 10] {
+                                    // E73 — the same delay doubles as a
+                                    // scheduler: "in 10 min, grab this".
+                                    for secs in [0u64, 3, 5, 10, 60, 300, 600] {
                                         ui.selectable_value(
                                             &mut app.capture_delay_secs,
                                             secs,
                                             if secs == 0 {
                                                 "None".to_string()
+                                            } else if secs >= 60 {
+                                                format!("{}m", secs / 60)
                                             } else {
                                                 format!("{secs}s")
                                             },
                                         );
                                     }
                                 });
+                            // E73 — scheduled still pending: live countdown
+                            // + Cancel so a parked shot is never invisible.
+                            if let Some(t) = app.scheduled_shot_at {
+                                let left = t
+                                    .saturating_duration_since(std::time::Instant::now())
+                                    .as_secs();
+                                ui.add_space(theme::SP_3);
+                                ui.label(
+                                    RichText::new(format!("⏰ fires in {}:{:02}", left / 60, left % 60))
+                                        .size(11.0)
+                                        .color(theme::WARN()),
+                                );
+                                if ui.small_button("Cancel").clicked() {
+                                    app.scheduled_shot_at = None;
+                                    app.show_toast("Scheduled capture cancelled");
+                                }
+                            }
                             ui.add_space(theme::SP_3);
                             let mut clip_only = app.clipboard_only;
                             if switch(ui, "Clipboard only — copy, don't save", &mut clip_only) {
@@ -875,6 +898,52 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                                     crate::app::library::format_size(free)
                                                 ))
                                                 .size(11.0)
+                                                .color(theme::TEXT_DIM()),
+                                            );
+                                        }
+                                    });
+                                    // E72 — a frame every N s retimed to the
+                                    // fps target: 5 s ≈ 150× at 30 fps.
+                                    crate::ui::group(ui, "TIME-LAPSE", |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new("Frame every")
+                                                    .size(11.0)
+                                                    .color(theme::TEXT_DIM()),
+                                            );
+                                            let sel = match app.timelapse_secs {
+                                                0 => "Off".to_string(),
+                                                s => format!("{s}s"),
+                                            };
+                                            let before = app.timelapse_secs;
+                                            egui::ComboBox::from_id_source("timelapse_secs")
+                                                .selected_text(sel)
+                                                .width(80.0)
+                                                .show_ui(ui, |ui| {
+                                                    for s in [0u32, 2, 5, 15, 60, 300] {
+                                                        ui.selectable_value(
+                                                            &mut app.timelapse_secs,
+                                                            s,
+                                                            if s == 0 {
+                                                                "Off".to_string()
+                                                            } else {
+                                                                format!("{s}s")
+                                                            },
+                                                        );
+                                                    }
+                                                });
+                                            if app.timelapse_secs != before {
+                                                app.persist_session();
+                                            }
+                                        });
+                                        if app.timelapse_secs > 0 {
+                                            let speed =
+                                                app.timelapse_secs * app.fps_target.max(1);
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "≈{speed}× playback · audio off · REC bar shows real time"
+                                                ))
+                                                .size(10.0)
                                                 .color(theme::TEXT_DIM()),
                                             );
                                         }

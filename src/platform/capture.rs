@@ -837,6 +837,15 @@ fn record_args(
             let _ = focus_app(app);
         }
     }
+    // E72 — time-lapse: grab at `1/N` fps, retime to the caller's fps on
+    // output. Audio is meaningless on a lapse — never mix it in.
+    let timelapse = opts.timelapse_secs.max(1);
+    let with_audio = with_audio && opts.timelapse_secs == 0;
+    let in_fps = if opts.timelapse_secs > 0 {
+        format!("1/{timelapse}")
+    } else {
+        fps.to_string()
+    };
     let spec = resolve_grab(opts);
     let out_s = path_str(out_mp4)?;
     let mut a: Vec<String> = vec![
@@ -852,7 +861,7 @@ fn record_args(
         a.push("-f".into());
         a.push("avfoundation".into());
         a.push("-r".into());
-        a.push(fps.to_string());
+        a.push(in_fps.clone());
         let device = if with_audio { "1:0" } else { "1:none" };
         a.push("-i".into());
         a.push(device.into());
@@ -866,7 +875,7 @@ fn record_args(
         a.push("-draw_mouse".into());
         a.push("1".into());
         a.push("-framerate".into());
-        a.push(fps.to_string());
+        a.push(in_fps.clone());
         // Explicit pixel crop wins (region recordings via desktop offsets).
         // Otherwise a named window records focused → desktop region
         // (GPU-safe) or unfocused → HWND (occlusion-proof; GPU apps may
@@ -936,7 +945,7 @@ fn record_args(
         a.push("-f".into());
         a.push("x11grab".into());
         a.push("-framerate".into());
-        a.push(fps.to_string());
+        a.push(in_fps.clone());
         a.push("-video_size".into());
         a.push(
             spec.video_size
@@ -965,9 +974,18 @@ fn record_args(
             None
         })
     };
+    let mut vf: Vec<String> = Vec::new();
     if let Some((w, h, x, y)) = crop {
+        vf.push(format!("crop={}:{}:{}:{}", w, h, x, y));
+    }
+    if opts.timelapse_secs > 0 {
+        // Retime the sparse input to a normal CFR file — 5 s interval at
+        // 30 fps out ≈ 150× playback speed.
+        vf.push(format!("fps={}", fps.max(1)));
+    }
+    if !vf.is_empty() {
         a.push("-vf".into());
-        a.push(format!("crop={}:{}:{}:{}", w, h, x, y));
+        a.push(vf.join(","));
     }
 
     a.push("-c:v".into());
@@ -1204,6 +1222,30 @@ mod tests {
         if super::super::ffmpeg::list_audio_input_devices().is_empty() {
             assert!(no_dev.is_err(), "expected loud failure without a device");
         }
+    }
+
+    /// E72 — time-lapse: fractional input rate + fps= output retime, and no
+    /// audio input even when `with_audio` is requested.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn record_args_timelapse_retimes_and_drops_audio() {
+        let opts = CaptureOpts::default()
+            .with_audio_device("TestMic")
+            .with_timelapse(5);
+        let args = record_args(
+            std::path::Path::new("C:\\out\\v.mp4"),
+            30,
+            true,
+            None,
+            &opts,
+            true,
+            true,
+        )
+        .unwrap();
+        let joined = args.join(" ");
+        assert!(joined.contains("-framerate 1/5"), "{joined}");
+        assert!(joined.contains("fps=30"), "{joined}");
+        assert!(!joined.contains("dshow"), "{joined}");
     }
 
     /// E256 — verify_mp4 must accept a real ffmpeg-written file and reject

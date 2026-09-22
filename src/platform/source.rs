@@ -27,6 +27,10 @@ pub struct CaptureOpts {
     /// E59 — DirectShow audio device name for recordings (Windows).
     /// `None` = auto-resolve (env → mic-name heuristic → first device).
     pub audio_device: Option<String>,
+    /// E72 — time-lapse interval in seconds (0 = normal real-time record).
+    /// The grabber runs at `1/N` fps and the output filter retimes to the
+    /// caller's fps, so a 5 s interval plays back ~150× at 30 fps.
+    pub timelapse_secs: u32,
 }
 
 impl CaptureOpts {
@@ -38,6 +42,7 @@ impl CaptureOpts {
             monitor: None,
             crf: None,
             audio_device: None,
+            timelapse_secs: 0,
         }
     }
 
@@ -59,6 +64,12 @@ impl CaptureOpts {
     /// E59 — empty/whitespace means auto-resolve.
     pub fn with_audio_device(mut self, dev: &str) -> Self {
         self.audio_device = empty_to_none(Some(dev.to_string()));
+        self
+    }
+
+    /// E72 — frame every `secs`; 0 disables.
+    pub fn with_timelapse(mut self, secs: u32) -> Self {
+        self.timelapse_secs = secs;
         self
     }
 

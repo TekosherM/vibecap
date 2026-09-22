@@ -575,6 +575,8 @@ pub(crate) struct VibecapApp {
     fps_target: u32,
     /// C55 — recording quality (libx264 `-crf`): 18 sharp / 23 balanced / 28 small.
     record_crf: u8,
+    /// E72 — time-lapse interval in seconds (0 = real-time recording).
+    timelapse_secs: u32,
     draw_mouse: bool,
     capture_monitor: Option<u32>,
     name_pattern: String,
@@ -925,6 +927,12 @@ pub(crate) struct VibecapApp {
     last_sidecar_sweep: Option<Instant>,
     /// E71 — stills saved in the current Shift-drag batch overlay session.
     batch_shot_count: u32,
+    /// E73 — a still delay ≥60 s becomes a real schedule: the studio stays
+    /// interactive and the shot fires when this Instant passes. The card
+    /// shows a countdown + Cancel.
+    scheduled_shot_at: Option<Instant>,
+    /// Set while firing a scheduled shot so the delay doesn't re-arm it.
+    scheduled_fire_now: bool,
     /// E39 — zen mode: rail + status strip hidden; palette/hotkeys only.
     zen_mode: bool,
     /// E249 — decoded still keyed by (path, mtime): slider tweaks re-run ops
@@ -1154,6 +1162,7 @@ impl VibecapApp {
             capture_audio: false, // video-only by default; user can enable audio
             fps_target: 30,
             record_crf: 23,
+            timelapse_secs: 0,
             draw_mouse: false,
             name_pattern: app::DEFAULT_PATTERN.to_string(),
             inbox_snippets: vec![
@@ -1183,6 +1192,8 @@ impl VibecapApp {
             clipboard_poll_at: None,
             last_sidecar_sweep: None,
             batch_shot_count: 0,
+            scheduled_shot_at: None,
+            scheduled_fire_now: false,
             zen_mode: false,
             still_decode_cache: None,
             region_history: Vec::new(),
@@ -1557,6 +1568,7 @@ impl VibecapApp {
         if s.fps == 24 || s.fps == 30 || s.fps == 60 {
             self.fps_target = s.fps;
         }
+        self.timelapse_secs = s.timelapse_secs.min(3600);
         self.record_crf = match s.record_crf {
             15..=40 => s.record_crf,
             _ => 23,
@@ -1667,6 +1679,7 @@ impl VibecapApp {
             draw_mouse: self.draw_mouse,
             fps: self.fps_target,
             record_crf: self.record_crf,
+            timelapse_secs: self.timelapse_secs,
             audio_device: self.audio_device.clone(),
             window_app: self.window_app.clone(),
             monitor: self.capture_monitor,
@@ -4482,14 +4495,23 @@ impl VibecapApp {
             }
         };
         // Audio flag shows wherever recording honors it — dshow input on
-        // Windows, avfoundation on macOS.
-        let audio = if self.capture_audio { " · mic" } else { "" };
+        // Windows, avfoundation on macOS. Time-lapse never records audio.
+        let audio = if self.capture_audio && self.timelapse_secs == 0 {
+            " · mic"
+        } else {
+            ""
+        };
+        let lapse = if self.timelapse_secs > 0 {
+            format!(" · lapse {}s", self.timelapse_secs)
+        } else {
+            String::new()
+        };
         let marks = if self.record_markers.is_empty() {
             String::new()
         } else {
             format!(" · ⚑ {}", self.record_markers.len())
         };
-        format!("{target}{audio}{marks}")
+        format!("{target}{audio}{lapse}{marks}")
     }
 
     fn toggle_pause(&mut self) {
@@ -5002,7 +5024,8 @@ impl VibecapApp {
             _ => CaptureOpts::default().with_monitor(self.capture_monitor),
         }
         .with_crf(self.record_crf)
-        .with_audio_device(&self.audio_device);
+        .with_audio_device(&self.audio_device)
+        .with_timelapse(self.timelapse_secs);
 
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.record_spawn_rx = Some(rx);
@@ -5188,6 +5211,20 @@ impl VibecapApp {
             self.show_toast("Pick a window app first — or switch to Full.");
             return;
         }
+        // E73 — a minute-plus delay is a *schedule*, not a park: keep the
+        // studio interactive and fire when the Instant lands. The card shows
+        // the countdown + a Cancel button until then.
+        if self.capture_delay_secs >= 60 && !self.scheduled_fire_now {
+            let mins = self.capture_delay_secs / 60;
+            self.scheduled_shot_at =
+                Some(Instant::now() + Duration::from_secs(self.capture_delay_secs));
+            self.show_toast(format!(
+                "⏰ Capture scheduled — fires in {mins}m · Cancel on the Capture card"
+            ));
+            return;
+        }
+        self.scheduled_fire_now = false;
+
         self.screenshot_in_flight = true;
         self.wake_shared.still_busy.store(true, Ordering::SeqCst);
         // Flash now — the press visibly registered even though the file lands
@@ -6659,6 +6696,19 @@ impl eframe::App for VibecapApp {
         // E74 — clipboard watcher (800 ms seq poll inside; the copy cost is
         // one user32 read until a change actually lands).
         self.tick_clipboard_watcher(ctx);
+        // E73 — scheduled still: fires as soon as its Instant passes and no
+        // capture/selection owns the screen.
+        if let Some(t) = self.scheduled_shot_at {
+            if Instant::now() >= t
+                && !self.screenshot_in_flight
+                && !self.is_selecting_region
+                && self.region_snap_rx.is_none()
+            {
+                self.scheduled_shot_at = None;
+                self.scheduled_fire_now = true;
+                self.trigger_capture(ctx, true);
+            }
+        }
         // E171 — stale sidecar sweep (10 min cadence inside).
         self.tick_sidecar_sweep();
         // E159 — hover-scrub strip results land as textures.

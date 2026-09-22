@@ -48,6 +48,10 @@ pub struct SessionState {
     /// E59 — picked DirectShow audio device for recordings; empty = auto.
     #[serde(default)]
     pub audio_device: String,
+    /// E72 — time-lapse interval (0 = real-time). A frame every N seconds,
+    /// retimed to the fps target on encode.
+    #[serde(default)]
+    pub timelapse_secs: u32,
     /// E69 — last Window-target pick so the card can show it across restarts.
     #[serde(default)]
     pub window_app: String,
@@ -237,6 +241,7 @@ impl Default for SessionState {
             draw_mouse: false,
             fps: 30,
             record_crf: 23,
+            timelapse_secs: 0,
             audio_device: String::new(),
             window_app: String::new(),
             monitor: None,
