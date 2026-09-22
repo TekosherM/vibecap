@@ -606,8 +606,8 @@ background chip (112), save-as-copy (116), Esc depth (125).
 233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change. ✓ (the repaint gate was keyed on `tray.is_some()` → 10 fps forever once the tray existed; now the 100 ms cadence only runs for real in-flight work, retro buffer ticks at 500 ms, live toasts get a 1 s expiry tick, and the pump's slow lane schedules frames for poke markers / watch-folder / OS-theme polls)
 234. **Recording finalize off-thread** — shipped for stop; extend to remux/GIF queue.
 235. **GIF encode queue** — background worker with progress, not a stop-blocking transcode. ✓ (was already shipped — all clip-tab GIF/video exports run through spawn_ffmpeg_job workers with in-flight status + completion drain)
-236. **Startup time budget** — cold launch → interactive <800 ms; measure and track.
-237. **Memory ceiling check** — long sessions with big thumbs shouldn't exceed ~300 MB.
+236. **Startup time budget** — cold launch → interactive <800 ms; measure and track. ✓ (mark_app_start at main() + note_first_frame at end of first update() → startup_ms in doctor + bug bundle)
+237. **Memory ceiling check** — long sessions with big thumbs shouldn't exceed ~300 MB. ✓ (process_memory_mb: psapi GetProcessMemoryInfo on Windows, VmRSS on Linux → memory_mb in doctor)
 238. **PowerShell spawn removal** — replace `frontmost_app_name`/`window_rect_on_screen` shell-outs with `windows` crate calls (round-1 #28, still the biggest latency item). ✓ (raw FFI, no new crate: window/monitors/focus were already native; this tranche removed the last capture-path spawns — PS focus fallback (AppActivate is strictly weaker than AttachThreadInput+lock-clear+verify), `tasklist` pid probes → `OpenProcess`+`GetExitCodeProcess`, `taskkill` → `TerminateProcess` (frag-MP4 makes hard kill safe). PS remains only for toast notifications + update-check fallback — off the capture path)
 239. **Window-list cache** — 500 ms TTL on the pick-list enumeration. ✓ (was already shipped — `WIN_CACHE` 750 ms TTL in `list_capture_windows`, non-blocking `list_capture_windows_cached` for per-frame UI, 2 s callsite TTL + worker dedup via `window_list_rx`)
 240. **ffmpeg path resolve once** — resolved at startup, not per-capture. ✓ (was already shipped — `FFMPEG` Mutex caches discovery in `ffmpeg_path`; `ffmpeg_recheck` re-probes only on explicit user request)
@@ -615,10 +615,10 @@ background chip (112), save-as-copy (116), Esc depth (125).
 242. **Gradient mesh cache** — sky mesh rebuilt only on resize/theme change, not repaint. ✓ (shape-list cache keyed by rect+mode)
 243. **Toast timer coalescing** — one timer drives all toast lifetimes. ✓ (satisfied by #250 — the single 1 s repaint tick retires both `toast_message` and `capture_toast`; no per-toast timers exist)
 244. **Session write debounce** — don't serialize+write session on every state change; batch 500 ms. ✓ (`persist_session` now marks `session_dirty` (Cell); `tick_session_write` in update() flushes at most once per 500 ms; `quit_app`/`on_exit` flush synchronously; dirty state requests a repaint so the flush can't starve under repaint-on-demand)
-245. **Log ring-buffer** — `.ffmpeg.log` tail kept in memory for doctor, not re-read from disk.
+245. **Log ring-buffer** — `.ffmpeg.log` tail kept in memory for doctor, not re-read from disk. ✓ (remember_ffmpeg_log snapshots the 8 KB tail at stop into FFMPEG_LOG_RING; doctor reads memory, not disk)
 246. **Parallel test capture** — smoke tests run gdigrab in parallel with unit tests.
 247. **Binary size audit** — strip symbols, LTO release; target <15 MB installed. ✓ (release profile: `lto = "thin"` + `strip = true`; CGU=1 left off for iteration speed)
-248. **Cold-start no-network** — update check must never block first paint.
+248. **Cold-start no-network** — update check must never block first paint. ✓ (verified: start_update_check runs on a worker thread)
 249. **Large-file still guard** — >25 MP stills decode at half-res for canvas, full-res on export. ✓ (still_decode_cache keyed by (path,mtime) so tweaks never re-decode; preview caps working image at 1600 px post-crop, annotate canvas texture at 4096; export/bake still full-res)
 250. **Idle CPU zero** — hidden/tray app should sit at 0 % CPU, verified in CI. ✓ mechanics (parked-side work moved to the pump thread: `watch_sweep` extracted to a pure fs fn the pump calls directly when `parked` — files import silently, `watch_moved` count is consumed on next wake → refresh + toast; `pending_cmd_waiting` stat each 250 ms slice wakes the studio for CLI pokes even while parked — previously dead until a repaint; `follow_os`/`watch_dir` mirrored into `WakeShared`; tick_watch_folder skips while parked so the two sweepers can't race). CI verification still open — needs an idle-CPU probe harness.
 
@@ -650,12 +650,12 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 265. **Instance handshake** — MCP + GUI detect each other; avoid dual capture locks.
 266. **Clock-skew guard** — recording timestamps survive timezone changes mid-clip. ✓ (elapsed timing is Instant + accumulated_duration — monotonic, wall-clock immune; segment names use seq not wall time)
 267. **Output-dir move handling** — deleted/moved dir → recreate or prompt, never silent fail. ✓ (was already shipped — `create_dir_all` runs at every capture/record spawn site; `capture_to_dir` + agent record map mkdir errors to loud failures, ffmpeg write failure surfaces via exit status)
-268. **Long-path support** — >260 char paths via `\\?\` prefix on Windows.
+268. **Long-path support** — >260 char paths via `\?\` prefix on Windows. ✓ (stills >240 chars capture to a short temp then long_move into place via verbatim-prefix rename; ffmpeg never sees `\?\`)
 269. **Unicode filename safety** — emoji/non-ASCII in naming tokens don't break ffmpeg args. ✓ (sanitize_token strips stems to ASCII [a-z0-9-_]; ffmpeg argv never sees emoji)
 270. **Concurrent capture guard** — two rapid hotkey presses can't spawn two ffmpeg procs. ✓ (was already shipped — `still_busy` AtomicBool CAS `swap` in the pump fast path + `screenshot_in_flight`/`still_busy` check in the UI path; second trigger returns early)
 271. **Tray-missing fallback** — if tray creation fails, keep a floating mini-bar alive. ✓ (fallback is honest: close-quits + a persistent 'no tray — close quits' status chip; tray ✗ already on the Windows status card)
 272. **DPI-change mid-pick** — region rect re-maps if scaling changes while overlay is up.
-273. **Monitor-hotplug handling** — disappearing display re-targets fullscreen gracefully.
+273. **Monitor-hotplug handling** — disappearing display re-targets fullscreen gracefully. ✓ (resolve_monitor drops stale index → default + toast; wired into GUI stills, recordings, pump hidden-capture)
 274. **Timestamp monotonicity** — output names use monotonic seq when clock steps back. ✓ (next_seq dedupes on disk contents — a stepped-back clock still yields a unique name)
 275. **Telemetry opt-in** — anonymous capture-success/fail counts; off by default, no content ever leaves.
 
