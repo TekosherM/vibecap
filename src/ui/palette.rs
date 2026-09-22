@@ -384,7 +384,17 @@ pub fn show_palette(
 }
 
 /// `?` / F1 modal — every shortcut, grouped. Esc / click-outside closes.
-pub fn show_cheatsheet(ctx: &egui::Context, open: &mut bool) {
+/// E223 — the Global group is generated from the live binding fields so
+/// a rebound digit (or the optional Pause/PrtScn slots) can never drift
+/// from what the sheet claims.
+pub fn show_cheatsheet(
+    ctx: &egui::Context,
+    open: &mut bool,
+    shot_digit: u8,
+    rec_digit: u8,
+    pause_digit: Option<u8>,
+    prtscn: bool,
+) {
     if !*open {
         return;
     }
@@ -402,46 +412,60 @@ pub fn show_cheatsheet(ctx: &egui::Context, open: &mut bool) {
             }
         });
 
-    const GROUPS: &[(&str, &[(&str, &str)])] = &[
+    let mut global_rows: Vec<(String, &'static str)> = vec![
+        (format!("Ctrl+Shift+{shot_digit}"), "Screenshot"),
+        (format!("Ctrl+Shift+{rec_digit}"), "Record toggle"),
+        ("Ctrl+Alt+V".to_string(), "Show / hide window"),
+    ];
+    if let Some(d) = pause_digit {
+        global_rows.push((format!("Ctrl+Shift+{d}"), "Pause / resume record"));
+    }
+    if prtscn {
+        global_rows.push(("PrtScn".to_string(), "Screenshot"));
+    }
+
+    let groups: Vec<(&str, Vec<(String, &str)>)> = vec![
         (
             "In the app",
-            &[
+            [
                 ("S", "Screenshot"),
                 ("R", "Start / stop record"),
                 ("Ctrl+C", "Copy last capture"),
                 ("Z", "Undo delete"),
                 ("Ctrl+1–5", "Jump to a stage"),
                 ("Alt+←/→", "Stage back / forward"),
-            ],
+            ]
+            .iter()
+            .map(|(k, a)| (k.to_string(), *a))
+            .collect(),
         ),
         (
             "Go",
-            &[
+            [
                 ("Ctrl+K", "Command palette"),
                 ("Ctrl+I", "Inbox"),
                 ("Ctrl+B", "Toggle rail"),
                 ("?  ·  F1", "This sheet"),
-            ],
+            ]
+            .iter()
+            .map(|(k, a)| (k.to_string(), *a))
+            .collect(),
         ),
         (
             "Region overlay",
-            &[
+            [
                 ("drag / release", "Select · capture"),
                 ("Shift · Alt", "Square · 16:9 while dragging"),
                 ("WASD · arrows", "Nudge (Shift = 10 px)"),
                 ("Enter · R", "Confirm · repeat last region"),
                 ("scroll", "Cycle overlapping windows (pick)"),
                 ("Esc · right-click", "Cancel"),
-            ],
+            ]
+            .iter()
+            .map(|(k, a)| (k.to_string(), *a))
+            .collect(),
         ),
-        (
-            "Global",
-            &[
-                ("Ctrl+Shift+3", "Screenshot"),
-                ("Ctrl+Shift+2", "Record toggle"),
-                ("Ctrl+Alt+V", "Show / hide window"),
-            ],
-        ),
+        ("Global", global_rows),
     ];
 
     egui::Area::new(egui::Id::new("cheatsheet_panel"))
@@ -463,7 +487,7 @@ pub fn show_cheatsheet(ctx: &egui::Context, open: &mut bool) {
                     );
                     ui.add_space(theme::SP_3);
                     ui.columns(2, |cols| {
-                        for (i, (title, rows)) in GROUPS.iter().enumerate() {
+                        for (i, (title, rows)) in groups.iter().enumerate() {
                             let ui = &mut cols[i % 2];
                             ui.label(
                                 RichText::new(*title)
@@ -472,10 +496,10 @@ pub fn show_cheatsheet(ctx: &egui::Context, open: &mut bool) {
                                     .strong(),
                             );
                             ui.add_space(theme::SP_1);
-                            for (key, action) in *rows {
+                            for (key, action) in rows {
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new(*key)
+                                        RichText::new(key)
                                             .size(11.0)
                                             .color(theme::ACCENT())
                                             .monospace(),

@@ -5,8 +5,15 @@ use std::path::PathBuf;
 use super::io::{vibecap_config_dir, write_json_atomic};
 use crate::ui::theme::Density;
 
+/// E257 — bump when a migration step is added to `migrate_session`.
+/// Old files deserialize with `schema_version: 0` and run all migrations.
+pub const SESSION_SCHEMA: u32 = 1;
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionState {
+    /// E257 — schema marker; absent on pre-versioned files → 0.
+    #[serde(default)]
+    pub schema_version: u32,
     #[serde(default)]
     pub tab: String,
     #[serde(default)]
@@ -231,6 +238,7 @@ fn default_wizard_done_migrate() -> bool {
 impl Default for SessionState {
     fn default() -> Self {
         Self {
+            schema_version: SESSION_SCHEMA,
             tab: "capture".into(),
             edit_file: None,
             density: "comfortable".into(),
@@ -301,9 +309,23 @@ fn session_path() -> PathBuf {
     vibecap_config_dir().join("session.json")
 }
 
+/// E257 — schema migrations. v0 → v1 is a no-op (every field already
+/// carries `#[serde(default)]`, so old files fill in safely); the hook
+/// exists so a future breaking change has a place to transform data.
+fn migrate_session(mut s: SessionState) -> SessionState {
+    if s.schema_version < 1 {
+        // v0 → v1: nothing to move — serde defaults covered the add.
+        s.schema_version = 1;
+    }
+    s.schema_version = SESSION_SCHEMA;
+    s
+}
+
 pub fn load_session() -> SessionState {
     match std::fs::read_to_string(session_path()) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Ok(s) => serde_json::from_str(&s)
+            .map(migrate_session)
+            .unwrap_or_default(),
         Err(_) => SessionState::default(),
     }
 }

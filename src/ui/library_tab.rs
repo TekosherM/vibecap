@@ -871,6 +871,33 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             );
                             if let Some(src) = img_src {
                                 let uri = format!("file://{}", src.display().to_string());
+                                // E22 — skeleton tile under the async loader so
+                                // a pending thumb reads as a placeholder, not a
+                                // hole in the grid. The shimmer band sweeps
+                                // unless reduced-motion is on.
+                                paint.rect_filled(
+                                    thumb_rect,
+                                    theme::rounding_sm(),
+                                    theme::SURFACE_2(),
+                                );
+                                if !theme::reduce_motion() {
+                                    let t = (ui.ctx().input(|i| i.time) % 1.4) as f32 / 1.4;
+                                    let band_x =
+                                        thumb_rect.left() - 40.0 + t * (thumb_rect.width() + 80.0);
+                                    let band = Rect::from_center_size(
+                                        egui::pos2(band_x, thumb_rect.center().y),
+                                        Vec2::new(36.0, thumb_rect.height() + 4.0),
+                                    );
+                                    let clip = thumb_rect.intersect(band);
+                                    if clip.is_positive() {
+                                        paint.rect_filled(
+                                            clip,
+                                            theme::rounding_sm(),
+                                            egui::Color32::from_white_alpha(10),
+                                        );
+                                    }
+                                    ui.ctx().request_repaint();
+                                }
                                 ui.allocate_ui_at_rect(thumb_rect, |ui| {
                                     ui.add(
                                         egui::Image::new(uri)

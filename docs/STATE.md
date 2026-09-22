@@ -437,3 +437,15 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   card: ffmpeg/audio/tray + mic name + Test screenshot), #221 (wizard's
   test-capture step is the green card), #235 (clip exports already run on
   spawn_ffmpeg_job workers with progress + completion drain).
+
+### Diagnostics bundle, cheat-sheet gen, schema version, skeletons
+- #297: bug_report_pack now emits bug_<ts>.zip (STORED, app::zip) —
+  screenshot + retro.gif + doctor.json + system.txt + session.json /
+  budget.json / review_draft.json + newest *.ffmpeg.log from save_dir.
+- #223: cheatsheet Global group built from live hotkey fields
+  (shot/rec digits, pause slot, PrtScn) — rebound keys can't drift.
+- #257: SESSION_SCHEMA=1 + schema_version field + migrate_session hook.
+- #22: library tiles paint a SURFACE_2 skeleton + shimmer band under the
+  async image loader (shimmer gated by reduce_motion).
+- #271: tray-less sessions show a persistent "no tray — close quits" chip
+  in the header (close already quits when tray creation failed).

@@ -1672,6 +1672,7 @@ impl VibecapApp {
             _ => self.edit_file.as_ref().map(|p| p.display().to_string()),
         };
         SessionState {
+            schema_version: crate::app::session::SESSION_SCHEMA,
             tab: tab.into(),
             edit_file,
             density: density_to_str(self.density).into(),
@@ -2483,18 +2484,98 @@ impl VibecapApp {
             }
         }
 
+        let mut gif: Option<PathBuf> = None;
         match self.retro.dump_gif(&self.save_dir) {
-            Ok(gif) => {
+            Ok(g) => {
                 parts.push(
-                    gif.file_name()
+                    g.file_name()
                         .map(|f| f.to_string_lossy().to_string())
                         .unwrap_or_else(|| "retro.gif".into()),
                 );
+                gif = Some(g);
             }
             Err(_) => {
                 // Retro empty / off — still is enough; hint to enable buffer next time.
                 parts.push("(no retro — enable buffer for last-N GIF)".into());
             }
+        }
+
+        // E297 — one attachable bundle: the capture artifacts + doctor
+        // report + live config + newest ffmpeg stderr log, zipped STORED.
+        let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+        if let Ok(b) = std::fs::read(&shot) {
+            entries.push((
+                shot.file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "screenshot.jpg".into()),
+                b,
+            ));
+        }
+        if let Some(g) = &gif {
+            if let Ok(b) = std::fs::read(g) {
+                entries.push(("retro.gif".into(), b));
+            }
+        }
+        entries.push((
+            "doctor.json".into(),
+            crate::app::doctor::doctor_json().into_bytes(),
+        ));
+        entries.push((
+            "system.txt".into(),
+            format!(
+                "vibecap {} on {}\nexe={}\nsave_dir={}\ntime={}\n",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::current_exe()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "?".into()),
+                self.save_dir.display(),
+                Local::now().format("%Y-%m-%d %H:%M:%S %Z"),
+            )
+            .into_bytes(),
+        ));
+        for cfg in ["session.json", "budget.json", "review_draft.json"] {
+            let p = crate::app::io::vibecap_config_dir().join(cfg);
+            if let Ok(b) = std::fs::read(&p) {
+                entries.push((cfg.to_string(), b));
+            }
+        }
+        // Newest recording stderr — ffmpeg flags live here, not in a log file.
+        if let Ok(rd) = std::fs::read_dir(&self.save_dir) {
+            let newest_log = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().ends_with(".ffmpeg.log"))
+                        .unwrap_or(false)
+                })
+                .max_by_key(|p| {
+                    p.metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                });
+            if let Some(log) = newest_log {
+                if let Ok(b) = std::fs::read(&log) {
+                    entries.push((
+                        log.file_name()
+                            .map(|f| f.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "ffmpeg.log".into()),
+                        b,
+                    ));
+                }
+            }
+        }
+
+        let zip = self.save_dir.join(format!("bug_{}.zip", stamp));
+        match crate::app::zip::write_zip_entries(&zip, &entries) {
+            Ok(()) => parts.insert(
+                0,
+                zip.file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "bug.zip".into()),
+            ),
+            Err(e) => parts.push(format!("(zip failed: {e})")),
         }
 
         self.refresh_library();
@@ -7596,7 +7677,14 @@ impl eframe::App for VibecapApp {
         }
 
         // ? / F1 shortcut cheat sheet
-        ui::palette::show_cheatsheet(ctx, &mut self.cheatsheet_open);
+        ui::palette::show_cheatsheet(
+            ctx,
+            &mut self.cheatsheet_open,
+            self.hotkey_shot_digit,
+            self.hotkey_rec_digit,
+            self.hotkey_pause_digit,
+            self.hotkey_prtscn,
+        );
 
         // ── Stage rail — hidden by default; the funnel column is the home UX.
         //    ☰ in the header or Ctrl+B toggles it back on.
@@ -7809,6 +7897,16 @@ impl eframe::App for VibecapApp {
                             );
                         } else if self.tray.is_some() {
                             ui.label(RichText::new("tray on").color(theme::TEXT_DIM()).small());
+                        } else {
+                            // E271 — no tray surface: say what close does.
+                            ui.label(
+                                RichText::new("no tray — close quits")
+                                    .color(theme::WARN())
+                                    .small(),
+                            )
+                            .on_hover_text(
+                                "System tray unavailable; closing the window exits Vibecap",
+                            );
                         }
                     });
                 });

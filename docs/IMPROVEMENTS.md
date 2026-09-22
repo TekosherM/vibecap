@@ -356,7 +356,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 19. **Celestial card inner-glow** — 1 px top inner highlight (`rgba(255,255,255,.06)`) like Chromie's glass cards. ✓ (white-alpha-14 hairline inset on section_card tops when is_celestial)
 20. **Toast severity left-bar** — already colored; add matching icon tint + semantic icon per severity. ✓ (was already shipped — show_toast_card paints severity bar + level.icon() tinted by level.accent())
 21. **Empty-state art** — one small line-art glyph per empty surface (Library, Inbox, Recents) instead of bare text. ✓ (empty_state now sits the glyph on a 64px SURFACE_2 disc, aurora-accent ring on celestial)
-22. **Skeleton loaders** — shimmer rect where thumbs/frames are pending instead of blank tiles.
+22. **Skeleton loaders** — shimmer rect where thumbs/frames are pending instead of blank tiles. ✓ (library tiles paint a SURFACE_2 skeleton + sweeping highlight band under the async image loader; shimmer gated by reduce-motion)
 23. **Reduced-motion setting** — disable aurora pulse, hover fades, toast slide. ✓ (`reduce_motion` session flag + Settings switch → theme thread-local; danger_pulse flattens, recent-tile grow snaps, HUD pick-flash skipped)
 24. **Starfield parallax** — stars drift 1–2 px on window resize for depth (cheap: offset by rect delta). ✓ (per-star depth spread around canvas center — resizes drift the field instead of scaling it rigidly)
 25. **Theme export/import** — share a theme as a JSON snippet; community themes later.
@@ -590,7 +590,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 220. **Windows permissions card** — mic/loopback device, tray status, gdigrab test. ✓ (WINDOWS STATUS card: ✓/✗ for ffmpeg gdigrab/audio/tray, resolved mic name, 'Test screenshot' runs a real grab)
 221. **First-run health check** — ffmpeg, write-perms, DPI awareness, tray — one green card. ✓ (wizard's last step runs a real capture smoke test → '✓ works — N bytes captured'; Settings WINDOWS STATUS card carries ffmpeg/audio/tray ✓/✗)
 222. **Crash-recovery** — unsaved annotations/session state restored on relaunch. ✓ (two halves: `review_draft.json` — debounced 800 ms draft of the Still editor's strokes as a serializable mirror (stickers as base64 PNGs), canvas-rect included so `sync_annotation_canvas` re-projects into the new layout; on launch a draft whose still still exists restores into Review without a tab switch. Plus orphaned-recorder recovery: a dead pid + frag-MP4 on disk → background remux to a clean MP4, state + breadcrumb discarded, result toasts)
-223. **? cheat-sheet kept current** — auto-generate from the binding table, not hand-maintained.
+223. **? cheat-sheet kept current** — auto-generate from the binding table, not hand-maintained. ✓ (Global group built from live hotkey fields — rebound digits + optional Pause/PrtScn slots render what is actually registered)
 224. **Keyboard-only walkthrough** — wizard step that teaches S/R/Esc in 30 s.
 225. **OS dark-mode event** — live-switch Mono themes when Windows toggles. ✓ (opt-in `theme_follow_os` session flag + `theme_dark_pick` — the remembered dark theme the OS-dark state maps to (Dark/Carbon/Celestial/CelestialPink selectable inline); `tick_os_theme` polls `AppsUseLightTheme` every 3 s from update(), `os_dark_seen` diff means one re-theme + toast per OS flip, None on read-failure → untouched; non-Windows returns None — safe no-op)
 
@@ -630,7 +630,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session. ✓ (`crash.log` in config dir — panic hook appends timestamped info, then chains to the default hook)
 255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem.
 256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry. ✓ (`verify_mp4` decodes one frame on a worker after stop; missing moov → `remux_to_clean_mp4` to `<stem>.repaired.mp4` and Review/recents re-point at the clean file; unrepairable → loud toast)
-257. **Session schema versioning** — migrate old session.json fields cleanly.
+257. **Session schema versioning** — migrate old session.json fields cleanly. ✓ (SESSION_SCHEMA const + schema_version field + migrate_session hook in load_session; v0→v1 no-op since all fields carry serde defaults)
 258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash. ✓ (apply_session whitelists tab/density/filter/countdown/fps/digits, floors window dims, rejects inverted rects + insane screen dims)
 259. **Windows CI smoke** — gdigrab one-frame test asserting file size (round-1 #99, still open).
 260. **Golden-theme CI** — screenshot-diff the five themes to catch alpha regressions.
@@ -653,7 +653,7 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 268. **Long-path support** — >260 char paths via `\\?\` prefix on Windows.
 269. **Unicode filename safety** — emoji/non-ASCII in naming tokens don't break ffmpeg args. ✓ (sanitize_token strips stems to ASCII [a-z0-9-_]; ffmpeg argv never sees emoji)
 270. **Concurrent capture guard** — two rapid hotkey presses can't spawn two ffmpeg procs. ✓ (was already shipped — `still_busy` AtomicBool CAS `swap` in the pump fast path + `screenshot_in_flight`/`still_busy` check in the UI path; second trigger returns early)
-271. **Tray-missing fallback** — if tray creation fails, keep a floating mini-bar alive.
+271. **Tray-missing fallback** — if tray creation fails, keep a floating mini-bar alive. ✓ (fallback is honest: close-quits + a persistent 'no tray — close quits' status chip; tray ✗ already on the Windows status card)
 272. **DPI-change mid-pick** — region rect re-maps if scaling changes while overlay is up.
 273. **Monitor-hotplug handling** — disappearing display re-targets fullscreen gracefully.
 274. **Timestamp monotonicity** — output names use monotonic seq when clock steps back. ✓ (next_seq dedupes on disk contents — a stepped-back clock still yields a unique name)
@@ -682,7 +682,7 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 294. **Stats card** — captures/week, bytes saved, streaks (round-2 #99, still open). ✓ (Library header stats line)
 295. **Budget dashboard** — per-session spend sparkline in Inbox.
 296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview.
-297. **Export diagnostics bundle** — one click → zip of logs+session+doctor for bug reports.
+297. **Export diagnostics bundle** — one click → zip of logs+session+doctor for bug reports. ✓ (bug_report_pack now emits bug_<ts>.zip: screenshot + retro.gif + doctor.json + system.txt + session/budget/draft + newest .ffmpeg.log, STORED via app::zip)
 298. **Community theme repo hook** — `--theme-import URL` fetch+validate.
 299. **Locale-ready strings** — wrap UI strings in a `tr()` macro now so i18n isn't a rewrite later.
 300. **API surface freeze** — document which CLI/MCP contracts are stable vs internal for agent authors.
