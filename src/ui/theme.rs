@@ -1268,6 +1268,17 @@ pub fn paint_aurora_button(painter: &egui::Painter, rect: egui::Rect, rounding: 
     painter.add(egui::Shape::mesh(mesh));
 }
 
+/// Accent used inside the picker swatch mock (rail dot + CTA pill).
+pub fn preview_accent(mode: ThemeMode) -> Color32 {
+    match mode {
+        ThemeMode::Carbon => Color32::from_rgb(0x93, 0xc5, 0xfd),
+        ThemeMode::Dark => Color32::from_rgb(0xf4, 0xf4, 0xf5),
+        ThemeMode::Light => Color32::from_rgb(0x18, 0x18, 0x1b),
+        ThemeMode::Celestial => Color32::from_rgb(0xec, 0x4f, 0x8e),
+        ThemeMode::CelestialPink => Color32::from_rgb(0xf2, 0x6f, 0xa4),
+    }
+}
+
 /// Preview swatch colors for the theme picker (canvas, surface, ink).
 pub fn preview_colors(mode: ThemeMode) -> (Color32, Color32, Color32) {
     match mode {

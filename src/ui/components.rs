@@ -471,6 +471,82 @@ pub fn loop_rail(
     picked
 }
 
+/// E46 — horizontal top-tab alternative to the left rail, for users who
+/// want the Snagit-style strip. Same stages, same badges — laid out in a
+/// row with an underline accent on the active tab.
+pub fn loop_tabs(
+    ui: &mut Ui,
+    active: LoopStage,
+    inbox_badge: usize,
+    rec_live: bool,
+    logo: Option<&egui::TextureHandle>,
+) -> Option<LoopStage> {
+    let mut picked = None;
+    ui.horizontal_centered(|ui| {
+        ui.add_space(theme::SP_2);
+        if let Some(logo) = logo {
+            let (r, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
+            ui.painter_at(r).image(
+                logo.id(),
+                r,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+            ui.add_space(theme::SP_3);
+        }
+        for stage in LoopStage::all() {
+            let is_active = stage == active;
+            let is_live_stage = matches!(stage, LoopStage::Shutter) && rec_live
+                || matches!(stage, LoopStage::Inbox) && inbox_badge > 0;
+            let ink = if is_live_stage {
+                theme::ACCENT()
+            } else if is_active {
+                theme::TEXT()
+            } else {
+                theme::TEXT_MUTED()
+            };
+            let label = match stage {
+                LoopStage::Inbox if inbox_badge > 0 => {
+                    format!("{} {}", stage.label(), inbox_badge.min(99))
+                }
+                LoopStage::Shutter if rec_live => "Capture ●".to_string(),
+                _ => stage.label().to_string(),
+            };
+            let resp = Frame::none()
+                .inner_margin(Margin::symmetric(10.0, 6.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let (r, _) =
+                            ui.allocate_exact_size(Vec2::splat(theme::ICON_SM), Sense::hover());
+                        icons::paint_icon(ui, r, stage.icon(), ink);
+                        ui.label(RichText::new(label).color(ink).size(11.5));
+                    });
+                })
+                .response
+                .interact(Sense::click());
+            if is_active {
+                let r = resp.rect;
+                let tick = Rect::from_min_size(
+                    Pos2::new(r.left() + 8.0, r.bottom() - 2.0),
+                    Vec2::new(r.width() - 16.0, 2.0),
+                );
+                if theme::is_celestial() {
+                    theme::paint_aurora_strip_for(ui.painter(), tick, theme::theme_mode());
+                } else {
+                    ui.painter()
+                        .rect_filled(tick, Rounding::same(1.0), theme::ACCENT());
+                }
+            }
+            if resp.clicked() {
+                picked = Some(stage);
+            }
+            resp.on_hover_text(stage.label());
+            ui.add_space(theme::SP_1);
+        }
+    });
+    picked
+}
+
 // ── Status strip ────────────────────────────────────────────────────
 
 /// Read-only chrome for storage / budget / ffmpeg / inbox / live.

@@ -285,8 +285,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     ui.add_space(theme::SP_3);
 
     // Canvas-dominant layout: image left, inspector right (like a photo app).
+    // E38 — the rail is optional; closed, the canvas takes the full width.
     const INSPECTOR_W: f32 = 244.0;
-    let canvas_w = (ui.available_width() - INSPECTOR_W - theme::SP_3).max(300.0);
+    let inspector_w = if app.inspector_open {
+        INSPECTOR_W + theme::SP_3
+    } else {
+        0.0
+    };
+    let canvas_w = (ui.available_width() - inspector_w).max(300.0);
     let body_h = ui.available_height().max(380.0);
 
     ui.horizontal_top(|ui| {
@@ -751,6 +757,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
     ui.add_space(theme::SP_3);
     // ── Inspector (right rail — tools, brush, adjust) ────────────────
+    if app.inspector_open {
     ui.allocate_ui_with_layout(
         Vec2::new(INSPECTOR_W, body_h),
         egui::Layout::top_down(egui::Align::Min),
@@ -760,6 +767,45 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
                     ui.set_max_width(INSPECTOR_W - 8.0);
+
+                    // E38 — file metadata at the rail top.
+                    group(ui, "FILE", |ui| {
+                        ui.label(
+                            RichText::new(
+                                path.file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| path.display().to_string()),
+                            )
+                            .size(11.5)
+                            .strong(),
+                        );
+                        if let Ok(m) = std::fs::metadata(&path) {
+                            let mb = m.len() as f64 / 1_048_576.0;
+                            ui.label(
+                                RichText::new(format!("{mb:.1} MB"))
+                                    .size(11.0)
+                                    .color(theme::TEXT_MUTED()),
+                            );
+                            if let Ok(modified) = m.modified() {
+                                let dt: chrono::DateTime<chrono::Local> = modified.into();
+                                ui.label(
+                                    RichText::new(dt.format("%b %e · %H:%M").to_string())
+                                        .size(10.5)
+                                        .color(theme::TEXT_DIM()),
+                                );
+                            }
+                        }
+                        if !app.img_source_dims.is_empty() {
+                            ui.label(
+                                RichText::new(format!("{} px", app.img_source_dims))
+                                    .size(10.5)
+                                    .color(theme::TEXT_DIM()),
+                            );
+                        }
+                    });
+                    ui.add_space(theme::SP_2);
+                    ui.separator();
+                    ui.add_space(theme::SP_2);
 
                     group(ui, "TOOLS", |ui| {
                         for (tool, label) in [
@@ -1092,6 +1138,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 });
         },
     );
+    } // inspector_open
     }); // horizontal split
 }
 

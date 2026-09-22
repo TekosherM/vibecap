@@ -460,6 +460,45 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 
 // ── Export inspector groups ────────────────────────────────────────
 
+/// E38 — file metadata block at the top of the inspector rail.
+fn clip_meta(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path) {
+    group(ui, "FILE", |ui| {
+        ui.label(
+            RichText::new(
+                file.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file.display().to_string()),
+            )
+            .size(11.5)
+            .strong(),
+        );
+        let meta = std::fs::metadata(file).ok();
+        if let Some(m) = &meta {
+            let mb = m.len() as f64 / 1_048_576.0;
+            ui.label(
+                RichText::new(format!("{mb:.1} MB"))
+                    .size(11.0)
+                    .color(theme::TEXT_MUTED()),
+            );
+            if let Ok(modified) = m.modified() {
+                let dt: chrono::DateTime<Local> = modified.into();
+                ui.label(
+                    RichText::new(dt.format("%b %e · %H:%M").to_string())
+                        .size(10.5)
+                        .color(theme::TEXT_DIM()),
+                );
+            }
+        }
+        if app.clip_duration_secs > 0.0 {
+            ui.label(
+                RichText::new(format!("{} long", format_timecode(app.clip_duration_secs)))
+                    .size(10.5)
+                    .color(theme::TEXT_DIM()),
+            );
+        }
+    });
+}
+
 fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path) {
     group(ui, "TRIM", |ui| {
         ui.label(RichText::new("Start").size(12.0).color(theme::TEXT_MUTED()));
@@ -1070,8 +1109,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     };
 
     // Player-dominant layout: screen + timeline left, export inspector right.
+    // E38 — the rail is optional; closed, the player takes the full width.
     const INSPECTOR_W: f32 = 244.0;
-    let player_w = (ui.available_width() - INSPECTOR_W - theme::SP_3).max(320.0);
+    let inspector_w = if app.inspector_open {
+        INSPECTOR_W + theme::SP_3
+    } else {
+        0.0
+    };
+    let player_w = (ui.available_width() - inspector_w).max(320.0);
     let body_h = ui.available_height().max(360.0);
 
     ui.horizontal_top(|ui| {
@@ -1197,22 +1242,28 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
         ui.add_space(theme::SP_3);
         // ── Inspector (right rail — trim, export, tools) ─────────────────
-        ui.allocate_ui_with_layout(
-            Vec2::new(INSPECTOR_W, body_h),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                egui::ScrollArea::vertical()
-                    .id_source("clip_inspector")
-                    .auto_shrink([false; 2])
-                    .show(ui, |ui| {
-                        ui.set_max_width(INSPECTOR_W - 8.0);
-                        export_groups(ui, app, &file);
-                        ui.add_space(theme::SP_2);
-                        ui.separator();
-                        ui.add_space(theme::SP_2);
-                        tools_groups(ui, app, &file);
-                    });
-            },
-        );
+        if app.inspector_open {
+            ui.allocate_ui_with_layout(
+                Vec2::new(INSPECTOR_W, body_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_source("clip_inspector")
+                        .auto_shrink([false; 2])
+                        .show(ui, |ui| {
+                            ui.set_max_width(INSPECTOR_W - 8.0);
+                            clip_meta(ui, app, &file);
+                            ui.add_space(theme::SP_2);
+                            ui.separator();
+                            ui.add_space(theme::SP_2);
+                            export_groups(ui, app, &file);
+                            ui.add_space(theme::SP_2);
+                            ui.separator();
+                            ui.add_space(theme::SP_2);
+                            tools_groups(ui, app, &file);
+                        });
+                },
+            );
+        }
     }); // horizontal split
 }

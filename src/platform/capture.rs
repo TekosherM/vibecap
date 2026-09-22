@@ -981,6 +981,25 @@ fn record_args(
             a.push("dshow".into());
             a.push("-i".into());
             a.push(format!("audio={dev}"));
+            // E49 — optional second source (system loopback via
+            // virtual-audio-capturer) mixed with the mic through amix.
+            let mix = opts
+                .audio_mix_device
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            if let Some(mix_dev) = mix {
+                a.push("-f".into());
+                a.push("dshow".into());
+                a.push("-i".into());
+                a.push(format!("audio={mix_dev}"));
+                a.push("-filter_complex".into());
+                a.push("[1:a][2:a]amix=inputs=2:duration=first[a]".into());
+                a.push("-map".into());
+                a.push("0:v".into());
+                a.push("-map".into());
+                a.push("[a]".into());
+            }
             a.push("-c:a".into());
             a.push("aac".into());
         }
@@ -1269,6 +1288,31 @@ mod tests {
         if super::super::ffmpeg::list_audio_input_devices().is_empty() {
             assert!(no_dev.is_err(), "expected loud failure without a device");
         }
+    }
+
+    /// E49 — a second dshow device mixes through amix and is explicitly
+    /// mapped (ffmpeg default-map would pick only one audio stream).
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn record_args_mixes_second_audio_device() {
+        let opts = CaptureOpts::default()
+            .with_audio_device("TestMic")
+            .with_audio_mix_device("virtual-audio-capturer");
+        let args = record_args(
+            std::path::Path::new("C:\\out\\v.mp4"),
+            30,
+            true,
+            None,
+            &opts,
+            true,
+            true,
+        )
+        .unwrap();
+        let joined = args.join(" ");
+        assert!(joined.contains("audio=virtual-audio-capturer"), "{joined}");
+        assert!(joined.contains("amix=inputs=2"), "{joined}");
+        assert!(joined.contains("-map 0:v"), "{joined}");
+        assert!(joined.contains("-map [a]"), "{joined}");
     }
 
     /// E72 — time-lapse: fractional input rate + fps= output retime, and no

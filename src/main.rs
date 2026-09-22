@@ -99,6 +99,24 @@ impl AppTab {
         }
     }
 
+    /// E50 — position in the visual rail (stage, slot within stage) so tab
+    /// transitions can slide in the direction the rail implies.
+    fn rail_pos(self) -> (usize, usize) {
+        let stage = match self.to_loop() {
+            crate::ui::components::LoopStage::Shutter => 0,
+            crate::ui::components::LoopStage::Review => 1,
+            crate::ui::components::LoopStage::Media => 2,
+            crate::ui::components::LoopStage::Inbox => 3,
+            crate::ui::components::LoopStage::Settings => 4,
+        };
+        let slot = match self {
+            Self::Clip => 0,
+            Self::Still => 1,
+            _ => 0,
+        };
+        (stage, slot)
+    }
+
     pub(crate) fn title(self) -> &'static str {
         match self {
             Self::Capture => "Capture",
@@ -605,6 +623,8 @@ pub(crate) struct VibecapApp {
     capture_audio: bool,
     /// E59 — picked DirectShow audio device (empty = auto-resolve).
     audio_device: String,
+    /// E49 — optional second dshow device mixed into recordings (loopback).
+    audio_mix_device: String,
     fps_target: u32,
     /// C55 — recording quality (libx264 `-crf`): 18 sharp / 23 balanced / 28 small.
     record_crf: u8,
@@ -1030,6 +1050,10 @@ pub(crate) struct VibecapApp {
     window_sizes: std::collections::HashMap<String, [f32; 2]>,
     /// E26 — icon-only rail.
     rail_collapsed: bool,
+    /// E46 — horizontal tab strip across the top instead of the left rail.
+    top_tabs: bool,
+    /// E38 — docked metadata inspector on Review stages.
+    inspector_open: bool,
     /// E23 — flatten pulses/hover-grow.
     reduce_motion: bool,
     /// E3 — celestial accent-hue offset (degrees, ±40).
@@ -1163,6 +1187,9 @@ pub(crate) struct VibecapApp {
     tab_fwd: Vec<AppTab>,
     /// Last rendered tab — per-frame diff feeds `tab_back`.
     prev_tab: AppTab,
+    /// E50 — tab-change slide: (start, direction) — content eases in from
+    /// ±60 px over ~160 ms, matching rail order.
+    tab_slide: Option<(Instant, f32)>,
     /// Run-at-login state for the Settings toggle; None = not probed yet.
     autostart_state: Option<bool>,
     /// Left stage rail — hidden by default; the funnel column is the home UX.
@@ -1374,6 +1401,7 @@ impl VibecapApp {
             restore_tab: true,
             window_sizes: std::collections::HashMap::new(),
             rail_collapsed: false,
+            top_tabs: false,
             reduce_motion: false,
             aurora_hue: 0.0,
             density: Density::Comfortable,
@@ -1384,6 +1412,7 @@ impl VibecapApp {
             tab_back: Vec::new(),
             tab_fwd: Vec::new(),
             prev_tab: AppTab::Capture,
+            tab_slide: None,
             autostart_state: None,
             rail_open: false,
             ..Default::default() // wizard_* default closed / not done
@@ -1658,6 +1687,8 @@ impl VibecapApp {
         };
         self.window_sizes = s.window_sizes;
         self.rail_collapsed = s.rail_collapsed;
+        self.top_tabs = s.top_tabs;
+        self.inspector_open = s.inspector_open;
         self.reduce_motion = s.reduce_motion;
         self.aurora_hue = s.aurora_hue;
         if let Some(p) = s.edit_file {
@@ -1722,6 +1753,7 @@ impl VibecapApp {
         };
         self.capture_monitor = s.monitor;
         self.audio_device = s.audio_device.clone();
+        self.audio_mix_device = s.audio_mix_device.clone();
         self.window_app = s.window_app.clone();
         if !s.inbox_snippets.is_empty() {
             self.inbox_snippets = s.inbox_snippets;
@@ -1859,6 +1891,7 @@ impl VibecapApp {
             record_crf: self.record_crf,
             timelapse_secs: self.timelapse_secs,
             audio_device: self.audio_device.clone(),
+            audio_mix_device: self.audio_mix_device.clone(),
             window_app: self.window_app.clone(),
             monitor: self.capture_monitor,
             inbox_snippets: self.inbox_snippets.clone(),
@@ -1911,6 +1944,8 @@ impl VibecapApp {
             restore_tab: self.restore_tab,
             window_sizes: self.window_sizes.clone(),
             rail_collapsed: self.rail_collapsed,
+            top_tabs: self.top_tabs,
+            inspector_open: self.inspector_open,
             reduce_motion: self.reduce_motion,
             aurora_hue: self.aurora_hue,
         }
@@ -5463,6 +5498,7 @@ impl VibecapApp {
         }
         .with_crf(self.record_crf)
         .with_audio_device(&self.audio_device)
+        .with_audio_mix_device(&self.audio_mix_device)
         .with_timelapse(self.timelapse_secs);
 
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -7148,6 +7184,16 @@ impl eframe::App for VibecapApp {
                     }
                 }
             }
+            // E50 — directional slide: later rail stages enter from the
+            // right, earlier from the left (skipped under reduce-motion).
+            if !theme::reduce_motion() {
+                let dir = match self.current_tab.rail_pos().cmp(&self.prev_tab.rail_pos()) {
+                    std::cmp::Ordering::Greater => 1.0,
+                    std::cmp::Ordering::Less => -1.0,
+                    std::cmp::Ordering::Equal => 0.0,
+                };
+                self.tab_slide = (dir != 0.0).then_some((Instant::now(), dir));
+            }
             self.prev_tab = self.current_tab;
         }
         // Track window size for session restore (skip park / tiny restore leftovers).
@@ -8141,7 +8187,33 @@ impl eframe::App for VibecapApp {
         //    ☰ in the header or Ctrl+B toggles it back on.
         // E39 — zen mode hides the rail too; Ctrl+B still flips the pref but
         // chrome stays out until zen is toggled off via the palette.
-        if self.rail_open && !self.zen_mode {
+        if self.rail_open && !self.zen_mode && self.top_tabs {
+            egui::TopBottomPanel::top("loop_tabs")
+                .exact_height(40.0)
+                .frame(
+                    Frame::none()
+                        .fill(theme::SURFACE())
+                        .stroke(Stroke::new(1.0_f32, theme::BORDER()))
+                        .inner_margin(0.0),
+                )
+                .show(ctx, |ui| {
+                    if theme::is_celestial() {
+                        theme::paint_celestial_sky(ui.painter(), ui.clip_rect());
+                    }
+                    let rec_live =
+                        self.is_recording || self.recording_arming || self.recording_finalizing;
+                    if let Some(stage) = crate::ui::components::loop_tabs(
+                        ui,
+                        self.current_tab.to_loop(),
+                        self.feedback_pending_count,
+                        rec_live,
+                        self.brand_logo.as_ref(),
+                    ) {
+                        self.current_tab = self.tab_for_loop(stage);
+                    }
+                });
+        }
+        if self.rail_open && !self.zen_mode && !self.top_tabs {
             egui::SidePanel::left("loop_rail")
                 .exact_width(76.0)
                 .resizable(false)
@@ -8363,7 +8435,20 @@ impl eframe::App for VibecapApp {
                 });
                 ui.add_space(self.density.sp(theme::SP_2));
 
-                match self.current_tab {
+                // E50 — ease the incoming stage in from the rail direction.
+                let mut slide_dx = 0.0;
+                if let Some((at, dir)) = self.tab_slide {
+                    let t = at.elapsed().as_secs_f32() / 0.16;
+                    if t >= 1.0 {
+                        self.tab_slide = None;
+                    } else {
+                        let e = 1.0 - (1.0 - t).powi(3); // ease-out cubic
+                        slide_dx = dir * 60.0 * (1.0 - e);
+                        ctx.request_repaint();
+                    }
+                }
+                let body_rect = ui.available_rect_before_wrap();
+                let mut render_body = |ui: &mut egui::Ui| match self.current_tab {
                     // ── The funnel: Capture → Review → Library, one column.
                     //    Active stage expands; the others collapse to stripes
                     //    (animated — the column visibly squeezes/reveals).
@@ -8486,6 +8571,13 @@ impl eframe::App for VibecapApp {
                             }
                         }
                     }
+                };
+                if slide_dx.abs() > 0.5 {
+                    let shifted = body_rect.translate(egui::vec2(slide_dx, 0.0));
+                    ui.allocate_ui_at_rect(shifted, |ui| render_body(ui));
+                    ui.advance_cursor_after_rect(body_rect);
+                } else {
+                    render_body(ui);
                 }
             });
 

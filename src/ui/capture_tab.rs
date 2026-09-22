@@ -937,6 +937,54 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                                     app.audio_device.clear();
                                                     app.persist_session();
                                                 }
+                                                // E49 — optional second source
+                                                // mixed via amix (system loopback
+                                                // needs virtual-audio-capturer).
+                                                let mix_sel = if app.audio_mix_device.is_empty() {
+                                                    "Mic only".to_string()
+                                                } else {
+                                                    app.audio_mix_device.clone()
+                                                };
+                                                egui::ComboBox::from_id_source("audio_mix_dev")
+                                                    .selected_text(mix_sel)
+                                                    .width(220.0)
+                                                    .show_ui(ui, |ui| {
+                                                        if ui
+                                                            .selectable_label(
+                                                                app.audio_mix_device.is_empty(),
+                                                                "Mic only",
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            app.audio_mix_device.clear();
+                                                            app.persist_session();
+                                                        }
+                                                        for d in app.audio_devices.clone() {
+                                                            if d == app.audio_device {
+                                                                continue;
+                                                            }
+                                                            if ui
+                                                                .selectable_label(
+                                                                    app.audio_mix_device == d,
+                                                                    format!("+ {d}"),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                app.audio_mix_device = d;
+                                                                app.persist_session();
+                                                            }
+                                                        }
+                                                    });
+                                                if !app.audio_mix_device.is_empty()
+                                                    && (!app
+                                                        .audio_devices
+                                                        .contains(&app.audio_mix_device)
+                                                        || app.audio_mix_device
+                                                            == app.audio_device)
+                                                {
+                                                    app.audio_mix_device.clear();
+                                                    app.persist_session();
+                                                }
                                             }
                                         }
                                     });

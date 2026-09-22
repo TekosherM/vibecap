@@ -55,6 +55,10 @@ pub struct SessionState {
     /// E59 — picked DirectShow audio device for recordings; empty = auto.
     #[serde(default)]
     pub audio_device: String,
+    /// E49 — optional second dshow device mixed into recordings (system
+    /// loopback via virtual-audio-capturer); empty = mic only.
+    #[serde(default)]
+    pub audio_mix_device: String,
     /// E72 — time-lapse interval (0 = real-time). A frame every N seconds,
     /// retimed to the fps target on encode.
     #[serde(default)]
@@ -203,6 +207,13 @@ pub struct SessionState {
     /// E26 — icon-only rail (labels + divider text hidden).
     #[serde(default)]
     pub rail_collapsed: bool,
+    /// E46 — top tab strip instead of the left rail (Snagit-style chrome).
+    #[serde(default)]
+    pub top_tabs: bool,
+    /// E38 — docked inspector rail on Review stages (Still/Clip). Defaults
+    /// on so the trim/export and annotation tools stay reachable.
+    #[serde(default = "default_true")]
+    pub inspector_open: bool,
     /// E23 — flatten pulses/hover-grow for motion-sensitive users.
     #[serde(default)]
     pub reduce_motion: bool,
@@ -302,6 +313,7 @@ impl Default for SessionState {
             record_crf: 23,
             timelapse_secs: 0,
             audio_device: String::new(),
+            audio_mix_device: String::new(),
             window_app: String::new(),
             monitor: None,
             inbox_snippets: vec![
@@ -352,6 +364,8 @@ impl Default for SessionState {
             restore_tab: true,
             window_sizes: std::collections::HashMap::new(),
             rail_collapsed: false,
+            top_tabs: false,
+            inspector_open: true,
             reduce_motion: false,
             aurora_hue: 0.0,
             saved_regions: Vec::new(),

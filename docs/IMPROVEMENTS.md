@@ -58,7 +58,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 26. **Skip minimized windows** in the picker (already skipped in `window_rect_on_screen`); show them greyed with “restore to capture”. ✓ (skipped for rect lookup, listed greyed with ' (minimized)')
 27. **UWP / ApplicationFrameHost.** Many Store apps have empty `MainWindowTitle`. Enumerate via `EnumWindows` not `Get-Process`. ✓ (EnumWindows enumeration, not Get-Process titles)
 28. **PowerShell spawn cost.** `frontmost_app_name` / `window_rect_on_screen` shell out (~100–300 ms). Cache 500 ms; or a tiny native `windows` crate helper to drop the PS round-trip. ✓ (WIN_CACHE 750 ms + 2 s callsite TTL + cached frontmost probe)
-29. **macOS window crop.** Docs admit `--window` focuses but does not crop on macOS. Crop via `screencapture -l <windowid>` or `CGWindowList`.
+29. **macOS window crop.** Docs admit `--window` focuses but does not crop on macOS. Crop via `screencapture -l <windowid>` or `CGWindowList`. ✓ (already shipped — macOS stills use `screencapture -l <windowid>` which crops to the window; doc claim was stale)
 30. **Linux window crop** already uses wmctrl/xdotool best-effort. If those binaries are missing, say so in `--paths` instead of silent fullscreen. ✓ (`window_tools_hint` probes wmctrl/xdotool on Linux and `paths_text` prints `window_crop=wmctrl/xdotool missing — window crop falls back to full display`)
 
 ---
@@ -241,7 +241,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 46. **Window-record via pick** — same WindowPick overlay → record rect (crop record, no focus juggle). ✓
 47. **Follow-cursor recording** — crop rect pans with the pointer (for zoomed tutorials).
 48. **Webcam bubble** — second gdigrab/dshow source composited corner-overlay (big).
-49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters.
+49. **Mic + system mix** — dshow device list exists; add a mix selector + level meters. ◑ (second dshow device mixed via amix=inputs:2 with explicit -map; live level meters still open)
 50. **Pause/resume hotkey** — dedicated digit. ✓ (opt-in Ctrl+Shift+N via 'Pause hotkey' in Settings; WakeEvent::PauseToggle wakes a parked studio like Stop)
 51. **REC bar source line** — shows target rect/monitor + audio state. ✓ (caption row under the timer: "Display 2" / "Region 800×600" / "Window: app" + ⚑ count; audio flag only where capture honors it)
 52. **REC bar position memory** — draggable, persists. ✓ (empty-space drag via ViewportCommand::StartDrag; position tracked from outer_rect, session-persisted, bounds-checked on load)
@@ -338,7 +338,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 1. **Per-theme density scale** — compact/cozy/comfortable spacing token per theme; Celestial can afford airier gaps than Mono. ✓ (`density_scale()` per-mode — celestial ×1.08 — folded into `Density::sp` so every `sp()` site scales)
 2. **Theme-aware elevation model** — three shadow tiers (rest/raised/overlay) in tokens instead of only `popup_shadow`/`window_shadow`. ✓ (`elevation_rest`/`elevation_raised` per-mode fns; cards moved to `elevation_raised()` so non-celestial themes get the tier too; overlay tier remains the per-theme shadow passed to `apply_visuals`)
 3. **Accent-hue slider for celestial modes** — rotate the aurora hue ±40° while keeping the sky structure. ✓ (`aurora_hue` session float → `set_aurora_hue` → `aurora_stops_for` rotates stops via HSV; Settings slider + reset visible only on celestial themes; swatch previews stay stock)
-4. **Theme preview in picker shows real chrome** — mini mock of rail + card + CTA inside each swatch, not just an aurora strip.
+4. **Theme preview in picker shows real chrome** — mini mock of rail + card + CTA inside each swatch, not just an aurora strip. ✓ (swatch paints a mini rail + card + accent CTA; celestial keeps an aurora sliver)
 5. **Auto theme** — follow Windows light/dark for the Mono pair; celestial modes stay manual. ✓ (was already shipped — theme_follow_os polls AppsUseLightTheme every 3 s; dark maps to theme_dark_pick, light maps to Light)
 6. **Scheduled themes** — Light by day, Dark/Celestial by night (opt-in). ✓ (`theme_schedule` shares the 3 s follow-OS tick; local hour picks Light 07:00–19:00 else the dark pick; wins over follow-OS; dark-pick row shows for either)
 7. **Contrast audit pass** — run a contrast checker over every `TEXT_MUTED`/`TEXT_FAINT` usage; celestial muted on plum is borderline. ✓ (`text_tiers_clear_contrast_floors` computes WCAG luminance ratios per theme — body ≥7, muted ≥4.5, dim ≥3.0; it caught Light TEXT_DIM at 2.3:1, fixed to zinc-600 ≈4.7:1)
@@ -359,7 +359,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 22. **Skeleton loaders** — shimmer rect where thumbs/frames are pending instead of blank tiles. ✓ (library tiles paint a SURFACE_2 skeleton + sweeping highlight band under the async image loader; shimmer gated by reduce-motion)
 23. **Reduced-motion setting** — disable aurora pulse, hover fades, toast slide. ✓ (`reduce_motion` session flag + Settings switch → theme thread-local; danger_pulse flattens, recent-tile grow snaps, HUD pick-flash skipped)
 24. **Starfield parallax** — stars drift 1–2 px on window resize for depth (cheap: offset by rect delta). ✓ (per-star depth spread around canvas center — resizes drift the field instead of scaling it rigidly)
-25. **Theme export/import** — share a theme as a JSON snippet; community themes later.
+25. **Theme export/import** — share a theme as a JSON snippet; community themes later. ✓ (Share theme row — Copy/Paste a JSON recipe via clipboard: mode, aurora hue, follow-OS/schedule, dark pick; validated + hue clamped)
 
 ## B · Layout, rail & navigation (26–50)
 
@@ -375,7 +375,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 35. **Adaptive column width** — the 720 px content column should widen on >1100 px windows. ✓ (col_w widens to 900 on >1100 px)
 36. **Status strip resize drag** — give the bottom bar a 2 px taller hit target. ✓ (inner vertical margin 6→8 px; empty strip space StartDrags the window; segments use selectable_label hit rects)
 37. **Status strip segments clickable** — click "2 recordings" → jump to Library filtered. ✓ (storage→Library, tier→Settings, inbox n→Inbox, ffmpeg-missing→Settings)
-38. **Right-side inspector mode** — optional docked metadata panel in Review screens.
+38. **Right-side inspector mode** — optional docked metadata panel in Review screens. ✓ (`inspector_open` pref gates the Still/Clip right rail — canvas takes full width when closed; FILE metadata group (name, MB, mtime, dims/duration) tops both rails)
 39. **Zen mode** — hide rail + status strip; palette + hotkeys only. ✓ (palette ToggleZen; rail+strip gated, entry toast explains Ctrl+K exit)
 40. **Header title dynamic** — show contextual title (recording name in Clip, file name in Still) instead of always stage name. ✓ (Clip/Still headers show the loaded file name)
 41. **Subtitle slot in header** — second line under title for context ("unsaved changes", "recording 00:12"). ✓ (subtitle shows annotation/cut counts when live, else the stage hint)
@@ -383,11 +383,11 @@ Numbered 1–300 for this round. Sections sized 25 each.
 43. **Palette fuzzy match** — substring scoring; "gif" should rank "Export GIF" first. ✓ (subsequence scoring, word-start/consecutive bonuses)
 44. **Palette actions show shortcuts** — right-aligned kbd hint per row. ✓ (accent mono chip mirrors the real binding: S, R, Ctrl+C, Ctrl+1-3/5, Ctrl+I, ?)
 45. **Palette media jump** — typing a filename jumps to its review. ✓ (OpenMedia fuzzy-matches library names; opens Still/Clip and copies the path)
-46. **Tab-strip alternative** — optional top tabs instead of rail for users who want Snagit familiarity.
+46. **Tab-strip alternative** — optional top tabs instead of rail for users who want Snagit familiarity. ✓ (`top_tabs` pref renders a horizontal TopBottomPanel strip with icons+labels, badges, underline accent)
 47. **Drag window by any dead space** — today only header drags; padding zones should too. ✓ (main window uses native decorations — the OS titlebar drags everywhere; the custom REC bar already StartDrags on dead space)
 48. **Snap-layout friendly sizing** — default size lands cleanly in Windows 11 half-snap. ✓ (first-run default clamps to half the primary monitor's width / full height so the window fits a Win11 snap half; persisted sizes untouched)
 49. **Restore-last-stage on launch** — setting: always Capture vs resume where you left. ✓ ("Reopen where I left off" switch; off = always Capture; session `restore_tab`)
-50. **Stage transition direction** — slide left/right matching rail order, not a single wipe.
+50. **Stage transition direction** — slide left/right matching rail order, not a single wipe. ✓ (tab changes ease the incoming stage ±60 px from the rail direction over ~160 ms; skipped under reduce-motion)
 
 ## C · Capture tab & flow (51–75)
 

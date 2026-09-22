@@ -358,6 +358,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.record_crf = 23;
                     app.capture_audio = false;
                     app.audio_device.clear();
+                    app.audio_mix_device.clear();
                     app.clip_autoplay = true;
                     app.auto_open_review = true;
                     app.auto_dead_air = false;
@@ -973,6 +974,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 if switch(ui, "Icon-only rail", &mut app.rail_collapsed) {
                     app.persist_session();
                 }
+                // E46 — Snagit-style top tabs replace the left rail.
+                if switch(ui, "Top tabs instead of rail", &mut app.top_tabs) {
+                    app.persist_session();
+                }
+                // E38 — the Review rail (trim/export/markup) can dock away.
+                if switch(ui, "Review inspector rail", &mut app.inspector_open) {
+                    app.persist_session();
+                }
                 // E23 — no pulses/tweens for motion-sensitive users.
                 if switch(ui, "Reduce motion", &mut app.reduce_motion) {
                     app.persist_session();
@@ -1064,6 +1073,75 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.os_dark_seen = None; // force converge on next tick
                         app.persist_session();
                     }
+                });
+                // E25 — theme recipe as a JSON snippet on the clipboard:
+                // mode + aurora hue + schedule picks. Import validates the
+                // theme name and clamps the hue before applying.
+                setting_row(ui, "Share theme", |ui| {
+                    ui.horizontal(|ui| {
+                        if btn_secondary(ui, "Copy") {
+                            let json = serde_json::json!({
+                                "vibecap_theme": 1,
+                                "theme": theme::theme_mode_to_str(theme::theme_mode()),
+                                "aurora_hue": app.aurora_hue,
+                                "follow_os": app.theme_follow_os,
+                                "schedule": app.theme_schedule,
+                                "dark_pick": app.theme_dark_pick,
+                            })
+                            .to_string();
+                            match arboard::Clipboard::new()
+                                .and_then(|mut b| b.set_text(json))
+                            {
+                                Ok(()) => app.show_toast("Theme recipe copied"),
+                                Err(e) => app.show_toast(&format!("Clipboard failed: {e}")),
+                            }
+                        }
+                        if btn_secondary(ui, "Paste") {
+                            match arboard::Clipboard::new().and_then(|mut b| b.get_text()) {
+                                Ok(text) => {
+                                    match serde_json::from_str::<serde_json::Value>(&text) {
+                                        Ok(v) if v.get("vibecap_theme").is_some() => {
+                                            let name = v
+                                                .get("theme")
+                                                .and_then(|t| t.as_str())
+                                                .unwrap_or("dark");
+                                            let mode = theme::theme_mode_from_str(name);
+                                            app.set_theme(ctx, mode);
+                                            if let Some(hue) =
+                                                v.get("aurora_hue").and_then(|h| h.as_f64())
+                                            {
+                                                app.aurora_hue = (hue as f32).clamp(-40.0, 40.0);
+                                                theme::set_aurora_hue(app.aurora_hue);
+                                            }
+                                            app.theme_follow_os = v
+                                                .get("follow_os")
+                                                .and_then(|b| b.as_bool())
+                                                .unwrap_or(false);
+                                            app.theme_schedule = v
+                                                .get("schedule")
+                                                .and_then(|b| b.as_bool())
+                                                .unwrap_or(false);
+                                            if let Some(dp) =
+                                                v.get("dark_pick").and_then(|d| d.as_str())
+                                            {
+                                                app.theme_dark_pick = dp.to_string();
+                                            }
+                                            app.os_dark_seen = None;
+                                            app.persist_session();
+                                            app.show_toast("Theme recipe applied");
+                                        }
+                                        _ => app.show_toast("Clipboard has no theme recipe"),
+                                    }
+                                }
+                                Err(e) => app.show_toast(&format!("Clipboard failed: {e}")),
+                            }
+                        }
+                        ui.label(
+                            RichText::new("JSON recipe via clipboard")
+                                .size(10.5)
+                                .color(theme::TEXT_DIM()),
+                        );
+                    });
                 });
                 ui.add_space(theme::SP_2);
                 ui.horizontal(|ui| {
@@ -1344,20 +1422,49 @@ pub(crate) fn theme_swatch(ui: &mut egui::Ui, mode: theme::ThemeMode) -> bool {
         rect.min + egui::Vec2::new(6.0, 6.0),
         egui::pos2(rect.max.x - 6.0, rect.min.y + 32.0),
     );
-    match mode {
-        theme::ThemeMode::Celestial | theme::ThemeMode::CelestialPink => {
-            theme::paint_aurora_strip_for(&p, pv, mode);
-        }
-        _ => {
-            p.rect_filled(pv, 3.0, canvas);
-            let chip = egui::Rect::from_min_size(
-                pv.min + egui::Vec2::new(4.0, 4.0),
-                egui::Vec2::new(pv.width() * 0.55, 10.0),
-            );
-            p.rect_filled(chip, 2.0, surface);
-            p.circle_filled(egui::pos2(pv.max.x - 6.0, pv.min.y + 6.0), 3.0, ink);
-        }
+    // E4 — mini chrome mock, not just a flat fill: left rail, surface card
+    // with title + body lines, and an accent CTA pill. Celestial keeps an
+    // aurora sliver across the card top.
+    let accent = theme::preview_accent(mode);
+    p.rect_filled(pv, 3.0, canvas);
+    let rail = egui::Rect::from_min_max(pv.min, egui::pos2(pv.min.x + 10.0, pv.max.y));
+    p.rect_filled(rail, 3.0, surface);
+    for i in 0..3 {
+        let cy = rail.min.y + 5.0 + i as f32 * 7.0;
+        let dot = if i == 0 {
+            accent
+        } else {
+            ink.gamma_multiply(0.35)
+        };
+        p.circle_filled(egui::pos2(rail.center().x, cy), 1.8, dot);
     }
+    let card = egui::Rect::from_min_max(
+        rail.max + egui::Vec2::new(3.0, 2.0),
+        pv.max - egui::Vec2::new(2.0, 2.0),
+    );
+    p.rect_filled(card, 2.5, surface);
+    if matches!(
+        mode,
+        theme::ThemeMode::Celestial | theme::ThemeMode::CelestialPink
+    ) {
+        let sliver = egui::Rect::from_min_max(card.min, egui::pos2(card.max.x, card.min.y + 4.0));
+        theme::paint_aurora_strip_for(&p, sliver, mode);
+    }
+    let line = |y: f32, w: f32, c: egui::Color32| {
+        p.rect_filled(
+            egui::Rect::from_min_size(card.min + egui::Vec2::new(4.0, y), egui::Vec2::new(w, 2.2)),
+            1.0,
+            c,
+        );
+    };
+    line(8.0, card.width() * 0.5, ink.gamma_multiply(0.85));
+    line(13.0, card.width() * 0.72, ink.gamma_multiply(0.30));
+    line(17.0, card.width() * 0.6, ink.gamma_multiply(0.30));
+    let cta = egui::Rect::from_min_size(
+        egui::pos2(card.min.x + 4.0, card.max.y - 8.0),
+        egui::Vec2::new(card.width() * 0.42, 5.5),
+    );
+    p.rect_filled(cta, 2.8, accent);
     p.rect_stroke(pv, 3.0, egui::Stroke::new(1.0_f32, ring));
     p.text(
         egui::pos2(rect.center().x, rect.max.y - 11.0),
