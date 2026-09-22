@@ -157,6 +157,32 @@ pub fn show_region_selector(
                     ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
                 let screen = response.rect;
                 let ctrl_held = ctx.input(|i| i.modifiers.ctrl);
+
+                // E272 — DPI change mid-pick: the viewport's points-per-pixel
+                // shifts when a display's scaling changes while the overlay is
+                // up. Rescale the in-flight selection so the box stays glued
+                // to the same physical pixels instead of jumping.
+                let ppp_now = ctx.pixels_per_point().max(0.01);
+                let ppp_id = egui::Id::new("region_last_ppp");
+                let ppp_prev: Option<f32> = ctx.data_mut(|d| d.get_temp(ppp_id));
+                match ppp_prev {
+                    Some(prev) if (prev - ppp_now).abs() > 0.001 => {
+                        let s = ppp_now / prev;
+                        let rescale = |p: Pos2| Pos2::new(p.x * s, p.y * s);
+                        if let Some(v) = region_start.as_mut() {
+                            *v = rescale(*v);
+                        }
+                        if let Some(v) = region_end.as_mut() {
+                            *v = rescale(*v);
+                        }
+                        for r in region_history.iter_mut() {
+                            *r = Rect::from_min_max(rescale(r.min), rescale(r.max));
+                        }
+                        ctx.data_mut(|d| d.insert_temp(ppp_id, ppp_now));
+                        ctx.request_repaint();
+                    }
+                    _ => ctx.data_mut(|d| d.insert_temp(ppp_id, ppp_now)),
+                }
                 if let Some(tex) = backdrop {
                     painter.image(
                         tex.id(),

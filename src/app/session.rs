@@ -184,6 +184,9 @@ pub struct SessionState {
     /// E23 — flatten pulses/hover-grow for motion-sensitive users.
     #[serde(default)]
     pub reduce_motion: bool,
+    /// E3 — celestial accent-hue offset (degrees, ±40). 0 = stock aurora.
+    #[serde(default)]
+    pub aurora_hue: f32,
 }
 
 fn default_theme_dark() -> String {
@@ -301,6 +304,7 @@ impl Default for SessionState {
             window_sizes: std::collections::HashMap::new(),
             rail_collapsed: false,
             reduce_motion: false,
+            aurora_hue: 0.0,
         }
     }
 }

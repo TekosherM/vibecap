@@ -973,6 +973,8 @@ pub(crate) struct VibecapApp {
     rail_collapsed: bool,
     /// E23 — flatten pulses/hover-grow.
     reduce_motion: bool,
+    /// E3 — celestial accent-hue offset (degrees, ±40).
+    aurora_hue: f32,
     /// Recently-run palette actions (most recent first, max 3).
     palette_mru: Vec<PaletteAction>,
     density: Density,
@@ -1294,6 +1296,7 @@ impl VibecapApp {
             window_sizes: std::collections::HashMap::new(),
             rail_collapsed: false,
             reduce_motion: false,
+            aurora_hue: 0.0,
             density: Density::Comfortable,
             undo_trash: None,
             capture_toast: None,
@@ -1527,6 +1530,7 @@ impl VibecapApp {
         self.window_sizes = s.window_sizes;
         self.rail_collapsed = s.rail_collapsed;
         self.reduce_motion = s.reduce_motion;
+        self.aurora_hue = s.aurora_hue;
         if let Some(p) = s.edit_file {
             let path = PathBuf::from(p);
             if path.exists() {
@@ -1736,6 +1740,7 @@ impl VibecapApp {
             window_sizes: self.window_sizes.clone(),
             rail_collapsed: self.rail_collapsed,
             reduce_motion: self.reduce_motion,
+            aurora_hue: self.aurora_hue,
         }
     }
 
@@ -6734,6 +6739,8 @@ impl eframe::App for VibecapApp {
             .store(self.is_selecting_region, Ordering::SeqCst);
         // E23 — animation sites read the flag without app plumbing.
         theme::set_reduce_motion(self.reduce_motion);
+        // E3 — celestial accent-hue offset → aurora stop rotation.
+        theme::set_aurora_hue(self.aurora_hue);
         // Remember which Review editor was last used (rail Review returns here).
         if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
             self.last_review_tab = Some(self.current_tab);

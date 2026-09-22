@@ -174,6 +174,13 @@ pub const ICON_SM: f32 = 14.0;
 pub const ICON_MD: f32 = 18.0;
 pub const ICON_LG: f32 = 22.0;
 
+/// Tokens E15/E16 — one mono face for paths, durations, timers, sizes,
+/// and kbd chips. Monospace figures are tabular by construction, which
+/// gives the REC timer and size columns stable digit widths.
+pub fn mono_font(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Monospace)
+}
+
 /// E14 — caps-label tracking as a token: celestial modes track wider
 /// (the cosmic mockups letterspace their section labels noticeably).
 pub fn caps_tracking() -> f32 {
@@ -295,6 +302,62 @@ pub fn set_reduce_motion(on: bool) {
 /// E23 — "Reduce motion" setting: pulses flatten, hover-grow snaps.
 pub fn reduce_motion() -> bool {
     REDUCE_MOTION.with(|c| c.get())
+}
+
+// ── Aurora hue offset (tokens E3) ───────────────────────────────────
+// The celestial accent-hue slider rotates the aurora stops ±40° in HSV
+// while keeping the sky structure. Persisted as a session float; the app
+// pushes it here once per frame like REDUCE_MOTION.
+thread_local! {
+    static AURORA_HUE: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+}
+
+pub fn set_aurora_hue(deg: f32) {
+    AURORA_HUE.with(|c| c.set(deg.clamp(-40.0, 40.0)));
+}
+
+pub fn aurora_hue() -> f32 {
+    AURORA_HUE.with(|c| c.get())
+}
+
+/// Rotate a color's hue by `deg` (HSV), preserving sat/val/alpha.
+fn rotate_hue(c: Color32, deg: f32) -> Color32 {
+    let (r, g, b) = (
+        c.r() as f32 / 255.0,
+        c.g() as f32 / 255.0,
+        c.b() as f32 / 255.0,
+    );
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let d = max - min;
+    let v = max;
+    let s = if max <= 0.0 { 0.0 } else { d / max };
+    let mut h = if d <= f32::EPSILON {
+        0.0
+    } else if max == r {
+        60.0 * (((g - b) / d) % 6.0)
+    } else if max == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    h = (h + deg).rem_euclid(360.0);
+    let c_ = v * s;
+    let x = c_ * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = v - c_;
+    let (r1, g1, b1) = match (h / 60.0) as u32 {
+        0 => (c_, x, 0.0),
+        1 => (x, c_, 0.0),
+        2 => (0.0, c_, x),
+        3 => (0.0, x, c_),
+        4 => (x, 0.0, c_),
+        _ => (c_, 0.0, x),
+    };
+    Color32::from_rgba_unmultiplied(
+        ((r1 + m) * 255.0) as u8,
+        ((g1 + m) * 255.0) as u8,
+        ((b1 + m) * 255.0) as u8,
+        c.a(),
+    )
 }
 
 // ── Canvas ──────────────────────────────────────────────────────────
@@ -473,6 +536,36 @@ pent!(
     Color32::from_rgb(0xe3, 0xc2, 0xdd)
 );
 
+// Tokens E8 — keyboard-focus ring: a real per-theme color painted by
+// the hand-drawn widgets (buttons, rail, status segments) when
+// `resp.has_focus()`.
+pent!(
+    FOCUS_RING,
+    Color32::from_rgb(0x93, 0xc5, 0xfd),
+    Color32::from_rgb(0xf4, 0xf4, 0xf5),
+    Color32::from_rgb(0x52, 0x52, 0x5b),
+    Color32::from_rgb(0xec, 0x4f, 0x8e),
+    Color32::from_rgb(0xf4, 0x72, 0xb6)
+);
+// Tokens E9 — disabled-state pair: fill + ink for non-interactive
+// controls (replaces ad-hoc dimmed colors at disabled sites).
+pent!(
+    DISABLED_FILL,
+    Color32::from_rgba_unmultiplied(0x1f, 0x29, 0x37, 140),
+    Color32::from_rgba_unmultiplied(0x14, 0x14, 0x16, 140),
+    Color32::from_rgba_unmultiplied(0xf4, 0xf4, 0xf5, 160),
+    Color32::from_rgba_unmultiplied(0x16, 0x14, 0x3b, 150),
+    Color32::from_rgba_unmultiplied(0x1c, 0x0f, 0x30, 140)
+);
+pent!(
+    DISABLED_TEXT,
+    Color32::from_rgba_unmultiplied(0x6b, 0x72, 0x80, 140),
+    Color32::from_rgba_unmultiplied(0x6b, 0x6b, 0x72, 140),
+    Color32::from_rgba_unmultiplied(0xa1, 0xa1, 0xaa, 160),
+    Color32::from_rgba_unmultiplied(0x8f, 0x89, 0xbc, 140),
+    Color32::from_rgba_unmultiplied(0xa0, 0x7c, 0xb8, 140)
+);
+
 // ── Semantic (shared hues; celestial uses its palette's ok/danger) ──
 
 tri!(
@@ -619,7 +712,56 @@ impl Density {
     }
 
     pub fn sp(self, base: f32) -> f32 {
-        base * self.scale()
+        // Tokens E1 — per-theme density: celestial modes can afford airier
+        // gaps; mono/carbon stay tight. Folds the user pref × theme scale.
+        base * self.scale() * density_scale()
+    }
+}
+
+/// Per-theme spacing multiplier (design-tokens E1).
+pub fn density_scale() -> f32 {
+    match theme_mode() {
+        ThemeMode::Celestial | ThemeMode::CelestialPink => 1.08,
+        _ => 1.0,
+    }
+}
+
+// ── Elevation tiers (tokens E2) ─────────────────────────────────────
+// rest → flat; raised → cards; overlay → popups/windows (applied by
+// apply_visuals from each theme's signature shadow).
+
+/// Flat tier — no shadow. Exists so call sites name the tier, not "none".
+pub fn elevation_rest() -> egui::epaint::Shadow {
+    egui::epaint::Shadow::NONE
+}
+
+/// Raised tier — cards and floating toolbars.
+pub fn elevation_raised() -> egui::epaint::Shadow {
+    match theme_mode() {
+        ThemeMode::Light => egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 2.0),
+            blur: 10.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(14),
+        },
+        ThemeMode::Celestial => egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 4.0),
+            blur: 14.0,
+            spread: 0.0,
+            color: Color32::from_rgba_unmultiplied(7, 6, 26, 102),
+        },
+        ThemeMode::CelestialPink => egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 4.0),
+            blur: 14.0,
+            spread: 0.0,
+            color: Color32::from_rgba_unmultiplied(40, 8, 40, 96),
+        },
+        _ => egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 3.0),
+            blur: 10.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(60),
+        },
     }
 }
 
@@ -660,6 +802,9 @@ fn apply_visuals(ctx: &egui::Context, mode: ThemeMode, shadow: egui::epaint::Sha
 
     visuals.selection.bg_fill = SELECTION_FILL();
     visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT());
+    // E9 — disabled fill comes from the token pair instead of whatever
+    // egui's defaults land on.
+    visuals.widgets.noninteractive.weak_bg_fill = DISABLED_FILL();
 
     visuals.hyperlink_color = INFO();
     visuals.warn_fg_color = WARN();
@@ -989,7 +1134,7 @@ fn radial_glow_shape(c: egui::Pos2, r: f32, color: Color32) -> egui::Shape {
 /// The aurora's three stops for a given theme. CelestialPink uses
 /// Chromie's `dawn` accent palette (rose → pink → rose).
 fn aurora_stops_for(mode: ThemeMode) -> [Color32; 3] {
-    if mode == ThemeMode::CelestialPink {
+    let base = if mode == ThemeMode::CelestialPink {
         [
             Color32::from_rgb(0xf4, 0x72, 0xb6),
             Color32::from_rgb(0xf3, 0x72, 0x9e),
@@ -997,6 +1142,13 @@ fn aurora_stops_for(mode: ThemeMode) -> [Color32; 3] {
         ]
     } else {
         [AURORA_TEAL, AURORA_MID, AURORA_PINK]
+    };
+    // E3 — accent-hue slider rotates celestial aurora stops ±40°.
+    let h = aurora_hue();
+    if h != 0.0 && matches!(mode, ThemeMode::Celestial | ThemeMode::CelestialPink) {
+        base.map(|c| rotate_hue(c, h))
+    } else {
+        base
     }
 }
 
@@ -1197,5 +1349,37 @@ mod tests {
         }
         // Unknown persisted values degrade to Dark, never panic.
         assert_eq!(theme_mode_from_str("bogus"), ThemeMode::Dark);
+    }
+
+    /// E3 — the aurora hue offset rotates celestial stops but leaves the
+    /// mono/carbon/chrome palettes untouched and clamps at ±40°.
+    #[test]
+    fn aurora_hue_rotates_only_celestial() {
+        let teal = AURORA_TEAL;
+        set_aurora_hue(0.0);
+        assert_eq!(aurora_stops_for(ThemeMode::Celestial)[0], teal);
+        set_aurora_hue(30.0);
+        let rotated = aurora_stops_for(ThemeMode::Celestial)[0];
+        assert_ne!(rotated, teal);
+        // Non-celestial stops don't exist — the pink set rotates too, and
+        // a second 0° restores bit-for-bit.
+        set_aurora_hue(0.0);
+        assert_eq!(aurora_stops_for(ThemeMode::Celestial)[0], teal);
+        // Clamp: ±400 lands at ±40.
+        set_aurora_hue(400.0);
+        assert_eq!(aurora_hue(), 40.0);
+        set_aurora_hue(-400.0);
+        assert_eq!(aurora_hue(), -40.0);
+        set_aurora_hue(0.0);
+    }
+
+    /// E1 — celestial themes read airier; mono/carbon stay at 1.0.
+    #[test]
+    fn density_scale_per_theme() {
+        set_theme_mode(ThemeMode::Celestial);
+        assert!(density_scale() > 1.0);
+        set_theme_mode(ThemeMode::Carbon);
+        assert_eq!(density_scale(), 1.0);
+        set_theme_mode(ThemeMode::Dark);
     }
 }

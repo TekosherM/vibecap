@@ -28,6 +28,9 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 .fill(theme::SURFACE())
                                 .rounding(theme::rounding_md())
                                 .stroke(Stroke::new(1.0_f32, theme::DANGER_SOFT()))
+                                // E2 — inline alert card sits at the flat
+                                // "rest" tier, below raised cards.
+                                .shadow(theme::elevation_rest())
                                 .inner_margin(egui::Margin::same(theme::SP_3))
                                 .show(ui, |ui| {
                                     ui.label(
@@ -431,7 +434,16 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             // don't hide inside the collapsed Options card.
                             ui.add_space(theme::SP_3);
                             if ui
-                                .selectable_label(app.draw_mouse, "🖱")
+                                // E9 — off-state ink comes from the
+                                // disabled token pair, not egui's default.
+                                .selectable_label(
+                                    app.draw_mouse,
+                                    RichText::new("🖱").color(if app.draw_mouse {
+                                        theme::ACCENT()
+                                    } else {
+                                        theme::DISABLED_TEXT()
+                                    }),
+                                )
                                 .on_hover_text("Draw cursor on stills")
                                 .clicked()
                             {
@@ -439,7 +451,14 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 app.persist_session();
                             }
                             if ui
-                                .selectable_label(app.capture_audio, "🎙")
+                                .selectable_label(
+                                    app.capture_audio,
+                                    RichText::new("🎙").color(if app.capture_audio {
+                                        theme::ACCENT()
+                                    } else {
+                                        theme::DISABLED_TEXT()
+                                    }),
+                                )
                                 .on_hover_text("Include audio in recordings")
                                 .clicked()
                             {

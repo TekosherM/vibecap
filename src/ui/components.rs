@@ -581,10 +581,11 @@ pub fn status_strip(ui: &mut Ui, snap: &StatusSnapshot, details: bool) -> Option
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if snap.rec_live {
+                        // E15 — mono face: tabular digits keep the REC
+                        // clock width stable as it ticks.
                         ui.label(
                             RichText::new(format!("● {}", snap.rec_label))
-                                .size(11.0)
-                                .strong()
+                                .font(theme::mono_font(11.0))
                                 .color(theme::DANGER()),
                         );
                     } else {
@@ -619,18 +620,10 @@ pub fn section_card(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
         .fill(theme::SURFACE())
         .stroke(Stroke::new(1.0_f32, theme::BORDER()))
         .rounding(theme::rounding_lg())
-        .inner_margin(Margin::same(14.0));
-    // Chromie celestial .card shadow: 0 4px 14px rgba(7,6,26,.4).
-    let frame = if theme::is_celestial() {
-        frame.shadow(egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 4.0),
-            blur: 14.0,
-            spread: 0.0,
-            color: egui::Color32::from_rgba_unmultiplied(7, 6, 26, 102),
-        })
-    } else {
-        frame
-    };
+        .inner_margin(Margin::same(14.0))
+        // Tokens E2 — cards sit on the raised elevation tier (was
+        // celestial-only inline shadow; now every theme has one).
+        .shadow(theme::elevation_raised());
     let inner = frame.show(ui, |ui| {
         ui.set_min_width(ui.available_width());
         theme::caps_label(ui, title);
@@ -756,6 +749,18 @@ fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
     } else {
         p.rect_filled(rect, r, fill);
         p.rect_stroke(rect, r, Stroke::new(1.0_f32, stroke));
+    }
+    // E8 — keyboard-focus ring: hand-drawn widgets must opt in (egui only
+    // rings its own widgets). Click claims focus; Tab order picks it up.
+    if resp.clicked() {
+        resp.request_focus();
+    }
+    if resp.has_focus() {
+        p.rect_stroke(
+            rect.expand(2.0),
+            egui::Rounding::same(r.nw + 2.0),
+            Stroke::new(1.5_f32, theme::FOCUS_RING()),
+        );
     }
     p.galley(
         egui::pos2(
@@ -1002,7 +1007,7 @@ pub fn kbd(ui: &mut Ui, key: &str) {
         .show(ui, |ui| {
             ui.label(
                 RichText::new(key)
-                    .font(egui::FontId::new(11.0, egui::FontFamily::Monospace))
+                    .font(theme::mono_font(11.0))
                     .color(theme::TEXT_MUTED()),
             );
         });
@@ -1175,10 +1180,11 @@ pub fn shutter_strip(
                     (theme::SURFACE_2(), theme::TEXT_MUTED(), theme::TEXT())
                 };
                 let rec = egui::Button::new(
+                    // E15 — mono face keeps the shutter timer's digit
+                    // widths stable while recording.
                     RichText::new(format!("  {}  ", rec_label))
                         .color(text_c)
-                        .size(15.0)
-                        .strong(),
+                        .font(theme::mono_font(15.0)),
                 )
                 .fill(fill)
                 .stroke(Stroke::new(1.0_f32, stroke_c))

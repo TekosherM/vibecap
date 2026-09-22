@@ -495,3 +495,22 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   erratic positions + degenerate window rects through the HUD snap/aspect
   helpers; asserts finite geometry, zero panics.
 - Tests: 105 green.
+
+### Design tokens + DPI mid-pick
+- E1: density_scale() per-mode (celestial 1.08) folded into Density::sp.
+- E2: elevation_rest/elevation_raised per-mode shadow fns; cards moved
+  to the raised tier (was celestial-only inline shadow); overlay tier is
+  the per-theme shadow still passed to apply_visuals.
+- E3: aurora_hue session float → set_aurora_hue → aurora_stops_for
+  rotates the celestial stops ±40° in HSV; Settings slider + reset.
+- E8: FOCUS_RING token; paint_button claims focus on click + rings on
+  has_focus.
+- E9: DISABLED_FILL → noninteractive.weak_bg_fill; DISABLED_TEXT drives
+  quick-toggle off states.
+- E15/E16: mono_font(size) token; REC timer, status REC label, kbd chips
+  consume it (tabular digit widths via monospace).
+- E272: region overlay tracks pixels_per_point; a DPI change mid-pick
+  rescales the in-flight selection + history so the box stays glued to
+  the same physical pixels.
+- Verified shipped: #30 (window_tools_hint → --paths window_crop line).
+- Tests: 107 green.

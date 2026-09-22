@@ -903,6 +903,32 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         }
                     });
                 });
+                // E3 — celestial accent hue: rotate the aurora stops ±40°
+                // while the sky structure stays put. Only meaningful on
+                // the two cosmic themes.
+                if theme::is_celestial() {
+                    setting_row(ui, "Accent hue", |ui| {
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut app.aurora_hue, -40.0..=40.0)
+                                    .suffix("°")
+                                    .fixed_decimals(0),
+                            )
+                            .on_hover_text("Rotate the celestial aurora accent")
+                            .changed()
+                        {
+                            app.persist_session();
+                        }
+                        if app.aurora_hue != 0.0
+                            && ui
+                                .button(RichText::new("reset").size(11.0).color(theme::TEXT_DIM()))
+                                .clicked()
+                        {
+                            app.aurora_hue = 0.0;
+                            app.persist_session();
+                        }
+                    });
+                }
                 setting_row(ui, "Follow OS", |ui| {
                     let mut on = app.theme_follow_os;
                     if ui

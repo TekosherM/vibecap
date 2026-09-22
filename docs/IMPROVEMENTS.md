@@ -59,7 +59,7 @@ That list’s Phase 1–3 chrome (Loop rail, Graphite, wizard, retro, palette, r
 27. **UWP / ApplicationFrameHost.** Many Store apps have empty `MainWindowTitle`. Enumerate via `EnumWindows` not `Get-Process`. ✓ (EnumWindows enumeration, not Get-Process titles)
 28. **PowerShell spawn cost.** `frontmost_app_name` / `window_rect_on_screen` shell out (~100–300 ms). Cache 500 ms; or a tiny native `windows` crate helper to drop the PS round-trip. ✓ (WIN_CACHE 750 ms + 2 s callsite TTL + cached frontmost probe)
 29. **macOS window crop.** Docs admit `--window` focuses but does not crop on macOS. Crop via `screencapture -l <windowid>` or `CGWindowList`.
-30. **Linux window crop** already uses wmctrl/xdotool best-effort. If those binaries are missing, say so in `--paths` instead of silent fullscreen.
+30. **Linux window crop** already uses wmctrl/xdotool best-effort. If those binaries are missing, say so in `--paths` instead of silent fullscreen. ✓ (`window_tools_hint` probes wmctrl/xdotool on Linux and `paths_text` prints `window_crop=wmctrl/xdotool missing — window crop falls back to full display`)
 
 ---
 
@@ -335,22 +335,22 @@ Numbered 1–300 for this round. Sections sized 25 each.
 
 ## A · Design system & theme polish (1–25)
 
-1. **Per-theme density scale** — compact/cozy/comfortable spacing token per theme; Celestial can afford airier gaps than Mono.
-2. **Theme-aware elevation model** — three shadow tiers (rest/raised/overlay) in tokens instead of only `popup_shadow`/`window_shadow`.
-3. **Accent-hue slider for celestial modes** — rotate the aurora hue ±40° while keeping the sky structure.
+1. **Per-theme density scale** — compact/cozy/comfortable spacing token per theme; Celestial can afford airier gaps than Mono. ✓ (`density_scale()` per-mode — celestial ×1.08 — folded into `Density::sp` so every `sp()` site scales)
+2. **Theme-aware elevation model** — three shadow tiers (rest/raised/overlay) in tokens instead of only `popup_shadow`/`window_shadow`. ✓ (`elevation_rest`/`elevation_raised` per-mode fns; cards moved to `elevation_raised()` so non-celestial themes get the tier too; overlay tier remains the per-theme shadow passed to `apply_visuals`)
+3. **Accent-hue slider for celestial modes** — rotate the aurora hue ±40° while keeping the sky structure. ✓ (`aurora_hue` session float → `set_aurora_hue` → `aurora_stops_for` rotates stops via HSV; Settings slider + reset visible only on celestial themes; swatch previews stay stock)
 4. **Theme preview in picker shows real chrome** — mini mock of rail + card + CTA inside each swatch, not just an aurora strip.
 5. **Auto theme** — follow Windows light/dark for the Mono pair; celestial modes stay manual. ✓ (was already shipped — theme_follow_os polls AppsUseLightTheme every 3 s; dark maps to theme_dark_pick, light maps to Light)
 6. **Scheduled themes** — Light by day, Dark/Celestial by night (opt-in).
 7. **Contrast audit pass** — run a contrast checker over every `TEXT_MUTED`/`TEXT_FAINT` usage; celestial muted on plum is borderline.
-8. **Focus ring token** — real `FOCUS_RING` color per theme, painted on keyboard focus for every interactive widget.
-9. **Disabled-state token set** — `*_DISABLED` fill/text pair instead of ad-hoc `.weak()` calls.
+8. **Focus ring token** — real `FOCUS_RING` color per theme, painted on keyboard focus for every interactive widget. ✓ (`FOCUS_RING` pent! token per theme; `paint_button` claims focus on click and strokes the ring on `has_focus`)
+9. **Disabled-state token set** — `*_DISABLED` fill/text pair instead of ad-hoc `.weak()` calls. ✓ (`DISABLED_FILL`/`DISABLED_TEXT` pent! tokens; fill wired into `noninteractive.weak_bg_fill`, text drives the off-state of the capture quick-toggles)
 10. **Hover animation** — egui `ctx.animate` on button fills; 80–120 ms ease like the mockup's `--ease`. ✓ (paint_button blends rest→hover fill via animate_bool on resp.id; snaps instantly under reduce-motion)
 11. **Pressed-state scale** — 0.98 shrink on primary CTAs for tactile feel. ✓ (primary/danger paint rects shrink 1.2px while down)
 12. **Icon stroke-width consistency** — audit `icons.rs` strokes; loupe/camera glyphs draw heavier than nav glyphs.
 13. **Icon sizing token** — `ICON_SM/MD/LG` (14/18/22) instead of scattered pixel sizes. ✓ (tokens added; rail icons, toast icon, capture CTA icon, picker glyphs now consume them)
 14. **Letter-spacing token for caps labels** — `caps_label` hardcodes 1.0; make it a token so Celestial can track wider. ✓ (caps_tracking() — 1.6 on celestial, 1.0 elsewhere; caps_label consumes it)
-15. **Numeric font feature** — tabular figures for REC timer, size columns, budget readouts (Segoe UI `tnum` or a mono face).
-16. **Mono face for code/path text** — paths, durations, and `kbd` chips should share one mono family token.
+15. **Numeric font feature** — tabular figures for REC timer, size columns, budget readouts (Segoe UI `tnum` or a mono face). ◑ (mono face gives stable digit widths on the REC clock + status strip; true `tnum` OpenType features aren't reachable through egui's font pipeline)
+16. **Mono face for code/path text** — paths, durations, and `kbd` chips should share one mono family token. ✓ (`theme::mono_font(size)` token; kbd chips, REC timer, and status-strip REC label consume it)
 17. **Theme diff in screenshot tests** — golden-frame capture per theme to catch alpha/token regressions like the premultiplied bug.
 18. **Carbon accent review** — Carbon currently inherits zinc accent; give it a slate-blue tint to match Tailwind slate-400 hover states. ✓ (ACCENT carbon lane → #93c5fd slate-blue; dark ACCENT_INK already pairs)
 19. **Celestial card inner-glow** — 1 px top inner highlight (`rgba(255,255,255,.06)`) like Chromie's glass cards. ✓ (white-alpha-14 hairline inset on section_card tops when is_celestial)
@@ -654,7 +654,7 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 269. **Unicode filename safety** — emoji/non-ASCII in naming tokens don't break ffmpeg args. ✓ (sanitize_token strips stems to ASCII [a-z0-9-_]; ffmpeg argv never sees emoji)
 270. **Concurrent capture guard** — two rapid hotkey presses can't spawn two ffmpeg procs. ✓ (was already shipped — `still_busy` AtomicBool CAS `swap` in the pump fast path + `screenshot_in_flight`/`still_busy` check in the UI path; second trigger returns early)
 271. **Tray-missing fallback** — if tray creation fails, keep a floating mini-bar alive. ✓ (fallback is honest: close-quits + a persistent 'no tray — close quits' status chip; tray ✗ already on the Windows status card)
-272. **DPI-change mid-pick** — region rect re-maps if scaling changes while overlay is up.
+272. **DPI-change mid-pick** — region rect re-maps if scaling changes while overlay is up. ✓ (overlay tracks `pixels_per_point` in ctx.data; on change the in-flight selection + history rescale by the ratio so the box stays glued to the same physical pixels)
 273. **Monitor-hotplug handling** — disappearing display re-targets fullscreen gracefully. ✓ (resolve_monitor drops stale index → default + toast; wired into GUI stills, recordings, pump hidden-capture)
 274. **Timestamp monotonicity** — output names use monotonic seq when clock steps back. ✓ (next_seq dedupes on disk contents — a stepped-back clock still yields a unique name)
 275. **Telemetry opt-in** — anonymous capture-success/fail counts; off by default, no content ever leaves.
