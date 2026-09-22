@@ -463,3 +463,21 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #273: resolve_monitor drops a stale display index to default + toast;
   wired into GUI stills, recordings, and the pump's hidden-capture path.
 - #297 follow-up: crash.log joins the bug bundle entry list.
+
+### Tokens, buttons, wizard theme, API freeze
+- #10: paint_button eases rest->hover fill (animate_bool on resp.id;
+  Rgba mix), snaps under reduce_motion.
+- #11: primary/danger rects shrink 1.2px while pressed.
+- #13: ICON_SM/MD/LG (14/18/22) consumed by rail, toast, capture CTA,
+  picker glyphs.
+- #14: caps_tracking() token — 1.6 celestial / 1.0 elsewhere; caps_label
+  uses it.
+- #232: font_semibold/font_bold family values cached in thread-locals.
+- #290: wizard welcome step renders all five theme_swatch chips.
+- #296: token chips ({app} {date} {time} {seq} {orig} - _) append under
+  the live naming preview.
+- #255: FFMPEG_LOG_RING now keeps the last 200 lines.
+- #300: docs/API.md freezes stable CLI/MCP/env/on-disk surfaces vs
+  internal.
+- Verified shipped: #5 (theme_follow_os), #234 (finalize/remux/GIF all
+  on workers), #289 (wizard MCP client detect).

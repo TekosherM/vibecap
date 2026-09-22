@@ -112,6 +112,28 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .desired_width(280.0)
                         .hint_text("{app}-{date}-{seq}"),
                 );
+                // E296 — token chips compose the pattern: click inserts,
+                // the preview below stays live.
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new("insert:").size(11.0).color(theme::TEXT_DIM()),
+                    );
+                    for tok in ["{app}", "{date}", "{time}", "{seq}", "{orig}", "-", "_"] {
+                        if ui
+                            .button(
+                                RichText::new(tok)
+                                    .size(11.0)
+                                    .monospace()
+                                    .color(theme::ACCENT()),
+                            )
+                            .on_hover_text("Append to the pattern")
+                            .clicked()
+                        {
+                            app.name_pattern.push_str(tok);
+                            app.persist_session();
+                        }
+                    }
+                });
                 let preview = crate::app::format_capture_stem(&app.name_pattern, Some("chrome"), 1);
                 ui.label(
                     RichText::new(format!("Preview: {preview}.jpg"))
@@ -1153,7 +1175,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
 /// Theme picker swatch — canvas preview + ink label, ink ring when active.
 /// Celestial shows the aurora gradient as its preview.
-fn theme_swatch(ui: &mut egui::Ui, mode: theme::ThemeMode) -> bool {
+pub(crate) fn theme_swatch(ui: &mut egui::Ui, mode: theme::ThemeMode) -> bool {
     let active = theme::theme_mode() == mode;
     let (canvas, surface, ink) = theme::preview_colors(mode);
     let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(84.0, 58.0), egui::Sense::click());

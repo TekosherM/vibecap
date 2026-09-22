@@ -715,12 +715,18 @@ pub fn remux_to_clean_mp4(src: &Path, dest: &Path) -> Result<(), String> {
 /// diagnostics bundle read memory instead of re-reading the file.
 static FFMPEG_LOG_RING: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// Snapshot the tail of `<mp4>.ffmpeg.log` into the ring after finalize.
+/// Snapshot the last 200 lines of `<mp4>.ffmpeg.log` into the ring after
+/// finalize (E255 — post-mortem detail without re-reading the file).
 pub fn remember_ffmpeg_log(mp4: &Path) {
     let log = mp4.with_extension("ffmpeg.log");
-    if let Some(tail) = super::ffmpeg::ffmpeg_log_tail(&log, 8192) {
-        if let Ok(mut g) = FFMPEG_LOG_RING.lock() {
-            *g = Some(tail);
+    if let Ok(data) = std::fs::read(&log) {
+        let text = String::from_utf8_lossy(&data);
+        let lines: Vec<&str> = text.lines().collect();
+        let keep = lines[lines.len().saturating_sub(200)..].join("\n");
+        if !keep.trim().is_empty() {
+            if let Ok(mut g) = FFMPEG_LOG_RING.lock() {
+                *g = Some(keep);
+            }
         }
     }
 }

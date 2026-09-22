@@ -114,7 +114,7 @@ pub fn show(app: &mut VibecapApp, ctx: &egui::Context) -> bool {
                     }
 
                     match step {
-                        0 => step_welcome(ui),
+                        0 => step_welcome(app, ctx, ui),
                         1 => step_save_dir(app, ui),
                         2 => step_budget(app, ui),
                         3 => step_autostart(app, ui),
@@ -244,7 +244,7 @@ fn step_autostart(app: &mut VibecapApp, ui: &mut egui::Ui) {
         });
 }
 
-fn step_welcome(ui: &mut egui::Ui) {
+fn step_welcome(app: &mut VibecapApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     ui.label(
         RichText::new("Capture. Annotate. Answer your agent.")
             .size(22.0)
@@ -284,6 +284,24 @@ fn step_welcome(ui: &mut egui::Ui) {
         });
         ui.add_space(6.0);
     }
+    ui.add_space(theme::SP_3);
+
+    // E290 — live theme pick at first run; swatches are the real
+    // five themes, clicking applies immediately.
+    ui.label(
+        RichText::new("Pick a look — you can change it later in Settings")
+            .size(12.0)
+            .color(theme::TEXT_MUTED()),
+    );
+    ui.add_space(theme::SP_2);
+    ui.horizontal(|ui| {
+        for mode in theme::THEME_ORDER {
+            if crate::ui::settings_tab::theme_swatch(ui, mode) {
+                app.set_theme(ctx, mode);
+            }
+            ui.add_space(theme::SP_2);
+        }
+    });
 }
 
 fn step_save_dir(app: &mut VibecapApp, ui: &mut egui::Ui) {

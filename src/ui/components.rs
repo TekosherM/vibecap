@@ -78,7 +78,7 @@ pub fn show_toast_card(ctx: &egui::Context, message: &str, level: ToastLevel) {
                         let (bar, _) = ui.allocate_exact_size(Vec2::new(3.0, 22.0), Sense::hover());
                         ui.painter().rect_filled(bar, 1.0, accent);
                         ui.add_space(theme::SP_2);
-                        icons::icon_button(ui, level.icon(), accent, 16.0);
+                        icons::icon_button(ui, level.icon(), accent, theme::ICON_SM + 2.0);
                         ui.add_space(theme::SP_2);
                         ui.label(RichText::new(message).color(theme::TEXT()).size(13.0));
                     });
@@ -124,7 +124,7 @@ pub fn show_capture_toast(
                     ui.set_min_width(300.0);
                     ui.set_max_width(360.0);
                     ui.horizontal(|ui| {
-                        icons::icon_button(ui, Icon::Camera, theme::ACCENT(), 18.0);
+                        icons::icon_button(ui, Icon::Camera, theme::ACCENT(), theme::ICON_MD);
                         ui.vertical(|ui| {
                             ui.label(
                                 RichText::new(if copied {
@@ -348,7 +348,8 @@ pub fn loop_rail(
                     .show(ui, |ui| {
                         ui.set_min_width(rail_w - 12.0);
                         ui.vertical_centered(|ui| {
-                            let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
+                            let (r, _) =
+                                ui.allocate_exact_size(Vec2::splat(theme::ICON_LG), Sense::hover());
                             icons::paint_icon(ui, r, stage.icon(), icon_color);
                             if !is_collapsed {
                                 ui.add_space(2.0);
@@ -677,20 +678,41 @@ fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
         ),
     };
     let down = resp.is_pointer_button_down_on();
+    // E10 — 80–120 ms ease on hover (mockup's --ease), flattened to a snap
+    // when reduced-motion is on.
+    let hov_t = if theme::reduce_motion() {
+        if resp.hovered() {
+            1.0
+        } else {
+            0.0
+        }
+    } else {
+        ui.ctx().animate_bool(resp.id, resp.hovered() || down)
+    };
+    let hover_fill = match kind {
+        BtnKind::Primary => theme::PRIMARY_HOVER(),
+        BtnKind::Secondary | BtnKind::Small => theme::SURFACE_3(),
+        BtnKind::Danger => theme::DANGER(),
+    };
+    let mix = |a: Color32, b: Color32, t: f32| -> Color32 {
+        let t = t.clamp(0.0, 1.0);
+        let (a, b) = (egui::Rgba::from(a), egui::Rgba::from(b));
+        egui::Rgba::from_rgba_unmultiplied(
+            a.r() + (b.r() - a.r()) * t,
+            a.g() + (b.g() - a.g()) * t,
+            a.b() + (b.b() - a.b()) * t,
+            a.a() + (b.a() - a.a()) * t,
+        )
+        .into()
+    };
     let fill = if down {
         match kind {
             BtnKind::Primary => theme::PRIMARY_DOWN(),
             BtnKind::Danger => theme::DANGER(),
             _ => theme::SURFACE_3(),
         }
-    } else if resp.hovered() {
-        match kind {
-            BtnKind::Primary => theme::PRIMARY_HOVER(),
-            BtnKind::Secondary | BtnKind::Small => theme::SURFACE_3(),
-            BtnKind::Danger => theme::DANGER(),
-        }
     } else {
-        fill
+        mix(fill, hover_fill, hov_t)
     };
     let text = if matches!(kind, BtnKind::Small) && resp.hovered() {
         theme::TEXT()
@@ -700,6 +722,12 @@ fn paint_button(ui: &mut Ui, label: &str, kind: BtnKind) -> bool {
 
     let p = ui.painter();
     let r = theme::rounding_md();
+    // E11 — pressed-state scale: primary CTAs shrink ~2% for tactile feel.
+    let rect = if down && matches!(kind, BtnKind::Primary | BtnKind::Danger) {
+        rect.shrink(1.2)
+    } else {
+        rect
+    };
     // Chromie --cta-gradient: celestial primaries are the aurora itself.
     if matches!(kind, BtnKind::Primary) && theme::is_celestial() {
         theme::paint_aurora_button(p, rect, r.nw);
@@ -1018,7 +1046,7 @@ pub fn funnel_stripe(ui: &mut Ui, icon: Icon, title: &str, hint: &str) -> bool {
         ui,
         Rect::from_center_size(
             Pos2::new(rect.left() + 24.0, rect.center().y),
-            Vec2::splat(18.0),
+            Vec2::splat(theme::ICON_MD),
         ),
         icon,
         if hovered {

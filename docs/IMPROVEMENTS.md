@@ -339,16 +339,16 @@ Numbered 1–300 for this round. Sections sized 25 each.
 2. **Theme-aware elevation model** — three shadow tiers (rest/raised/overlay) in tokens instead of only `popup_shadow`/`window_shadow`.
 3. **Accent-hue slider for celestial modes** — rotate the aurora hue ±40° while keeping the sky structure.
 4. **Theme preview in picker shows real chrome** — mini mock of rail + card + CTA inside each swatch, not just an aurora strip.
-5. **Auto theme** — follow Windows light/dark for the Mono pair; celestial modes stay manual.
+5. **Auto theme** — follow Windows light/dark for the Mono pair; celestial modes stay manual. ✓ (was already shipped — theme_follow_os polls AppsUseLightTheme every 3 s; dark maps to theme_dark_pick, light maps to Light)
 6. **Scheduled themes** — Light by day, Dark/Celestial by night (opt-in).
 7. **Contrast audit pass** — run a contrast checker over every `TEXT_MUTED`/`TEXT_FAINT` usage; celestial muted on plum is borderline.
 8. **Focus ring token** — real `FOCUS_RING` color per theme, painted on keyboard focus for every interactive widget.
 9. **Disabled-state token set** — `*_DISABLED` fill/text pair instead of ad-hoc `.weak()` calls.
-10. **Hover animation** — egui `ctx.animate` on button fills; 80–120 ms ease like the mockup's `--ease`.
-11. **Pressed-state scale** — 0.98 shrink on primary CTAs for tactile feel.
+10. **Hover animation** — egui `ctx.animate` on button fills; 80–120 ms ease like the mockup's `--ease`. ✓ (paint_button blends rest→hover fill via animate_bool on resp.id; snaps instantly under reduce-motion)
+11. **Pressed-state scale** — 0.98 shrink on primary CTAs for tactile feel. ✓ (primary/danger paint rects shrink 1.2px while down)
 12. **Icon stroke-width consistency** — audit `icons.rs` strokes; loupe/camera glyphs draw heavier than nav glyphs.
-13. **Icon sizing token** — `ICON_SM/MD/LG` (14/18/22) instead of scattered pixel sizes.
-14. **Letter-spacing token for caps labels** — `caps_label` hardcodes 1.0; make it a token so Celestial can track wider.
+13. **Icon sizing token** — `ICON_SM/MD/LG` (14/18/22) instead of scattered pixel sizes. ✓ (tokens added; rail icons, toast icon, capture CTA icon, picker glyphs now consume them)
+14. **Letter-spacing token for caps labels** — `caps_label` hardcodes 1.0; make it a token so Celestial can track wider. ✓ (caps_tracking() — 1.6 on celestial, 1.0 elsewhere; caps_label consumes it)
 15. **Numeric font feature** — tabular figures for REC timer, size columns, budget readouts (Segoe UI `tnum` or a mono face).
 16. **Mono face for code/path text** — paths, durations, and `kbd` chips should share one mono family token.
 17. **Theme diff in screenshot tests** — golden-frame capture per theme to catch alpha/token regressions like the premultiplied bug.
@@ -602,9 +602,9 @@ background chip (112), save-as-copy (116), Esc depth (125).
 229. **Lazy library page** — only render visible tiles; 1000-file folders shouldn't instantiate 1000 widgets. ✓ (row-culled grid: chunks outside the scroll viewport allocate height but skip tile widgets + image-loader calls)
 230. **Region backdrop reuse** — keep last snap texture; skip re-grab when <2 s old. ✓ (backdrop+snap now survive overlay exit; `region_backdrop_at` <2 s + file exists → instant reopen, no grab)
 231. **DPI-aware texture cache** — don't re-rasterize icons on scale change storms.
-232. **Font load once** — semibold/bold loads measured; cache family lookups.
+232. **Font load once** — semibold/bold loads measured; cache family lookups. ✓ (font files load once behind a call_once block; font_semibold/font_bold family values cached in thread-locals — no per-call String alloc)
 233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change. ✓ (the repaint gate was keyed on `tray.is_some()` → 10 fps forever once the tray existed; now the 100 ms cadence only runs for real in-flight work, retro buffer ticks at 500 ms, live toasts get a 1 s expiry tick, and the pump's slow lane schedules frames for poke markers / watch-folder / OS-theme polls)
-234. **Recording finalize off-thread** — shipped for stop; extend to remux/GIF queue.
+234. **Recording finalize off-thread** — shipped for stop; extend to remux/GIF queue. ✓ (verified: stop finalize + orphan remux + GIF exports all run on spawned workers with channel drains)
 235. **GIF encode queue** — background worker with progress, not a stop-blocking transcode. ✓ (was already shipped — all clip-tab GIF/video exports run through spawn_ffmpeg_job workers with in-flight status + completion drain)
 236. **Startup time budget** — cold launch → interactive <800 ms; measure and track. ✓ (mark_app_start at main() + note_first_frame at end of first update() → startup_ms in doctor + bug bundle)
 237. **Memory ceiling check** — long sessions with big thumbs shouldn't exceed ~300 MB. ✓ (process_memory_mb: psapi GetProcessMemoryInfo on Windows, VmRSS on Linux → memory_mb in doctor)
@@ -628,7 +628,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 252. **doctor JSON mode** — `--json` for agent parsing. ✓ (`doctor --json` → full report object incl. monitors, env, `mcp_tool_names`, `stale_record_state`)
 253. **Last-error surface** — persistent "last capture error" in Settings + tray tooltip. ✓ (`last_error` persists error toasts; Settings row + tray idle tooltip)
 254. **Crash log capture** — panic hook writes `vibecap-crash.log` beside session. ✓ (`crash.log` in config dir — panic hook appends timestamped info, then chains to the default hook)
-255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem.
+255. **ffmpeg stderr ring** — keep last 200 lines per recording for post-mortem. ✓ (FFMPEG_LOG_RING keeps the last 200 lines; doctor_report prints them)
 256. **moov-verify on stop** — probe the MP4 before declaring success; auto-remux retry. ✓ (`verify_mp4` decodes one frame on a worker after stop; missing moov → `remux_to_clean_mp4` to `<stem>.repaired.mp4` and Review/recents re-point at the clean file; unrepairable → loud toast)
 257. **Session schema versioning** — migrate old session.json fields cleanly. ✓ (SESSION_SCHEMA const + schema_version field + migrate_session hook in load_session; v0→v1 no-op since all fields carry serde defaults)
 258. **Config validation** — bad values (negative fps, missing dir) clamp + warn, not crash. ✓ (apply_session whitelists tab/density/filter/countdown/fps/digits, floors window dims, rejects inverted rects + insane screen dims)
@@ -674,15 +674,15 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 286. **Setting tooltips** — every toggle explains its effect + default. ✓ (each switch row carries a dim explainer line under it; non-obvious checkboxes also have hover text — e.g. PrtScn, explorer verb, deep links, portable, follow-OS)
 287. **Reset-to-default per section** — not just global reset. ✓ ("↺ Reset section" on Save / Recording / Library / Retro / Shortcuts & look / Agent cards — restores shipped defaults, hotkeys rebind, theme resets to Dark)
 288. **Wizard Windows page** — ffmpeg test-shot, mic check, hotkey conflict check.
-289. **Wizard MCP detect** — find Cursor/Claude/Codex configs, offer snippet paste.
-290. **Wizard theme pick** — live preview of all five, sets preference at first run.
+289. **Wizard MCP detect** — find Cursor/Claude/Codex configs, offer snippet paste. ✓ (was already shipped — step_agent_connect renders mcp_client_rows for the big three clients with per-row config presence + paste-ready snippet)
+290. **Wizard theme pick** — live preview of all five, sets preference at first run. ✓ (welcome step renders the real five theme_swatch chips; clicking applies via set_theme)
 291. **Re-open wizard** — "Replay setup" in Settings. ✓ (was already shipped — "Replay first-run wizard" button resets wizard state)
 292. **In-app changelog** — What's New card after update. ✓ (apply stashes tag+notes in session; ABOUT & HELP card shows them once with "Got it" dismiss)
 293. **Docs links in-app** — ? icon → relevant doc section per tab. ✓ (ABOUT & HELP card links capture recipes / MCP tools / roadmap / releases)
 294. **Stats card** — captures/week, bytes saved, streaks (round-2 #99, still open). ✓ (Library header stats line)
 295. **Budget dashboard** — per-session spend sparkline in Inbox.
-296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview.
+296. **Naming-token builder** — visual `{app}-{date}-{seq}` composer with live preview. ✓ (insert chips for {app}/{date}/{time}/{seq}/{orig}/-/_ append to the pattern under the live preview)
 297. **Export diagnostics bundle** — one click → zip of logs+session+doctor for bug reports. ✓ (bug_report_pack now emits bug_<ts>.zip: screenshot + retro.gif + doctor.json + system.txt + session/budget/draft + newest .ffmpeg.log, STORED via app::zip)
 298. **Community theme repo hook** — `--theme-import URL` fetch+validate.
 299. **Locale-ready strings** — wrap UI strings in a `tr()` macro now so i18n isn't a rewrite later.
-300. **API surface freeze** — document which CLI/MCP contracts are stable vs internal for agent authors.
+300. **API surface freeze** — document which CLI/MCP contracts are stable vs internal for agent authors. ✓ (docs/API.md: stable CLI verbs/JSON append-only rules, MCP tools, env vars, on-disk paths vs internal surfaces)

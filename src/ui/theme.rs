@@ -153,13 +153,35 @@ fn install_ui_fonts(ctx: &egui::Context) {
 
 /// Semibold weight face — button labels, card names, section titles
 /// (the mockup's 550–650 weight range). Falls back to proportional.
+/// E232 — family values are cached; a fresh `Name(String)` allocates per call.
 pub fn font_semibold() -> egui::FontFamily {
-    egui::FontFamily::Name("semibold".into())
+    thread_local! {
+        static F: egui::FontFamily = egui::FontFamily::Name("semibold".into());
+    }
+    F.with(|f| f.clone())
 }
 
 /// Bold weight face — wordmarks and stat numerals.
 pub fn font_bold() -> egui::FontFamily {
-    egui::FontFamily::Name("bold".into())
+    thread_local! {
+        static F: egui::FontFamily = egui::FontFamily::Name("bold".into());
+    }
+    F.with(|f| f.clone())
+}
+
+/// E13 — icon sizing tokens; icon glyphs should use these, not literals.
+pub const ICON_SM: f32 = 14.0;
+pub const ICON_MD: f32 = 18.0;
+pub const ICON_LG: f32 = 22.0;
+
+/// E14 — caps-label tracking as a token: celestial modes track wider
+/// (the cosmic mockups letterspace their section labels noticeably).
+pub fn caps_tracking() -> f32 {
+    if is_celestial() {
+        1.6
+    } else {
+        1.0
+    }
 }
 
 /// Letterspaced uppercase section label (mono-ui `.section-title`).
@@ -172,7 +194,7 @@ pub fn caps_label(ui: &mut egui::Ui, text: &str) {
         egui::TextFormat {
             font_id: egui::FontId::new(10.5, font_semibold()),
             color: TEXT_DIM(),
-            extra_letter_spacing: 1.0,
+            extra_letter_spacing: caps_tracking(),
             ..Default::default()
         },
     );
