@@ -282,6 +282,68 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .color(theme::TEXT_DIM()),
                         );
 
+                        // E22 — saved regions: persist named pixel rects and
+                        // fire them without re-dragging (palette lists them too).
+                        if app.capture_target == CaptureTarget::Region {
+                            ui.horizontal(|ui| {
+                                if !app.saved_regions.is_empty() {
+                                    let regions = app.saved_regions.clone();
+                                    let mut fire: Option<usize> = None;
+                                    let mut del: Option<usize> = None;
+                                    egui::ComboBox::from_id_source("saved_regions")
+                                        .selected_text("Saved regions…")
+                                        .width(180.0)
+                                        .show_ui(ui, |ui| {
+                                            for (i, (name, r)) in regions.iter().enumerate() {
+                                                ui.horizontal(|ui| {
+                                                    if ui
+                                                        .selectable_label(
+                                                            false,
+                                                            format!(
+                                                                "{name}  {}×{}",
+                                                                r[0], r[1]
+                                                            ),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        fire = Some(i);
+                                                        ui.close_menu();
+                                                    }
+                                                    if ui.small_button("✕").clicked() {
+                                                        del = Some(i);
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    if let Some(i) = fire {
+                                        let (_, r) = app.saved_regions[i].clone();
+                                        app.capture_rect_still(ctx, (r[0], r[1], r[2], r[3]));
+                                    }
+                                    if let Some(i) = del {
+                                        app.saved_regions.remove(i);
+                                        app.persist_session();
+                                    }
+                                }
+                                if app.selected_screen_rect.is_some()
+                                    && ui
+                                        .small_button("＋ Save region")
+                                        .on_hover_text(
+                                            "Remember this box — palette and this menu can re-fire it",
+                                        )
+                                        .clicked()
+                                {
+                                    let (w, h, x, y) =
+                                        app.selected_screen_rect.unwrap();
+                                    let n = app.saved_regions.len() + 1;
+                                    app.saved_regions
+                                        .push((format!("Region {n} · {w}×{h}"), [w, h, x, y]));
+                                    app.persist_session();
+                                    app.show_toast(format!("Saved region {n}"));
+                                }
+                            });
+                            ui.add_space(theme::SP_1);
+                        }
+
                         ui.add_space(theme::SP_2);
                         if app.capture_target == CaptureTarget::Window {
                             ui.add_space(theme::SP_2);

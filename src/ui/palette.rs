@@ -30,6 +30,9 @@ pub enum PaletteAction {
     /// Jump to a media item's review stage — index into the `media` slice
     /// passed to `show_palette`.
     OpenMedia(usize),
+    /// E22 — capture a named saved region — index into the `regions`
+    /// slice passed to `show_palette`.
+    ApplyRegion(usize),
 }
 
 impl PaletteAction {
@@ -157,6 +160,7 @@ pub fn show_palette(
     open: &mut bool,
     mru: &[PaletteAction],
     media: &[MediaItem],
+    regions: &[(String, [i32; 4])],
 ) -> Option<PaletteAction> {
     if !*open {
         return None;
@@ -192,6 +196,15 @@ pub fn show_palette(
                 2,
             ));
         }
+        // E22 — saved regions surface in the idle list right after media.
+        for (i, (name, r)) in regions.iter().enumerate() {
+            v.push((
+                PaletteAction::ApplyRegion(i),
+                format!("▦ {name}"),
+                format!("saved region · {}×{} — captures it now", r[0], r[1]),
+                3,
+            ));
+        }
         for &(a, l, h) in PaletteAction::all() {
             if !mru.iter().take(3).any(|m| *m == a) {
                 v.push((a, l.to_string(), h.to_string(), 0));
@@ -218,6 +231,19 @@ pub fn show_palette(
                         m.name.clone(),
                         media_hint(m),
                         2,
+                    ),
+                ));
+            }
+        }
+        for (i, (name, r)) in regions.iter().enumerate() {
+            if let Some(s) = fuzzy_score(&q, name) {
+                scored.push((
+                    s + 3,
+                    (
+                        PaletteAction::ApplyRegion(i),
+                        format!("▦ {name}"),
+                        format!("saved region · {}×{} — captures it now", r[0], r[1]),
+                        3,
                     ),
                 ));
             }

@@ -162,6 +162,10 @@ pub struct SessionState {
     /// AppsUseLightTheme). Off = the picked theme is fixed.
     #[serde(default)]
     pub theme_follow_os: bool,
+    /// E6 — scheduled themes: Light by day (07:00–19:00), dark pick at
+    /// night. Takes precedence over follow-OS when both are on.
+    #[serde(default)]
+    pub theme_schedule: bool,
     /// E225 — which dark theme "follow OS" falls back to (name string,
     /// e.g. "dark" | "carbon" | "celestial" | "celestial-pink").
     #[serde(default = "default_theme_dark")]
@@ -187,6 +191,22 @@ pub struct SessionState {
     /// E3 — celestial accent-hue offset (degrees, ±40). 0 = stock aurora.
     #[serde(default)]
     pub aurora_hue: f32,
+    /// E22 — named region rects `(w, h, x, y)` in physical pixels —
+    /// same layout as `selected_screen_rect`.
+    #[serde(default)]
+    pub saved_regions: Vec<(String, [i32; 4])>,
+    /// E275 — opt-in local capture stats. Off by default; counters never
+    /// leave the machine — they're shown in the Library stats line only.
+    #[serde(default)]
+    pub stats_opt_in: bool,
+    #[serde(default)]
+    pub stat_shots_ok: u32,
+    #[serde(default)]
+    pub stat_shots_fail: u32,
+    #[serde(default)]
+    pub stat_recs_ok: u32,
+    #[serde(default)]
+    pub stat_recs_fail: u32,
 }
 
 fn default_theme_dark() -> String {
@@ -297,6 +317,7 @@ impl Default for SessionState {
             tray_dblclick: default_tray_dblclick(),
             watch_folder: String::new(),
             theme_follow_os: false,
+            theme_schedule: false,
             theme_dark_pick: default_theme_dark(),
             whats_new_tag: String::new(),
             whats_new_notes: String::new(),
@@ -305,6 +326,12 @@ impl Default for SessionState {
             rail_collapsed: false,
             reduce_motion: false,
             aurora_hue: 0.0,
+            saved_regions: Vec::new(),
+            stats_opt_in: false,
+            stat_shots_ok: 0,
+            stat_shots_fail: 0,
+            stat_recs_ok: 0,
+            stat_recs_fail: 0,
         }
     }
 }

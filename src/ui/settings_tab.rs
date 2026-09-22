@@ -940,7 +940,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.os_dark_seen = None; // force converge on next tick
                         app.persist_session();
                     }
-                    if app.theme_follow_os {
+                    if app.theme_follow_os || app.theme_schedule {
                         ui.label(
                             RichText::new("dark pick:").size(11.0).color(theme::TEXT_DIM()),
                         );
@@ -960,6 +960,20 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                 app.persist_session();
                             }
                         }
+                    }
+                });
+                // E6 — scheduled themes: Light 07:00–19:00, dark pick at
+                // night. Shares the follow-OS tick; wins when both are on.
+                setting_row(ui, "Schedule", |ui| {
+                    let mut on = app.theme_schedule;
+                    if ui
+                        .checkbox(&mut on, "Light by day, dark pick at night")
+                        .on_hover_text("Switch themes on a clock: Light 7am–7pm, your dark pick otherwise")
+                        .changed()
+                    {
+                        app.theme_schedule = on;
+                        app.os_dark_seen = None; // force converge on next tick
+                        app.persist_session();
                     }
                 });
                 ui.add_space(theme::SP_2);
@@ -999,6 +1013,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     app.tray_dblclick = "open".into();
                     app.watch_folder.clear();
                     app.theme_follow_os = false;
+                    app.theme_schedule = false;
                     app.theme_dark_pick = "dark".into();
                     app.density = crate::ui::Density::Comfortable;
                     app.set_theme(ctx, theme::ThemeMode::Dark);
@@ -1130,7 +1145,7 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
 
             // ── About & help ──────────────────────────────────────
-            if want("about", "about help docs documentation version changelog what's new quit exit") {
+            if want("about", "about help docs documentation version changelog what's new quit exit stats telemetry privacy") {
             section_card(ui, "ABOUT & HELP", |ui| {
                 ui.label(
                     RichText::new(format!("Vibecap v{}", env!("CARGO_PKG_VERSION")))
@@ -1158,6 +1173,25 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         app.whats_new_notes.clear();
                         app.persist_session();
                     }
+                }
+                ui.add_space(theme::SP_2);
+                // E275 — opt-in local counters; off by default, nothing
+                // ever leaves the machine (no network path exists for it).
+                if switch(ui, "Local stats — count captures", &mut app.stats_opt_in) {
+                    app.persist_session();
+                }
+                if app.stats_opt_in {
+                    ui.label(
+                        RichText::new(format!(
+                            "stills: {} ok · {} failed    recordings: {} ok · {} failed",
+                            app.stat_shots_ok,
+                            app.stat_shots_fail,
+                            app.stat_recs_ok,
+                            app.stat_recs_fail,
+                        ))
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                    );
                 }
                 ui.add_space(theme::SP_2);
                 // E293 — in-app doc links per surface.

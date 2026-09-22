@@ -208,7 +208,7 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 19. **Menu-capture helper** — auto 1 s delay when the cursor sits inside an open menu. ✓ (`foreground_is_menu` probes the foreground class — "#32768"/PopupMenu/NetUI — and bumps the still delay to ≥1 s)
 20. **Physical-pixel readout** — W×H plate shows physical px when DPI ≠ 100 %. ✓
 21. **Named size presets** — 1920×1080 / 1280×720 centered-box buttons in the HUD. ✓ ("1080p"/"720p" chips drop a centered pixel-size box; nudge + Enter captures)
-22. **Saved regions** — persist named rects to session; pick from palette.
+22. **Saved regions** — persist named rects to session; pick from palette. ✓ (`saved_regions` session list of `(name, w,h,x,y)`; "＋ Save region" on the capture card when a box exists; combo lists + deletes; palette `ApplyRegion` rows fuzzy-match and fire `capture_rect_still` directly — no re-drag)
 23. **Loupe hex readout** — show the sampled pixel's #RRGGBB in the cursor loupe. ✓ (was already shipped)
 24. **Dim-intensity setting** for the region overlay. ✓ (session `region_dim` 0–200, Settings slider; backdrop now dims with the selection punched bright)
 25. **Capture without cursor flash** — per-shot toggle in the HUD. ✓ (⚡ chip in the region toolbar sets `hud_no_flash`; the flash paint consumes it — one shot only, cleared on cancel)
@@ -340,7 +340,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 3. **Accent-hue slider for celestial modes** — rotate the aurora hue ±40° while keeping the sky structure. ✓ (`aurora_hue` session float → `set_aurora_hue` → `aurora_stops_for` rotates stops via HSV; Settings slider + reset visible only on celestial themes; swatch previews stay stock)
 4. **Theme preview in picker shows real chrome** — mini mock of rail + card + CTA inside each swatch, not just an aurora strip.
 5. **Auto theme** — follow Windows light/dark for the Mono pair; celestial modes stay manual. ✓ (was already shipped — theme_follow_os polls AppsUseLightTheme every 3 s; dark maps to theme_dark_pick, light maps to Light)
-6. **Scheduled themes** — Light by day, Dark/Celestial by night (opt-in).
+6. **Scheduled themes** — Light by day, Dark/Celestial by night (opt-in). ✓ (`theme_schedule` shares the 3 s follow-OS tick; local hour picks Light 07:00–19:00 else the dark pick; wins over follow-OS; dark-pick row shows for either)
 7. **Contrast audit pass** — run a contrast checker over every `TEXT_MUTED`/`TEXT_FAINT` usage; celestial muted on plum is borderline.
 8. **Focus ring token** — real `FOCUS_RING` color per theme, painted on keyboard focus for every interactive widget. ✓ (`FOCUS_RING` pent! token per theme; `paint_button` claims focus on click and strokes the ring on `has_focus`)
 9. **Disabled-state token set** — `*_DISABLED` fill/text pair instead of ad-hoc `.weak()` calls. ✓ (`DISABLED_FILL`/`DISABLED_TEXT` pent! tokens; fill wired into `noninteractive.weak_bg_fill`, text drives the off-state of the capture quick-toggles)
@@ -385,7 +385,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 45. **Palette media jump** — typing a filename jumps to its review. ✓ (OpenMedia fuzzy-matches library names; opens Still/Clip and copies the path)
 46. **Tab-strip alternative** — optional top tabs instead of rail for users who want Snagit familiarity.
 47. **Drag window by any dead space** — today only header drags; padding zones should too. ✓ (main window uses native decorations — the OS titlebar drags everywhere; the custom REC bar already StartDrags on dead space)
-48. **Snap-layout friendly sizing** — default size lands cleanly in Windows 11 half-snap.
+48. **Snap-layout friendly sizing** — default size lands cleanly in Windows 11 half-snap. ✓ (first-run default clamps to half the primary monitor's width / full height so the window fits a Win11 snap half; persisted sizes untouched)
 49. **Restore-last-stage on launch** — setting: always Capture vs resume where you left. ✓ ("Reopen where I left off" switch; off = always Capture; session `restore_tab`)
 50. **Stage transition direction** — slide left/right matching rail order, not a single wipe.
 
@@ -657,7 +657,7 @@ Alt+←/→ (32), Inbox rail badge (27), filename search (151), date groups
 272. **DPI-change mid-pick** — region rect re-maps if scaling changes while overlay is up. ✓ (overlay tracks `pixels_per_point` in ctx.data; on change the in-flight selection + history rescale by the ratio so the box stays glued to the same physical pixels)
 273. **Monitor-hotplug handling** — disappearing display re-targets fullscreen gracefully. ✓ (resolve_monitor drops stale index → default + toast; wired into GUI stills, recordings, pump hidden-capture)
 274. **Timestamp monotonicity** — output names use monotonic seq when clock steps back. ✓ (next_seq dedupes on disk contents — a stepped-back clock still yields a unique name)
-275. **Telemetry opt-in** — anonymous capture-success/fail counts; off by default, no content ever leaves.
+275. **Telemetry opt-in** — anonymous capture-success/fail counts; off by default, no content ever leaves. ✓ (`stats_opt_in` gates four session counters — shots/recs ok/fail, bumped at finish_screenshot/finish_stop_recording; counts surface in the About card + Library stats line; no network path exists)
 
 ## L · CLI / MCP, settings & onboarding (276–300)
 

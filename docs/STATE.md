@@ -514,3 +514,16 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   the same physical pixels.
 - Verified shipped: #30 (window_tools_hint → --paths window_crop line).
 - Tests: 107 green.
+
+### Scheduled themes, saved regions, snap sizing, local stats
+- E6: theme_schedule — Light 07:00–19:00 else dark pick; shares the
+  follow-OS 3 s tick and wins when both are on.
+- E48: first-run default size clamps to half the primary monitor so it
+  lands inside a Windows 11 snap half.
+- E22: saved_regions [(name, w,h,x,y)] — capture-card save/delete UI +
+  palette ApplyRegion rows that fire capture_rect_still directly
+  (extracted from repeat_last_capture).
+- E275: stats_opt_in gates four local counters (shots/recs ok/fail)
+  bumped at the still/record finish funnels; surfaced in About card +
+  Library stats line. Nothing is transmitted — no network path exists.
+- Tests: 107 green.

@@ -454,6 +454,18 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 .color(theme::TEXT_DIM()),
             );
         }
+        // E275 — opt-in local counters ride the same line.
+        if app.stats_opt_in {
+            let total_ok = app.stat_shots_ok + app.stat_recs_ok;
+            let total_fail = app.stat_shots_fail + app.stat_recs_fail;
+            if total_ok + total_fail > 0 {
+                ui.label(
+                    RichText::new(format!("{total_ok} ok · {total_fail} failed — local only"))
+                        .size(10.5)
+                        .color(theme::TEXT_DIM()),
+                );
+            }
+        }
     }
 
     // E168 — recently-deleted shelf: the undo window (12 s) is easy to miss

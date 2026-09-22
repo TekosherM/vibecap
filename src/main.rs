@@ -5,7 +5,7 @@ mod platform;
 mod tray_ui;
 mod ui;
 
-use chrono::Local;
+use chrono::{Local, Timelike};
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use egui::{
@@ -858,6 +858,14 @@ pub(crate) struct VibecapApp {
     window_pick_poll_at: Option<Instant>,
     /// Pixel crop (w,h,x,y) mapped from the region overlay / snapshot.
     selected_screen_rect: Option<(i32, i32, i32, i32)>,
+    /// E22 — named region rects `(w, h, x, y)` in physical pixels.
+    saved_regions: Vec<(String, [i32; 4])>,
+    /// E275 — opt-in local capture counters (persisted; never transmitted).
+    stats_opt_in: bool,
+    stat_shots_ok: u32,
+    stat_shots_fail: u32,
+    stat_recs_ok: u32,
+    stat_recs_fail: u32,
     region_backdrop: Option<egui::TextureHandle>,
     region_backdrop_px: (u32, u32),
     region_backdrop_rgba: Option<(u32, u32, Vec<u8>)>,
@@ -1074,6 +1082,8 @@ pub(crate) struct VibecapApp {
     watch_last_scan: Option<std::time::Instant>,
     /// E225 — follow Windows light/dark for the theme.
     theme_follow_os: bool,
+    /// E6 — scheduled themes: Light by day, dark pick at night.
+    theme_schedule: bool,
     /// E225 — dark theme used when the OS is dark (name string).
     theme_dark_pick: String,
     os_dark_seen: Option<bool>,
@@ -1642,6 +1652,18 @@ impl VibecapApp {
         };
         self.watch_folder = s.watch_folder;
         self.theme_follow_os = s.theme_follow_os;
+        self.theme_schedule = s.theme_schedule;
+        self.saved_regions = s.saved_regions.clone();
+        self.stats_opt_in = s.stats_opt_in;
+        self.stat_shots_ok = s.stat_shots_ok;
+        self.stat_shots_fail = s.stat_shots_fail;
+        self.stat_recs_ok = s.stat_recs_ok;
+        self.stat_recs_fail = s.stat_recs_fail;
+        self.stats_opt_in = s.stats_opt_in;
+        self.stat_shots_ok = s.stat_shots_ok;
+        self.stat_shots_fail = s.stat_shots_fail;
+        self.stat_recs_ok = s.stat_recs_ok;
+        self.stat_recs_fail = s.stat_recs_fail;
         self.theme_dark_pick = match s.theme_dark_pick.as_str() {
             "carbon" | "dark" | "celestial" | "celestial-pink" => s.theme_dark_pick.clone(),
             _ => "dark".into(),
@@ -1733,6 +1755,13 @@ impl VibecapApp {
             tray_dblclick: self.tray_dblclick.clone(),
             watch_folder: self.watch_folder.clone(),
             theme_follow_os: self.theme_follow_os,
+            theme_schedule: self.theme_schedule,
+            saved_regions: self.saved_regions.clone(),
+            stats_opt_in: self.stats_opt_in,
+            stat_shots_ok: self.stat_shots_ok,
+            stat_shots_fail: self.stat_shots_fail,
+            stat_recs_ok: self.stat_recs_ok,
+            stat_recs_fail: self.stat_recs_fail,
             theme_dark_pick: self.theme_dark_pick.clone(),
             whats_new_tag: self.whats_new_tag.clone(),
             whats_new_notes: self.whats_new_notes.clone(),
@@ -2279,8 +2308,10 @@ impl VibecapApp {
 
     /// E225 — live dark-mode follow: poll AppsUseLightTheme every 3 s and
     /// re-theme on transitions (and once on enable, to converge).
+    /// E6 — scheduled themes share this tick: when on, local hour decides
+    /// dark instead of the OS probe (Light 07:00–19:00, else dark pick).
     fn tick_os_theme(&mut self, ctx: &egui::Context) {
-        if !self.theme_follow_os {
+        if !self.theme_follow_os && !self.theme_schedule {
             self.os_dark_seen = None;
             return;
         }
@@ -2293,8 +2324,14 @@ impl VibecapApp {
             return;
         }
         self.os_theme_poll_at = Some(now);
-        let Some(dark) = crate::platform::os_apps_dark() else {
-            return;
+        let dark = if self.theme_schedule {
+            let h = chrono::Local::now().hour();
+            !(7..19).contains(&h)
+        } else {
+            let Some(dark) = crate::platform::os_apps_dark() else {
+                return;
+            };
+            dark
         };
         let want = if dark {
             theme::theme_mode_from_str(&self.theme_dark_pick)
@@ -2309,7 +2346,12 @@ impl VibecapApp {
         if changed {
             self.set_theme(ctx, want);
             self.show_toast(format!(
-                "Theme followed Windows → {}",
+                "{} → {}",
+                if self.theme_schedule {
+                    "Theme schedule"
+                } else {
+                    "Theme followed Windows"
+                },
                 theme::theme_mode_label(want)
             ));
         }
@@ -2602,7 +2644,10 @@ impl VibecapApp {
     fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
         // Media rows are positional — the index is only meaningful for the
         // list that rendered them, so they never join the MRU.
-        if !matches!(action, PaletteAction::OpenMedia(_)) {
+        if !matches!(
+            action,
+            PaletteAction::OpenMedia(_) | PaletteAction::ApplyRegion(_)
+        ) {
             self.palette_mru.retain(|a| *a != action);
             self.palette_mru.insert(0, action);
             self.palette_mru.truncate(3);
@@ -2701,6 +2746,15 @@ impl VibecapApp {
             }
             PaletteAction::QuitApp => {
                 self.quit_app();
+            }
+            // E22 — a saved region applies instantly: set the pixel rect
+            // and fire the same direct re-grab path as repeat-last.
+            PaletteAction::ApplyRegion(i) => {
+                if let Some((name, r)) = self.saved_regions.get(i).cloned() {
+                    self.capture_target = CaptureTarget::Region;
+                    self.capture_rect_still(ctx, (r[0], r[1], r[2], r[3]));
+                    self.show_toast(format!("▦ {name} — capturing"));
+                }
             }
             PaletteAction::OpenMedia(i) => {
                 if let Some(item) = self.library_items.get(i) {
@@ -4790,11 +4844,17 @@ impl VibecapApp {
             }
             self.refresh_library();
             if bytes < 512 {
+                if self.stats_opt_in {
+                    self.stat_recs_fail = self.stat_recs_fail.saturating_add(1);
+                }
                 self.show_toast(format!(
                     "⚠️ Saved {} but file looks empty ({bytes} bytes) — check Screen Recording permission.",
                     mp4.file_name().and_then(|n| n.to_str()).unwrap_or("video")
                 ));
             } else {
+                if self.stats_opt_in {
+                    self.stat_recs_ok = self.stat_recs_ok.saturating_add(1);
+                }
                 // Same rule as stills: the fresh clip's path goes straight to
                 // the clipboard so it is pasteable without opening Vibecap.
                 let copied = arboard::Clipboard::new()
@@ -5564,10 +5624,28 @@ impl VibecapApp {
             self.trigger_capture(ctx, false);
             return;
         }
-        let Some((w, h, x, y)) = self.selected_screen_rect else {
+        let Some(rect) = self.selected_screen_rect else {
             self.trigger_capture(ctx, true);
             return;
         };
+        self.capture_rect_still(ctx, rect);
+    }
+
+    /// Direct still of a pixel rect (w,h,x,y) — shared by repeat-last and
+    /// E22 saved regions. Excludes the studio on Windows instead of hiding
+    /// so it stays close to instant.
+    fn capture_rect_still(&mut self, ctx: &egui::Context, rect: (i32, i32, i32, i32)) {
+        if self.screenshot_in_flight
+            || self.is_selecting_region
+            || self.region_snap_rx.is_some()
+            || self.is_recording
+            || self.recording_arming
+            || self.recording_finalizing
+        {
+            return;
+        }
+        let (w, h, x, y) = rect;
+        self.selected_screen_rect = Some(rect);
         self.screenshot_in_flight = true;
         self.wake_shared.still_busy.store(true, Ordering::SeqCst);
         self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
@@ -5999,6 +6077,10 @@ impl VibecapApp {
         self.wake_shared.still_busy.store(false, Ordering::SeqCst);
         match result {
             Ok(shot_file) => {
+                // E275 — local opt-in counter only; nothing leaves the box.
+                if self.stats_opt_in {
+                    self.stat_shots_ok = self.stat_shots_ok.saturating_add(1);
+                }
                 self.shutter_flash_until = Some(Instant::now() + Duration::from_millis(140));
                 if self.shutter_sound {
                     crate::platform::shutter_click();
@@ -6060,6 +6142,9 @@ impl VibecapApp {
                 }
             }
             Err(e) => {
+                if self.stats_opt_in {
+                    self.stat_shots_fail = self.stat_shots_fail.saturating_add(1);
+                }
                 let msg = e.to_string();
                 self.show_window(ctx);
                 self.show_toast(format!("❌ {msg}"));
@@ -7735,6 +7820,7 @@ impl eframe::App for VibecapApp {
             &mut self.palette_open,
             &self.palette_mru,
             &self.library_items,
+            &self.saved_regions,
         ) {
             self.run_palette_action(ctx, action);
         }
@@ -8252,8 +8338,17 @@ fn main() -> eframe::Result<()> {
 
     // Open at the last persisted size (bigger default: 1160×800 on first run).
     let sess = load_session();
-    let win_w = sess.window_w.clamp(1024.0, 3200.0);
-    let win_h = sess.window_h.clamp(700.0, 2200.0);
+    let mut win_w = sess.window_w.clamp(1024.0, 3200.0);
+    let mut win_h = sess.window_h.clamp(700.0, 2200.0);
+    // E48 — snap-layout friendly: on a true first run (no session.json yet)
+    // the default window fits inside a Windows half-snap — never wider or
+    // taller than half the primary display.
+    if !sess.wizard_done {
+        if let Some(m) = crate::platform::list_monitors().first() {
+            win_w = win_w.min((m.w / 2) as f32).max(760.0);
+            win_h = win_h.min(m.h as f32).max(560.0);
+        }
+    }
 
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
