@@ -395,3 +395,9 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #58: cursor/mic/display icon quick-toggles on the always-visible options row.
 - Verified shipped: #24 (match_score exact-first + GetForegroundWindow verify),
   #33 (naming tokens + live preview).
+
+### Zen mode, breadcrumb, multi-shot batch
+- #39: palette ToggleZen hides rail + status strip (prefs untouched).
+- #31: "Library ›" breadcrumb link prefixes Clip/Still headers.
+- #71: Shift+release in the region HUD crops a still from the frozen
+  backdrop and keeps the overlay open; 📷N chip counts the batch, Esc ends.

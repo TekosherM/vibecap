@@ -20,6 +20,7 @@ pub enum PaletteAction {
     ToggleRecord,
     RefreshLibrary,
     ToggleDensity,
+    ToggleZen,
     ToggleTheme,
     ToggleRetro,
     SaveRetro,
@@ -73,6 +74,11 @@ impl PaletteAction {
                 Self::ToggleDensity,
                 "Toggle density",
                 "Comfortable ↔ Compact",
+            ),
+            (
+                Self::ToggleZen,
+                "Toggle zen mode",
+                "Hide rail + status strip — palette + hotkeys only",
             ),
             (Self::ToggleTheme, "Toggle theme", "Cycle all five themes"),
             (

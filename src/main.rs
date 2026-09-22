@@ -923,6 +923,10 @@ pub(crate) struct VibecapApp {
     clipboard_poll_at: Option<Instant>,
     /// E171 — throttle for the stale-sidecar sweep (10 min cadence).
     last_sidecar_sweep: Option<Instant>,
+    /// E71 — stills saved in the current Shift-drag batch overlay session.
+    batch_shot_count: u32,
+    /// E39 — zen mode: rail + status strip hidden; palette/hotkeys only.
+    zen_mode: bool,
     region_snap_path: Option<PathBuf>,
     region_snap_rx: Option<Receiver<Result<(PathBuf, u32, u32, Vec<u8>), String>>>,
     brand_logo: Option<egui::TextureHandle>,
@@ -1175,6 +1179,8 @@ impl VibecapApp {
             clipboard_seq_seen: crate::platform::clipboard_seq(),
             clipboard_poll_at: None,
             last_sidecar_sweep: None,
+            batch_shot_count: 0,
+            zen_mode: false,
             region_history: Vec::new(),
             region_pick_count: 0,
             hud_toolbar_bottom: false,
@@ -2527,6 +2533,14 @@ impl VibecapApp {
             PaletteAction::RefreshLibrary => {
                 self.refresh_library();
                 self.show_toast("Library refreshed");
+            }
+            PaletteAction::ToggleZen => {
+                self.zen_mode = !self.zen_mode;
+                self.show_toast(if self.zen_mode {
+                    "Zen mode — Ctrl+K to bring chrome back"
+                } else {
+                    "Zen mode off"
+                });
             }
             PaletteAction::ToggleDensity => {
                 self.density = match self.density {
@@ -5420,6 +5434,7 @@ impl VibecapApp {
         self.window_pick_cycle = 0;
         self.window_pick_last_pos = None;
         self.window_pick_poll_at = None;
+        self.batch_shot_count = 0;
 
         // macOS: live transparent overlay. Windows/Linux: freeze a still first
         // (transparent overlays do not composite; the overlay viewport is opaque).
@@ -6909,6 +6924,7 @@ impl eframe::App for VibecapApp {
                 self.region_dim,
                 self.region_pick_count,
                 &mut self.region_history,
+                self.batch_shot_count,
                 &mut self.hud_toolbar_bottom,
             ) {
                 RegionHudResult::Continue => {}
@@ -6919,6 +6935,43 @@ impl eframe::App for VibecapApp {
                     // ~150 ms and the same rect still confirms.
                     if self.region_backdrop_stale {
                         self.show_toast("Refreshing…");
+                    } else if ctx.input(|i| i.modifiers.shift)
+                        && self.pending_region_kind == Some(RegionPickKind::Screenshot)
+                        && self.region_snap_path.is_some()
+                        && self.region_backdrop_px.0 > 0
+                    {
+                        // E71 — Shift+release keeps the overlay alive: each
+                        // drag crops a fresh still from the same frozen
+                        // backdrop. Esc ends the batch.
+                        let (w, h, x, y) = overlay_rect_to_pixels(
+                            selected,
+                            overlay,
+                            self.region_backdrop_px.0,
+                            self.region_backdrop_px.1,
+                        );
+                        if let Some(snap) = self.region_snap_path.clone() {
+                            let seq = app::naming::next_seq(&self.save_dir, "");
+                            let stem =
+                                app::format_capture_stem(&self.name_pattern, None, seq);
+                            let dest = self.save_dir.join(format!("{stem}.jpg"));
+                            match crop_image_file(&snap, &dest, ScreenRect { x, y, w, h })
+                            {
+                                Ok(()) => {
+                                    self.batch_shot_count += 1;
+                                    self.last_capture = Some(LastCapture::Still(dest));
+                                    self.region_history.push(selected);
+                                    self.region_start = None;
+                                    self.region_end = None;
+                                    self.region_pick_count =
+                                        self.region_pick_count.saturating_add(1);
+                                    if self.shutter_sound {
+                                        crate::platform::shutter_click();
+                                    }
+                                    self.persist_session();
+                                }
+                                Err(e) => self.show_toast(format!("❌ {e}")),
+                            }
+                        }
                     } else {
                         self.confirm_region_pick(ctx, selected, overlay);
                     }
@@ -7450,7 +7503,9 @@ impl eframe::App for VibecapApp {
 
         // ── Stage rail — hidden by default; the funnel column is the home UX.
         //    ☰ in the header or Ctrl+B toggles it back on.
-        if self.rail_open {
+        // E39 — zen mode hides the rail too; Ctrl+B still flips the pref but
+        // chrome stays out until zen is toggled off via the palette.
+        if self.rail_open && !self.zen_mode {
             egui::SidePanel::left("loop_rail")
                 .exact_width(76.0)
                 .resizable(false)
@@ -7482,7 +7537,8 @@ impl eframe::App for VibecapApp {
         //    (recording, ffmpeg missing, inbox pending). No ambient trivia.
         {
             let snap = self.status_snapshot();
-            let actionable = snap.rec_live || !snap.ffmpeg_ok || snap.pending_inbox > 0;
+            let actionable =
+                (snap.rec_live || !snap.ffmpeg_ok || snap.pending_inbox > 0) && !self.zen_mode;
             if actionable {
                 egui::TopBottomPanel::bottom("status_strip")
                     .frame(
@@ -7573,11 +7629,32 @@ impl eframe::App for VibecapApp {
                                 .unwrap_or_else(|| self.current_tab.title().into()),
                             _ => self.current_tab.title().into(),
                         };
-                        ui.label(
-                            RichText::new(title)
-                                .font(egui::FontId::new(22.0, theme::font_semibold()))
-                                .color(theme::TEXT()),
-                        );
+                        ui.horizontal(|ui| {
+                            // E31 — breadcrumb root for review stages:
+                            // Esc / back always lands in Library.
+                            let in_review = matches!(
+                                self.current_tab,
+                                AppTab::Clip | AppTab::Still
+                            ) && (self.edit_file.is_some() || self.img_edit_file.is_some());
+                            if in_review {
+                                if ui
+                                    .link(
+                                        RichText::new("Library ›")
+                                            .size(15.0)
+                                            .color(theme::TEXT_DIM()),
+                                    )
+                                    .on_hover_text("Back to Library")
+                                    .clicked()
+                                {
+                                    self.current_tab = AppTab::Library;
+                                }
+                            }
+                            ui.label(
+                                RichText::new(title)
+                                    .font(egui::FontId::new(22.0, theme::font_semibold()))
+                                    .color(theme::TEXT()),
+                            );
+                        });
                         // E41 — subtitle carries live context (unsaved marks,
                         // counts) before the static stage hint.
                         let sub: String = match self.current_tab {

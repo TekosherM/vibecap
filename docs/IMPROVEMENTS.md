@@ -368,7 +368,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 28. **Rail section labels** — CAPTURE / REVIEW / SYSTEM group dividers in expanded mode. ✓ (caps dividers CAPTURE/KEEP/AGENT/APP segment the rail stages)
 29. **Rail drag-reorder** — let users pin favorite stages to top.
 30. **Keyboard rail nav** — Ctrl+1..5 jump to stages; shown in `?` sheet. ✓ (was already shipped)
-31. **Breadcrumb in Review** — `Library › clip_name` so Esc-depth is visible.
+31. **Breadcrumb in Review** — `Library › clip_name` so Esc-depth is visible. ✓ (dim "Library ›" link prefix on Clip/Still headers; click jumps back)
 32. **Back button** — in-header ‹ Back for Review/Clip/Still; Alt+← binding. ✓ (Alt+←/→ shipped; header button open)
 33. **Window-size memory per stage** — Library wants wide; Capture wants narrow. ✓ (session `window_sizes` map: leaving a stage stashes its size, entering restores it via InnerSize when it differs >20px)
 34. **Min window size enforcement** — below 720 px the rail overlaps content; clamp or collapse. ✓ (`with_min_inner_size([760, 560])` shipped earlier)
@@ -376,7 +376,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 36. **Status strip resize drag** — give the bottom bar a 2 px taller hit target.
 37. **Status strip segments clickable** — click "2 recordings" → jump to Library filtered. ✓ (storage→Library, tier→Settings, inbox n→Inbox, ffmpeg-missing→Settings)
 38. **Right-side inspector mode** — optional docked metadata panel in Review screens.
-39. **Zen mode** — hide rail + status strip; palette + hotkeys only.
+39. **Zen mode** — hide rail + status strip; palette + hotkeys only. ✓ (palette ToggleZen; rail+strip gated, entry toast explains Ctrl+K exit)
 40. **Header title dynamic** — show contextual title (recording name in Clip, file name in Still) instead of always stage name. ✓ (Clip/Still headers show the loaded file name)
 41. **Subtitle slot in header** — second line under title for context ("unsaved changes", "recording 00:12"). ✓ (subtitle shows annotation/cut counts when live, else the stage hint)
 42. **Command palette recent verbs** — MRU section above the flat list. ✓
@@ -411,7 +411,7 @@ Numbered 1–300 for this round. Sections sized 25 each.
 68. **Source icons state-colored** — the From segment icons tint to accent when active. ✓ (already shipped — icons paint ACCENT when on, TEXT_MUTED when off)
 69. **Window target shows last pick** — "Window: Chrome — DevTools" persisted on the card. ✓ (`window_app` joins session state; combo + 🎯 Pick persist on change; the target hint reads "Window: <name>" when a pick exists)
 70. **Confirm-before-overwrite** — same-name collision in output dir prompts once per session. ✓ (auto-captures dedupe via `next_seq` so names never collide; Still save/export go through the OS save dialog's own overwrite confirm)
-71. **Multi-shot batch** — hold modifier + click regions repeatedly = rapid sequence of stills.
+71. **Multi-shot batch** — hold modifier + click regions repeatedly = rapid sequence of stills. ✓ (Shift+release crops from the frozen backdrop and keeps the overlay; 📷N chip counts saves; Esc ends)
 72. **Time-lapse mode** — capture frame every N sec into a video (stills → mp4).
 73. **Scheduled capture** — "in 10 min, grab this window" for meetings.
 74. **Clipboard watcher mode** — studio stays parked; a shot auto-opens Still review. ✓ (opt-in Settings switch; 800 ms GetClipboardSequenceNumber poll → arboard get_image → saves PNG + opens Still; own captures excluded by refreshing seq after every set_image; Windows-only)

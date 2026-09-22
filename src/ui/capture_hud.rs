@@ -107,6 +107,8 @@ pub fn show_region_selector(
     dim_alpha: u8,
     picks_done: u32,
     region_history: &mut Vec<Rect>,
+    // E71 — stills already saved this overlay session (Shift-release batch).
+    batch_count: u32,
     // E94 — toolbar docks top or bottom; persisted by the caller.
     toolbar_bottom: &mut bool,
 ) -> RegionHudResult {
@@ -357,7 +359,7 @@ pub fn show_region_selector(
                         paint_hint_pill(
                             &painter,
                             Pos2::new(screen.center().x, screen.min.y + 48.0),
-                            "Drag to select · wheel resizes · arrows nudge · Esc / right-click cancel",
+                            "Drag to select · wheel resizes · arrows nudge · Shift+drag = batch · Esc cancel",
                             18.0,
                         );
                     }
@@ -886,6 +888,19 @@ pub fn show_region_selector(
                                                 };
                                             }
                                         }
+                                    }
+                                    // E71 — batch counter: how many stills
+                                    // this overlay session has saved.
+                                    if batch_count > 0 {
+                                        ui.label(
+                                            RichText::new(format!("📷 {batch_count}"))
+                                                .size(11.0)
+                                                .color(theme::ACCENT())
+                                                .strong(),
+                                        )
+                                        .on_hover_text(
+                                            "Batch stills saved — Shift+drag keeps grabbing",
+                                        );
                                     }
                                     if ui.button("Cancel").clicked() {
                                         result = RegionHudResult::Cancelled;
