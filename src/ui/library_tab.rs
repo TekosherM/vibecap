@@ -384,6 +384,26 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             if ui.button("Export ZIP").clicked() {
                 app.export_selection_zip();
             }
+            // E64 — batch re-export: selected clips → GIFs, serially on
+            // one worker (not N concurrent encoders).
+            let any_clip = app
+                .library_items
+                .iter()
+                .any(|i| {
+                    app.library_selected.contains(&i.path)
+                        && matches!(
+                            i.category,
+                            crate::app::MediaCategory::Video | crate::app::MediaCategory::Gif
+                        )
+                });
+            if any_clip
+                && ui
+                    .button("GIFs")
+                    .on_hover_text("Re-export selected clips as 720p GIFs (uses the GIF fps/width settings)")
+                    .clicked()
+            {
+                app.batch_gif_export();
+            }
             if ui
                 .button(
                     RichText::new(format!("Delete ({selected_count})")).color(theme::DANGER_SOFT()),

@@ -420,7 +420,9 @@ pent!(
     TEXT_DIM,
     Color32::from_rgb(0x6b, 0x72, 0x80),
     Color32::from_rgb(0x6b, 0x6b, 0x72),
-    Color32::from_rgb(0xa1, 0xa1, 0xaa),
+    // E7 — contrast audit caught 0xa1a1aa at 2.3:1 on the light canvas;
+    // zinc-600 clears AA for large text.
+    Color32::from_rgb(0x6b, 0x6b, 0x72),
     Color32::from_rgb(0x8f, 0x89, 0xbc),
     Color32::from_rgb(0xa0, 0x7c, 0xb8)
 );
@@ -1380,6 +1382,38 @@ mod tests {
         assert!(density_scale() > 1.0);
         set_theme_mode(ThemeMode::Carbon);
         assert_eq!(density_scale(), 1.0);
+        set_theme_mode(ThemeMode::Dark);
+    }
+
+    /// Tokens E7 — contrast audit as a guard test: WCAG relative-luminance
+    /// ratios for the text tiers on their usual surfaces, per theme.
+    /// Floors: body ≥4.5 (AA normal), muted ≥4.5, dim ≥3.0 (AA large).
+    #[test]
+    fn text_tiers_clear_contrast_floors() {
+        fn lum(c: Color32) -> f32 {
+            let lin = |v: u8| {
+                let c = v as f32 / 255.0;
+                if c <= 0.03928 {
+                    c / 12.92
+                } else {
+                    ((c + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+        }
+        let ratio = |a: Color32, b: Color32| {
+            let (l1, l2) = (lum(a), lum(b));
+            (l1.max(l2) + 0.05) / (l1.min(l2) + 0.05)
+        };
+        for m in THEME_ORDER {
+            set_theme_mode(m);
+            let body = ratio(TEXT(), CANVAS());
+            let muted = ratio(TEXT_MUTED(), SURFACE());
+            let dim = ratio(TEXT_DIM(), CANVAS());
+            assert!(body >= 7.0, "{m:?} body {body:.2} < 7.0");
+            assert!(muted >= 4.5, "{m:?} muted {muted:.2} < 4.5");
+            assert!(dim >= 3.0, "{m:?} dim {dim:.2} < 3.0");
+        }
         set_theme_mode(ThemeMode::Dark);
     }
 }

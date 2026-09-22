@@ -511,8 +511,25 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
     });
     ui.label(RichText::new("fps").size(11.0).color(theme::TEXT_DIM()));
     ui.add(egui::Slider::new(&mut app.gif_fps, 8..=24).show_value(true));
+    // E58 — frame delay is 1000/fps; show it in the units GIF editors use.
+    ui.label(
+        RichText::new(format!("{} ms/frame", 1000 / app.gif_fps.max(1) as u32))
+            .size(10.5)
+            .color(theme::TEXT_DIM()),
+    );
     ui.label(RichText::new("width").size(11.0).color(theme::TEXT_DIM()));
     ui.add(egui::Slider::new(&mut app.gif_width, 320..=1280).show_value(true));
+    // E58 — end-of-loop hold: clone the last frame for N ms so the loop
+    // breathes instead of snapping back (tpad before the GIF muxer).
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("end hold").size(11.0).color(theme::TEXT_DIM()));
+        ui.add(
+            egui::Slider::new(&mut app.gif_hold_ms, 0..=4000)
+                .suffix(" ms")
+                .fixed_decimals(0),
+        )
+        .on_hover_text("Hold the final frame this long before the loop restarts");
+    });
     ui.checkbox(&mut app.gif_pingpong, "Ping-pong ↺")
         .on_hover_text("Boomerang — plays forward then in reverse (2× duration)");
     ui.add_space(theme::SP_2);
@@ -643,18 +660,30 @@ fn export_groups(ui: &mut egui::Ui, app: &mut VibecapApp, file: &std::path::Path
                     "-i".into(),
                     file_clone.to_str().unwrap().into(),
                     "-vf".into(),
-                    if app.gif_pingpong {
-                        format!(
-                            "fps={},scale={}:-1:flags=lanczos,split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1",
-                            app.gif_fps.clamp(4, 30),
-                            app.gif_width.clamp(160, 1920)
-                        )
-                    } else {
-                        format!(
-                            "fps={},scale={}:-1:flags=lanczos",
-                            app.gif_fps.clamp(4, 30),
-                            app.gif_width.clamp(160, 1920)
-                        )
+                    {
+                        // E58 — `tpad` clones the last frame for the hold
+                        // duration, so the GIF loop tail breathes.
+                        let hold = if app.gif_hold_ms > 0 {
+                            format!(
+                                ",tpad=stop_mode=clone:stop_duration={:.2}",
+                                app.gif_hold_ms as f32 / 1000.0
+                            )
+                        } else {
+                            String::new()
+                        };
+                        if app.gif_pingpong {
+                            format!(
+                                "fps={},scale={}:-1:flags=lanczos,split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1{hold}",
+                                app.gif_fps.clamp(4, 30),
+                                app.gif_width.clamp(160, 1920)
+                            )
+                        } else {
+                            format!(
+                                "fps={},scale={}:-1:flags=lanczos{hold}",
+                                app.gif_fps.clamp(4, 30),
+                                app.gif_width.clamp(160, 1920)
+                            )
+                        }
                     },
                     "-y".into(),
                     gif_out.to_str().unwrap().into(),

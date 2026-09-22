@@ -527,3 +527,16 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
   bumped at the still/record finish funnels; surfaced in About card +
   Library stats line. Nothing is transmitted — no network path exists.
 - Tests: 107 green.
+
+### GIF delay/hold, batch re-export, contrast + stroke audit
+- E58: GIF group gains a ms/frame readout + 0–4 s end-hold slider;
+  tpad=stop_mode=clone holds the last frame so loops breathe. True
+  per-frame delay remains open.
+- E64: "GIFs" batch button in the Library selection bar — one worker
+  encodes selected clips serially at the current fps/width settings,
+  single summary toast.
+- E7: text_tiers_clear_contrast_floors — WCAG ratio guard test per theme
+  (body ≥7, muted ≥4.5, dim ≥3.0); caught Light TEXT_DIM at 2.3:1,
+  darkened to zinc-600.
+- E12: icons.rs detail strokes normalized to base+0.3 named stroke.
+- Tests: 108 green.

@@ -250,13 +250,13 @@ pump) all hold. Numbered 1–100 for this round; `✓` = shipped in this pass.
 55. **Output presets** — CRF, fps, codec (H264/H265/VP9) in Settings. ✓ (CRF Sharp/Balanced/Small chips → -crf 18/23/28 via `CaptureOpts::crf`; fps already in Settings; live codec stays libx264 — export-side codec picker covers H264/VP9/AV1)
 56. **GIF ping-pong loop** toggle. ✓ (was already shipped — "Ping-pong ↺" on the GIF export)
 57. **GIF frame delete** in the filmstrip. ✓ (cut marks on thumbs + "Export without cuts" — per-frame delay editing stays open)
-58. **GIF per-frame delay** editor.
+58. **GIF per-frame delay** editor. ◑ (GIF group shows ms/frame derived from fps + a 0–4 s "end hold" slider that tpads a cloned last frame so loops breathe; true per-frame delay list still open)
 59. **Re-export GIF** from an existing MP4 at new fps/width (no re-record). ✓ (was already shipped — GIF group encodes from the loaded clip)
 60. **WebM / AV1 output** option. ✓ (was already shipped — ENCODE group chips)
 61. **Stream-copy trim** — no re-encode when only cutting ends. ✓ (was already shipped — `-ss/-to -c copy`)
 62. **Clip audio in preview** — today's player is silent. ✓ (was already shipped — preview WAV + winmm loop follows play/pause)
 63. **Frame → still** — grab the current preview frame as a new screenshot. ✓ (was already shipped — transport "Grab frame" → jpg beside the clip)
-64. **Batch re-export** selection from Library.
+64. **Batch re-export** selection from Library. ✓ ("GIFs" in the selection bar → `batch_gif_export`: one worker encodes selected clips serially at the GIF fps/width settings, single summary toast)
 65. **Recording countdown styles** — 3 / 5 / none setting. ✓ (was already shipped — 0/3/5 segmented + own viewport bubble)
 
 ## D · Clipboard & destinations
@@ -341,12 +341,12 @@ Numbered 1–300 for this round. Sections sized 25 each.
 4. **Theme preview in picker shows real chrome** — mini mock of rail + card + CTA inside each swatch, not just an aurora strip.
 5. **Auto theme** — follow Windows light/dark for the Mono pair; celestial modes stay manual. ✓ (was already shipped — theme_follow_os polls AppsUseLightTheme every 3 s; dark maps to theme_dark_pick, light maps to Light)
 6. **Scheduled themes** — Light by day, Dark/Celestial by night (opt-in). ✓ (`theme_schedule` shares the 3 s follow-OS tick; local hour picks Light 07:00–19:00 else the dark pick; wins over follow-OS; dark-pick row shows for either)
-7. **Contrast audit pass** — run a contrast checker over every `TEXT_MUTED`/`TEXT_FAINT` usage; celestial muted on plum is borderline.
+7. **Contrast audit pass** — run a contrast checker over every `TEXT_MUTED`/`TEXT_FAINT` usage; celestial muted on plum is borderline. ✓ (`text_tiers_clear_contrast_floors` computes WCAG luminance ratios per theme — body ≥7, muted ≥4.5, dim ≥3.0; it caught Light TEXT_DIM at 2.3:1, fixed to zinc-600 ≈4.7:1)
 8. **Focus ring token** — real `FOCUS_RING` color per theme, painted on keyboard focus for every interactive widget. ✓ (`FOCUS_RING` pent! token per theme; `paint_button` claims focus on click and strokes the ring on `has_focus`)
 9. **Disabled-state token set** — `*_DISABLED` fill/text pair instead of ad-hoc `.weak()` calls. ✓ (`DISABLED_FILL`/`DISABLED_TEXT` pent! tokens; fill wired into `noninteractive.weak_bg_fill`, text drives the off-state of the capture quick-toggles)
 10. **Hover animation** — egui `ctx.animate` on button fills; 80–120 ms ease like the mockup's `--ease`. ✓ (paint_button blends rest→hover fill via animate_bool on resp.id; snaps instantly under reduce-motion)
 11. **Pressed-state scale** — 0.98 shrink on primary CTAs for tactile feel. ✓ (primary/danger paint rects shrink 1.2px while down)
-12. **Icon stroke-width consistency** — audit `icons.rs` strokes; loupe/camera glyphs draw heavier than nav glyphs.
+12. **Icon stroke-width consistency** — audit `icons.rs` strokes; loupe/camera glyphs draw heavier than nav glyphs. ✓ (audited: one size-proportional base stroke + a named `detail` stroke (+0.3 px) replacing the +0.3/+0.4 ad-hoc offsets)
 13. **Icon sizing token** — `ICON_SM/MD/LG` (14/18/22) instead of scattered pixel sizes. ✓ (tokens added; rail icons, toast icon, capture CTA icon, picker glyphs now consume them)
 14. **Letter-spacing token for caps labels** — `caps_label` hardcodes 1.0; make it a token so Celestial can track wider. ✓ (caps_tracking() — 1.6 on celestial, 1.0 elsewhere; caps_label consumes it)
 15. **Numeric font feature** — tabular figures for REC timer, size columns, budget readouts (Segoe UI `tnum` or a mono face). ◑ (mono face gives stable digit widths on the REC clock + status strip; true `tnum` OpenType features aren't reachable through egui's font pipeline)

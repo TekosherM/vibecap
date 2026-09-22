@@ -600,6 +600,8 @@ pub(crate) struct VibecapApp {
     gif_width: u32,
     /// Boomerang loop — export plays forward then reverse (#135).
     gif_pingpong: bool,
+    /// E58 — end-of-loop hold (ms): clone the last frame via tpad.
+    gif_hold_ms: u32,
     /// Editable clip notes — persisted to `<file>.notes.txt` beside the media.
     clip_notes: String,
     record_markers: Vec<f64>,
@@ -1196,6 +1198,7 @@ impl VibecapApp {
             still_grid: false,
             gif_fps: 15,
             gif_width: 800,
+            gif_hold_ms: 0,
             hotkey_shot_digit: 3,
             hotkey_rec_digit: 2,
             hotkey_shot_digit_prev: 3,
@@ -4468,6 +4471,86 @@ impl VibecapApp {
     /// success toasts only fire after a verified exit status (no fabricated success).
     fn spawn_ffmpeg_job(&mut self, args: Vec<String>, ok_msg: &str) {
         self.spawn_ffmpeg_job_ex(args, ok_msg, None);
+    }
+
+    /// E64 — batch re-export: every selected video/GIF becomes a GIF at the
+    /// clip editor's fps/width settings. One worker runs the jobs serially —
+    /// a 20-pick batch must not spawn 20 concurrent encoders.
+    pub(crate) fn batch_gif_export(&mut self) {
+        let files: Vec<PathBuf> = self
+            .library_items
+            .iter()
+            .filter(|i| {
+                self.library_selected.contains(&i.path)
+                    && matches!(i.category, MediaCategory::Video | MediaCategory::Gif)
+            })
+            .map(|i| i.path.clone())
+            .collect();
+        if files.is_empty() {
+            self.show_toast("Select video or GIF items first");
+            return;
+        }
+        let Some(tx) = self.ffmpeg_tx.clone() else {
+            return;
+        };
+        let fps = self.gif_fps.clamp(4, 30);
+        let w = self.gif_width.clamp(160, 1920).min(720);
+        let n = files.len();
+        self.show_toast(format!("🎞 Exporting {n} GIF(s) in the background…"));
+        std::thread::spawn(move || {
+            let mut ok_n = 0u32;
+            let mut fail = String::new();
+            for f in &files {
+                let stem = f
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "clip".into());
+                let out = f.with_file_name(format!("{stem}_720p.gif"));
+                let args = [
+                    "-y".to_string(),
+                    "-i".to_string(),
+                    f.to_string_lossy().to_string(),
+                    "-vf".to_string(),
+                    format!("fps={fps},scale={w}:-1:flags=lanczos"),
+                    "-loop".to_string(),
+                    "0".to_string(),
+                    out.to_string_lossy().to_string(),
+                ];
+                let good = platform::ffmpeg_command()
+                    .map(|mut c| {
+                        c.args(&args)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::piped())
+                            .output()
+                    })
+                    .map(|r| {
+                        r.map(|o| {
+                            if !o.status.success() {
+                                fail = String::from_utf8_lossy(&o.stderr)
+                                    .lines()
+                                    .last()
+                                    .unwrap_or("ffmpeg error")
+                                    .trim()
+                                    .to_string();
+                            }
+                            o.status.success()
+                        })
+                        .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                if good {
+                    ok_n += 1;
+                }
+            }
+            let failed = n as u32 - ok_n;
+            let msg = if failed == 0 {
+                format!("Batch GIF export — {ok_n}/{n} done")
+            } else {
+                format!("Batch GIF export — {ok_n}/{n} done · {failed} failed ({fail})")
+            };
+            let _ = tx.send((failed == 0, msg));
+        });
     }
 
     /// ffmpeg job with an optional post-run verifier — returns a warning

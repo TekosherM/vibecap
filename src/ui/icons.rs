@@ -41,7 +41,11 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
     let painter = ui.painter();
     let c = rect.center();
     let s = rect.width().min(rect.height()) * 0.5;
+    // Tokens E12 — one size-proportional base stroke; detail strokes are
+    // the base + a fixed 0.3 px, so loupe/camera accents stay consistent
+    // with nav glyphs instead of drifting heavier per icon.
     let stroke = Stroke::new((s * 0.18).clamp(1.2, 2.2), color);
+    let detail = Stroke::new(stroke.width + 0.3, color);
 
     match icon {
         Icon::Shutter | Icon::Camera => {
@@ -175,14 +179,14 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
                     c + Vec2::new(-s * 0.45, 0.05),
                     c + Vec2::new(-0.08, s * 0.4),
                 ],
-                Stroke::new(stroke.width + 0.4, color),
+                detail,
             );
             painter.line_segment(
                 [
                     c + Vec2::new(-0.08, s * 0.4),
                     c + Vec2::new(s * 0.5, -s * 0.4),
                 ],
-                Stroke::new(stroke.width + 0.4, color),
+                detail,
             );
         }
         Icon::Warn => {
@@ -218,7 +222,7 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             painter.circle_filled(c + Vec2::new(0.0, -s * 0.28), s * 0.1, color);
             painter.line_segment(
                 [c + Vec2::new(0.0, -s * 0.05), c + Vec2::new(0.0, s * 0.35)],
-                Stroke::new(stroke.width + 0.3, color),
+                detail,
             );
         }
         Icon::EmptyFilm => {
@@ -273,7 +277,7 @@ pub fn paint_icon(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
                         Pos2::new(cx, cy),
                         Pos2::new(cx, cy - sy * arm),
                     ],
-                    Stroke::new(stroke.width + 0.3, color),
+                    detail,
                 ));
             }
         }
