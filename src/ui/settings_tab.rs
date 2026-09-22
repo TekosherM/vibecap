@@ -858,6 +858,19 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .size(11.0)
                         .color(theme::TEXT_DIM()),
                 );
+                // E26 — icon-only rail (the rail's « toggle writes the same flag).
+                if switch(ui, "Icon-only rail", &mut app.rail_collapsed) {
+                    app.persist_session();
+                }
+                // E23 — no pulses/tweens for motion-sensitive users.
+                if switch(ui, "Reduce motion", &mut app.reduce_motion) {
+                    app.persist_session();
+                }
+                ui.label(
+                    RichText::new("Reduce motion flattens the REC pulse, hover-grow, and HUD flashes.")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM()),
+                );
                 setting_row(ui, "Theme", |ui| {
                     ui.horizontal(|ui| {
                         for mode in theme::THEME_ORDER {

@@ -171,6 +171,12 @@ pub struct SessionState {
     /// E33 — remembered window size per stage (tab key → [w, h]).
     #[serde(default)]
     pub window_sizes: std::collections::HashMap<String, [f32; 2]>,
+    /// E26 — icon-only rail (labels + divider text hidden).
+    #[serde(default)]
+    pub rail_collapsed: bool,
+    /// E23 — flatten pulses/hover-grow for motion-sensitive users.
+    #[serde(default)]
+    pub reduce_motion: bool,
 }
 
 fn default_theme_dark() -> String {
@@ -285,6 +291,8 @@ impl Default for SessionState {
             whats_new_notes: String::new(),
             restore_tab: true,
             window_sizes: std::collections::HashMap::new(),
+            rail_collapsed: false,
+            reduce_motion: false,
         }
     }
 }

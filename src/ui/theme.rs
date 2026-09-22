@@ -258,6 +258,23 @@ pub fn is_celestial() -> bool {
     )
 }
 
+// ── Reduced motion (E23) ────────────────────────────────────────────
+// App sets this once per frame; animation sites consult it. A
+// thread-local keeps `danger_pulse`/`animate_bool` call sites free of
+// app-state plumbing.
+thread_local! {
+    static REDUCE_MOTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+pub fn set_reduce_motion(on: bool) {
+    REDUCE_MOTION.with(|c| c.set(on));
+}
+
+/// E23 — "Reduce motion" setting: pulses flatten, hover-grow snaps.
+pub fn reduce_motion() -> bool {
+    REDUCE_MOTION.with(|c| c.get())
+}
+
 // ── Canvas ──────────────────────────────────────────────────────────
 // Order: carbon / mono-dark / mono-light / celestial / celestial-pink.
 // Carbon = Chromie `dark` (Tailwind slate); Celestial = cosmic indigo;
@@ -329,7 +346,9 @@ pent!(
 
 pent!(
     ACCENT,
-    Color32::from_rgb(0xf9, 0xfa, 0xfb),
+    // E18 — Carbon gets a slate-blue accent so toggles/active states stop
+    // reading as "white on white" on the slate palette.
+    Color32::from_rgb(0x93, 0xc5, 0xfd),
     Color32::from_rgb(0xf4, 0xf4, 0xf5),
     Color32::from_rgb(0x18, 0x18, 0x1b),
     Color32::from_rgb(0xec, 0x4f, 0x8e),
@@ -549,6 +568,8 @@ pub fn rounding_lg() -> Rounding {
 
 /// Pulsing REC indicator color (`t` = sin abs 0..1).
 pub fn danger_pulse(t: f32) -> Color32 {
+    // E23 — reduced motion: hold a mid intensity, no pulse.
+    let t = if reduce_motion() { 0.5 } else { t };
     Color32::from_rgb((180.0 + t.clamp(0.0, 1.0) * 75.0) as u8, 50, 50)
 }
 
@@ -889,6 +910,8 @@ fn build_sky_shapes(rect: egui::Rect) -> Vec<egui::Shape> {
             Color32::from_rgba_unmultiplied(255, 255, 255, 100),
         ),
     ];
+    let cx = rect.center().x;
+    let cy = rect.center().y;
     for &(fx, fy, r, color) in stars {
         // Teal-tinted stars become rose under CelestialPink.
         let color = if pink && (color.r(), color.g(), color.b()) == (38, 214, 192) {
@@ -896,8 +919,12 @@ fn build_sky_shapes(rect: egui::Rect) -> Vec<egui::Shape> {
         } else {
             color
         };
+        // E24 — parallax: stars spread from the canvas center with a
+        // depth factor (bigger = nearer = moves more), so a resize makes
+        // the field drift instead of scaling rigidly.
+        let spread = 1.0 - (r - 0.6).max(0.0) * 0.12;
         out.push(egui::Shape::circle_filled(
-            egui::pos2(rect.left() + fx * w, rect.top() + fy * h),
+            egui::pos2(cx + (fx - 0.5) * w * spread, cy + (fy - 0.5) * h * spread),
             r,
             color,
         ));

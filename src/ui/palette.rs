@@ -200,19 +200,26 @@ pub fn show_palette(
         v
     } else {
         // Fuzzy: label match beats hint match; sort by score.
-        let mut scored: Vec<(i32, (PaletteAction, String, String, u8))> =
-            PaletteAction::all()
-                .iter()
-                .filter_map(|&(a, l, h)| {
-                    let s = fuzzy_score(&q, l)
-                        .map(|s| s + 20)
-                        .or_else(|| fuzzy_score(&q, h))?;
-                    Some((s, (a, l.to_string(), h.to_string(), 0)))
-                })
-                .collect();
+        let mut scored: Vec<(i32, (PaletteAction, String, String, u8))> = PaletteAction::all()
+            .iter()
+            .filter_map(|&(a, l, h)| {
+                let s = fuzzy_score(&q, l)
+                    .map(|s| s + 20)
+                    .or_else(|| fuzzy_score(&q, h))?;
+                Some((s, (a, l.to_string(), h.to_string(), 0)))
+            })
+            .collect();
         for (i, m) in media.iter().enumerate() {
             if let Some(s) = fuzzy_score(&q, &m.name) {
-                scored.push((s + 5, (PaletteAction::OpenMedia(i), m.name.clone(), media_hint(m), 2)));
+                scored.push((
+                    s + 5,
+                    (
+                        PaletteAction::OpenMedia(i),
+                        m.name.clone(),
+                        media_hint(m),
+                        2,
+                    ),
+                ));
             }
         }
         scored.sort_by(|a, b| b.0.cmp(&a.0));

@@ -586,10 +586,20 @@ pub fn show(app: &mut VibecapApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                                             for (path, is_video, tex) in &app.recent_thumbs {
                                                 let grow_id = ui
                                                     .make_persistent_id(("recent_grow", path));
-                                                let grow = ui.ctx().animate_bool(
-                                                    grow_id,
-                                                    hover_prev.as_ref() == Some(path),
-                                                );
+                                                // E23 — reduced motion:
+                                                // size snaps, no tween.
+                                                let grow = if theme::reduce_motion() {
+                                                    if hover_prev.as_ref() == Some(path) {
+                                                        1.0
+                                                    } else {
+                                                        0.0
+                                                    }
+                                                } else {
+                                                    ui.ctx().animate_bool(
+                                                        grow_id,
+                                                        hover_prev.as_ref() == Some(path),
+                                                    )
+                                                };
                                                 let size = egui::Vec2::new(
                                                     120.0 + 60.0 * grow,
                                                     68.0 + 34.0 * grow,

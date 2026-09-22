@@ -285,7 +285,8 @@ pub fn show_region_selector(
                             }
                         };
                         let age = (now - t0) as f32;
-                        if age < 0.3 {
+                        // E23 — reduced motion skips the flash entirely.
+                        if age < 0.3 && !theme::reduce_motion() {
                             let k = 1.0 - age / 0.3;
                             painter.rect_stroke(
                                 rect.expand(3.0 + 9.0 * (1.0 - k)),

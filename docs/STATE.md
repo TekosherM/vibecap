@@ -417,3 +417,23 @@ Commit and push to `master` **before** the turn ends. Chat is not durable. If a 
 - #73: delay >=60 s schedules instead of parking - scheduled_shot_at
   Instant, card countdown + Cancel, fires through trigger_capture with
   scheduled_fire_now bypass.
+
+### Design-system tranche (rail collapse, motion, celestial polish)
+- #18: Carbon ACCENT -> #93c5fd slate-blue (was near-white; ACCENT_INK
+  already dark slate, no ink change needed).
+- #19: section_card paints a 1px white-alpha-14 inner top highlight on
+  celestial themes (glass-card edge light).
+- #21: empty_state glyph sits on a 64px SURFACE_2 disc; celestial gets an
+  accent ring at 25% alpha.
+- #23: reduce_motion session flag -> theme::set_reduce_motion thread-local
+  each update(); danger_pulse flattens, recent-tile hover-grow snaps
+  (no tween), HUD pick-flash skipped. Settings > Appearance switch.
+- #24: starfield stars get per-star depth spread around the canvas center
+  (bigger star = nearer = spreads more) -> resize drifts the field.
+- #26: rail_collapsed session flag; 48px icon-only rail, hairline
+  dividers, labels hidden (tooltips remain), «/» toggle pinned above
+  Settings + a Settings switch writing the same flag.
+- Verified shipped: #20 (toast severity icon+bar), #220 (WINDOWS STATUS
+  card: ffmpeg/audio/tray + mic name + Test screenshot), #221 (wizard's
+  test-capture step is the green card), #235 (clip exports already run on
+  spawn_ffmpeg_job workers with progress + completion drain).

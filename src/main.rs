@@ -969,6 +969,10 @@ pub(crate) struct VibecapApp {
     restore_tab: bool,
     /// E33 — remembered window size per stage.
     window_sizes: std::collections::HashMap<String, [f32; 2]>,
+    /// E26 — icon-only rail.
+    rail_collapsed: bool,
+    /// E23 — flatten pulses/hover-grow.
+    reduce_motion: bool,
     /// Recently-run palette actions (most recent first, max 3).
     palette_mru: Vec<PaletteAction>,
     density: Density,
@@ -1282,6 +1286,8 @@ impl VibecapApp {
             whats_new_notes: String::new(),
             restore_tab: true,
             window_sizes: std::collections::HashMap::new(),
+            rail_collapsed: false,
+            reduce_motion: false,
             density: Density::Comfortable,
             undo_trash: None,
             capture_toast: None,
@@ -1513,6 +1519,8 @@ impl VibecapApp {
             AppTab::Capture
         };
         self.window_sizes = s.window_sizes;
+        self.rail_collapsed = s.rail_collapsed;
+        self.reduce_motion = s.reduce_motion;
         if let Some(p) = s.edit_file {
             let path = PathBuf::from(p);
             if path.exists() {
@@ -1719,6 +1727,8 @@ impl VibecapApp {
             whats_new_notes: self.whats_new_notes.clone(),
             restore_tab: self.restore_tab,
             window_sizes: self.window_sizes.clone(),
+            rail_collapsed: self.rail_collapsed,
+            reduce_motion: self.reduce_motion,
         }
     }
 
@@ -2598,10 +2608,8 @@ impl VibecapApp {
             PaletteAction::OpenMedia(i) => {
                 if let Some(item) = self.library_items.get(i) {
                     let p = item.path.clone();
-                    let is_video = matches!(
-                        item.category,
-                        MediaCategory::Video | MediaCategory::Gif
-                    );
+                    let is_video =
+                        matches!(item.category, MediaCategory::Video | MediaCategory::Gif);
                     let copied = arboard::Clipboard::new()
                         .and_then(|mut b| b.set_text(p.display().to_string()))
                         .is_ok();
@@ -6613,6 +6621,8 @@ impl eframe::App for VibecapApp {
         self.wake_shared
             .region_open
             .store(self.is_selecting_region, Ordering::SeqCst);
+        // E23 — animation sites read the flag without app plumbing.
+        theme::set_reduce_motion(self.reduce_motion);
         // Remember which Review editor was last used (rail Review returns here).
         if matches!(self.current_tab, AppTab::Still | AppTab::Clip) {
             self.last_review_tab = Some(self.current_tab);
@@ -7040,11 +7050,9 @@ impl eframe::App for VibecapApp {
                         );
                         if let Some(snap) = self.region_snap_path.clone() {
                             let seq = app::naming::next_seq(&self.save_dir, "");
-                            let stem =
-                                app::format_capture_stem(&self.name_pattern, None, seq);
+                            let stem = app::format_capture_stem(&self.name_pattern, None, seq);
                             let dest = self.save_dir.join(format!("{stem}.jpg"));
-                            match crop_image_file(&snap, &dest, ScreenRect { x, y, w, h })
-                            {
+                            match crop_image_file(&snap, &dest, ScreenRect { x, y, w, h }) {
                                 Ok(()) => {
                                     self.batch_shot_count += 1;
                                     self.last_capture = Some(LastCapture::Still(dest));
@@ -7616,6 +7624,7 @@ impl eframe::App for VibecapApp {
                         self.feedback_pending_count,
                         rec_live,
                         self.brand_logo.as_ref(),
+                        &mut self.rail_collapsed,
                     ) {
                         self.current_tab = self.tab_for_loop(stage);
                     }
@@ -7721,10 +7730,9 @@ impl eframe::App for VibecapApp {
                         ui.horizontal(|ui| {
                             // E31 — breadcrumb root for review stages:
                             // Esc / back always lands in Library.
-                            let in_review = matches!(
-                                self.current_tab,
-                                AppTab::Clip | AppTab::Still
-                            ) && (self.edit_file.is_some() || self.img_edit_file.is_some());
+                            let in_review =
+                                matches!(self.current_tab, AppTab::Clip | AppTab::Still)
+                                    && (self.edit_file.is_some() || self.img_edit_file.is_some());
                             if in_review {
                                 if ui
                                     .link(

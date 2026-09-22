@@ -211,8 +211,21 @@ pub fn agent_dot_color(label: &str) -> Color32 {
 pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, subtitle: &str) {
     ui.add_space(theme::SP_6);
     ui.vertical_centered(|ui| {
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(48.0), Sense::hover());
-        icons::paint_icon(ui, rect, icon, theme::TEXT_DIM());
+        // E21 — a soft disc (aurora ring on celestial) behind the glyph
+        // turns "no rows" into an intentional empty-state plate.
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(64.0), Sense::hover());
+        let p = ui.painter();
+        p.circle_filled(rect.center(), 31.0, theme::SURFACE_2());
+        if theme::is_celestial() {
+            p.circle_stroke(
+                rect.center(),
+                31.0,
+                Stroke::new(1.0_f32, theme::ACCENT().gamma_multiply(0.25)),
+            );
+        } else {
+            p.circle_stroke(rect.center(), 31.0, Stroke::new(1.0_f32, theme::BORDER()));
+        }
+        icons::paint_icon(ui, rect.shrink(8.0), icon, theme::TEXT_DIM());
         ui.add_space(theme::SP_3);
         ui.label(
             RichText::new(title)
@@ -275,9 +288,14 @@ pub fn loop_rail(
     inbox_badge: usize,
     rec_live: bool,
     logo: Option<&egui::TextureHandle>,
+    collapsed: &mut bool,
 ) -> Option<LoopStage> {
     let mut picked = None;
-    let rail_w = 72.0;
+    // E26 — icon-only collapse: 48px rail, labels/divider text hidden,
+    // tooltips carry the names. `is_collapsed` is a snapshot so the
+    // inner closures don't hold a borrow across the toggle's write.
+    let is_collapsed = *collapsed;
+    let rail_w = if is_collapsed { 48.0 } else { 72.0 };
 
     ui.allocate_ui_with_layout(
         Vec2::new(rail_w, ui.available_height()),
@@ -286,7 +304,8 @@ pub fn loop_rail(
             ui.add_space(theme::SP_3);
             // Brand mark — texture so Windows (and everyone) sees the real logo.
             if let Some(logo) = logo {
-                let (r, _) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::hover());
+                let logo_sz = if is_collapsed { 28.0 } else { 36.0 };
+                let (r, _) = ui.allocate_exact_size(Vec2::splat(logo_sz), Sense::hover());
                 ui.painter_at(r).image(
                     logo.id(),
                     r,
@@ -331,13 +350,17 @@ pub fn loop_rail(
                         ui.vertical_centered(|ui| {
                             let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
                             icons::paint_icon(ui, r, stage.icon(), icon_color);
-                            ui.add_space(2.0);
-                            let label_color = if is_active {
-                                theme::TEXT()
-                            } else {
-                                theme::TEXT_DIM()
-                            };
-                            ui.label(RichText::new(stage.label()).color(label_color).size(10.0));
+                            if !is_collapsed {
+                                ui.add_space(2.0);
+                                let label_color = if is_active {
+                                    theme::TEXT()
+                                } else {
+                                    theme::TEXT_DIM()
+                                };
+                                ui.label(
+                                    RichText::new(stage.label()).color(label_color).size(10.0),
+                                );
+                            }
                             if matches!(stage, LoopStage::Inbox) && inbox_badge > 0 {
                                 ui.label(
                                     RichText::new(format!("{}", inbox_badge.min(99)))
@@ -378,15 +401,21 @@ pub fn loop_rail(
                 resp
             };
 
-            // E28 — group dividers label the rail's two zones.
+            // E28 — group dividers label the rail's two zones; a hairline
+            // stands in when collapsed.
             let divider = |ui: &mut Ui, label: &str| {
                 ui.add_space(theme::SP_1);
-                ui.label(
-                    RichText::new(label)
-                        .size(8.0)
-                        .color(theme::TEXT_DIM())
-                        .strong(),
-                );
+                if is_collapsed {
+                    let (r, _) = ui.allocate_exact_size(Vec2::new(24.0, 1.0), Sense::hover());
+                    ui.painter().rect_filled(r, 0.5, theme::BORDER());
+                } else {
+                    ui.label(
+                        RichText::new(label)
+                            .size(8.0)
+                            .color(theme::TEXT_DIM())
+                            .strong(),
+                    );
+                }
                 ui.add_space(2.0);
             };
             // Funnel: Capture → Review ↓, then the archive legs, Settings pinned
@@ -407,7 +436,7 @@ pub fn loop_rail(
                     picked = Some(stage);
                 }
                 // Flow hint between the first two funnel steps.
-                if i == 0 {
+                if i == 0 && !is_collapsed {
                     ui.label(RichText::new("↓").color(theme::TEXT_DIM()).size(11.0));
                 }
                 ui.add_space(theme::SP_1);
@@ -415,6 +444,21 @@ pub fn loop_rail(
 
             ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
                 ui.add_space(theme::SP_3);
+                // E26 — collapse toggle rides the bottom of the rail.
+                let arrow = if is_collapsed { "»" } else { "«" };
+                let hint = if is_collapsed {
+                    "Expand rail"
+                } else {
+                    "Collapse rail (icons only)"
+                };
+                if ui
+                    .button(RichText::new(arrow).size(12.0).color(theme::TEXT_MUTED()))
+                    .on_hover_text(hint)
+                    .clicked()
+                {
+                    *collapsed = !*collapsed;
+                }
+                ui.add_space(theme::SP_1);
                 divider(ui, "APP");
                 if stage_button(ui, LoopStage::Settings).clicked() {
                     picked = Some(LoopStage::Settings);
@@ -574,12 +618,22 @@ pub fn section_card(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
     } else {
         frame
     };
-    frame.show(ui, |ui| {
+    let inner = frame.show(ui, |ui| {
         ui.set_min_width(ui.available_width());
         theme::caps_label(ui, title);
         ui.add_space(theme::SP_2);
         add(ui);
     });
+    // E19 — celestial inner-glow: a 1px top inner highlight so cards
+    // read as lit glass over the cosmic canvas, not flat slabs.
+    if theme::is_celestial() {
+        let r = inner.response.rect;
+        ui.painter().hline(
+            (r.left() + 10.0)..=(r.right() - 10.0),
+            r.top() + 1.0,
+            Stroke::new(1.0_f32, Color32::from_white_alpha(14)),
+        );
+    }
     ui.add_space(theme::SP_3);
 }
 

@@ -352,18 +352,18 @@ Numbered 1–300 for this round. Sections sized 25 each.
 15. **Numeric font feature** — tabular figures for REC timer, size columns, budget readouts (Segoe UI `tnum` or a mono face).
 16. **Mono face for code/path text** — paths, durations, and `kbd` chips should share one mono family token.
 17. **Theme diff in screenshot tests** — golden-frame capture per theme to catch alpha/token regressions like the premultiplied bug.
-18. **Carbon accent review** — Carbon currently inherits zinc accent; give it a slate-blue tint to match Tailwind slate-400 hover states.
-19. **Celestial card inner-glow** — 1 px top inner highlight (`rgba(255,255,255,.06)`) like Chromie's glass cards.
-20. **Toast severity left-bar** — already colored; add matching icon tint + semantic icon per severity.
-21. **Empty-state art** — one small line-art glyph per empty surface (Library, Inbox, Recents) instead of bare text.
+18. **Carbon accent review** — Carbon currently inherits zinc accent; give it a slate-blue tint to match Tailwind slate-400 hover states. ✓ (ACCENT carbon lane → #93c5fd slate-blue; dark ACCENT_INK already pairs)
+19. **Celestial card inner-glow** — 1 px top inner highlight (`rgba(255,255,255,.06)`) like Chromie's glass cards. ✓ (white-alpha-14 hairline inset on section_card tops when is_celestial)
+20. **Toast severity left-bar** — already colored; add matching icon tint + semantic icon per severity. ✓ (was already shipped — show_toast_card paints severity bar + level.icon() tinted by level.accent())
+21. **Empty-state art** — one small line-art glyph per empty surface (Library, Inbox, Recents) instead of bare text. ✓ (empty_state now sits the glyph on a 64px SURFACE_2 disc, aurora-accent ring on celestial)
 22. **Skeleton loaders** — shimmer rect where thumbs/frames are pending instead of blank tiles.
-23. **Reduced-motion setting** — disable aurora pulse, hover fades, toast slide.
-24. **Starfield parallax** — stars drift 1–2 px on window resize for depth (cheap: offset by rect delta).
+23. **Reduced-motion setting** — disable aurora pulse, hover fades, toast slide. ✓ (`reduce_motion` session flag + Settings switch → theme thread-local; danger_pulse flattens, recent-tile grow snaps, HUD pick-flash skipped)
+24. **Starfield parallax** — stars drift 1–2 px on window resize for depth (cheap: offset by rect delta). ✓ (per-star depth spread around canvas center — resizes drift the field instead of scaling it rigidly)
 25. **Theme export/import** — share a theme as a JSON snippet; community themes later.
 
 ## B · Layout, rail & navigation (26–50)
 
-26. **Collapsible rail** — icon-only 48 px mode; labels on hover tooltip.
+26. **Collapsible rail** — icon-only 48 px mode; labels on hover tooltip. ✓ (rail_collapsed session flag + «/» toggle at rail bottom + Settings switch; 48px icons, hairline dividers, tooltips already present)
 27. **Rail badges** — numeric badge on Inbox (pending count), dot on Library (new items since open). ✓ (Inbox count shipped; Library new-dot open)
 28. **Rail section labels** — CAPTURE / REVIEW / SYSTEM group dividers in expanded mode. ✓ (caps dividers CAPTURE/KEEP/AGENT/APP segment the rail stages)
 29. **Rail drag-reorder** — let users pin favorite stages to top.
@@ -587,8 +587,8 @@ background chip (112), save-as-copy (116), Esc depth (125).
 217. **Share target** — Windows share contract so apps can send Vibecap images.
 218. **Startup-on-login option** — tray-only resident mode. ✓ (was already shipped — run-at-login registers `"<exe>" --hidden`; `--hidden` starts parked in the tray)
 219. **Notification-area copy** — all "menu bar" strings fixed for Windows. ✓ (was already shipped — user-visible strings are cfg-gated ("notification area / system tray" on Windows); remaining hits are code comments)
-220. **Windows permissions card** — mic/loopback device, tray status, gdigrab test.
-221. **First-run health check** — ffmpeg, write-perms, DPI awareness, tray — one green card.
+220. **Windows permissions card** — mic/loopback device, tray status, gdigrab test. ✓ (WINDOWS STATUS card: ✓/✗ for ffmpeg gdigrab/audio/tray, resolved mic name, 'Test screenshot' runs a real grab)
+221. **First-run health check** — ffmpeg, write-perms, DPI awareness, tray — one green card. ✓ (wizard's last step runs a real capture smoke test → '✓ works — N bytes captured'; Settings WINDOWS STATUS card carries ffmpeg/audio/tray ✓/✗)
 222. **Crash-recovery** — unsaved annotations/session state restored on relaunch. ✓ (two halves: `review_draft.json` — debounced 800 ms draft of the Still editor's strokes as a serializable mirror (stickers as base64 PNGs), canvas-rect included so `sync_annotation_canvas` re-projects into the new layout; on launch a draft whose still still exists restores into Review without a tab switch. Plus orphaned-recorder recovery: a dead pid + frag-MP4 on disk → background remux to a clean MP4, state + breadcrumb discarded, result toasts)
 223. **? cheat-sheet kept current** — auto-generate from the binding table, not hand-maintained.
 224. **Keyboard-only walkthrough** — wizard step that teaches S/R/Esc in 30 s.
@@ -605,7 +605,7 @@ background chip (112), save-as-copy (116), Esc depth (125).
 232. **Font load once** — semibold/bold loads measured; cache family lookups.
 233. **Repaint-on-demand** — idle app shouldn't repaint 60 fps; only on input/state change. ✓ (the repaint gate was keyed on `tray.is_some()` → 10 fps forever once the tray existed; now the 100 ms cadence only runs for real in-flight work, retro buffer ticks at 500 ms, live toasts get a 1 s expiry tick, and the pump's slow lane schedules frames for poke markers / watch-folder / OS-theme polls)
 234. **Recording finalize off-thread** — shipped for stop; extend to remux/GIF queue.
-235. **GIF encode queue** — background worker with progress, not a stop-blocking transcode.
+235. **GIF encode queue** — background worker with progress, not a stop-blocking transcode. ✓ (was already shipped — all clip-tab GIF/video exports run through spawn_ffmpeg_job workers with in-flight status + completion drain)
 236. **Startup time budget** — cold launch → interactive <800 ms; measure and track.
 237. **Memory ceiling check** — long sessions with big thumbs shouldn't exceed ~300 MB.
 238. **PowerShell spawn removal** — replace `frontmost_app_name`/`window_rect_on_screen` shell-outs with `windows` crate calls (round-1 #28, still the biggest latency item). ✓ (raw FFI, no new crate: window/monitors/focus were already native; this tranche removed the last capture-path spawns — PS focus fallback (AppActivate is strictly weaker than AttachThreadInput+lock-clear+verify), `tasklist` pid probes → `OpenProcess`+`GetExitCodeProcess`, `taskkill` → `TerminateProcess` (frag-MP4 makes hard kill safe). PS remains only for toast notifications + update-check fallback — off the capture path)
